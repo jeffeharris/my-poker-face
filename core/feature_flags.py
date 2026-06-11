@@ -558,11 +558,14 @@ _STRAT = "poker.strategy"
 register(
     FeatureFlag(
         "TILT_CONDITIONING_ENABLED",
-        Stage.BETA,
-        "Option-C tilt_conditioning layer: state-conditioned aggression spike in re-raise spots (inert until an archetype opts in via DeviationProfile.tilt_conditioning_cap).",
+        # STABLE 2026-06-11: tilt reachability confirmed (EMOTIONAL_SYSTEM_ANALYSIS
+        # measurement update) and the maniac opts in (cap 0.35); promoted prod-on.
+        # Byte-identical for every other archetype (still tilt_conditioning_cap=0.0).
+        Stage.STABLE,
+        "Option-C tilt_conditioning layer: state-conditioned aggression spike in re-raise spots. Active for the maniac (DeviationProfile.tilt_conditioning_cap=0.35); inert for every archetype whose cap stays 0.0.",
         owner=_STRAT,
         dev=True,
-        prod=False,
+        prod=True,
         db_overridable=True,
     )
 )

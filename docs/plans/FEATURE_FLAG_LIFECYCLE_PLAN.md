@@ -121,25 +121,20 @@ Verdict: **safe to keep dev-on; not yet a prod candidate.**
 
 ## Registry — `poker.strategy` (tilt / excursion system)
 
-All five are `db_overridable=True` and brand-new (added this branch; see
-`TILT_EXCURSION_DESIGN.md`). **Upstream blocker:** per
-[`EMOTIONAL_SYSTEM_ANALYSIS.md`](../technical/EMOTIONAL_SYSTEM_ANALYSIS.md)
-(2026-06-09), tilt is *nearly unreachable* — composure is floored at ~0.40 (the
-tilt line) by a baseline clamp + same-hand recovery, which starves every feature
-that gates on `composure < 0.4`. **Promoting any tilt flag to prod before the
-reachability fix lands would ship an effectively-inert feature.**
+All `db_overridable=True` (see `TILT_EXCURSION_DESIGN.md`). **The earlier
+"upstream blocker" was retracted:** the [`EMOTIONAL_SYSTEM_ANALYSIS.md`](../technical/EMOTIONAL_SYSTEM_ANALYSIS.md)
+measurement update shows tilt *is* reachable at calibrated rates (a single bad
+beat tilts 56/104 personas; tilt-time ≈ hothead 17.7% / volatile 5.9% / composed
+1.1% / stoic ~0). The original "nearly unreachable" framing was a harness
+artifact.
 
 | Flag | Stage | Action | Rationale |
 |---|---|---|---|
-| `TILT_CONDITIONING_ENABLED` | BETA | **Hold (blocked)** | `check` flags it as a lingering beta — but the right move is *not* to promote yet. Hold pending the emotional-reachability fix, then promote or retire deliberately. Record the blocker so it doesn't read as neglect. |
-| `TILT_PERSISTENCE_ENABLED` | EXPERIMENTAL | **Hold** | Active R&D; inert when off. Keep experimental. |
-| `TILT_TELEGRAPH_ENABLED` | EXPERIMENTAL | **Hold** | Active R&D (telegraph just merged). Keep experimental. |
+| `TILT_CONDITIONING_ENABLED` | STABLE | ✅ **Promoted prod-on (2026-06-11)** | Reachability confirmed; the maniac opts in (`tilt_conditioning_cap=0.35`) and is the only archetype affected (byte-identical for all others, locked by `test_tilt_conditioning.py`). Caveat: prod tilt-frequency is harness-validated, not yet live-validated. |
+| `TILT_PERSISTENCE_ENABLED` | EXPERIMENTAL | **Hold** | Active R&D; recover() port still needs real-game frequency validation. Keep experimental. |
+| `TILT_TELEGRAPH_ENABLED` | EXPERIMENTAL | **Hold** | Active R&D. Keep experimental. |
 | `TILT_ERRATIC_READS_ENABLED` | EXPERIMENTAL | **Hold** | Active R&D; changes decisions. Keep experimental. |
 | `TILT_SIGNATURE_ENABLED` | EXPERIMENTAL | **Hold** | Active R&D; changes decisions. Keep experimental. |
-
-> These flags are the rare case where the right answer is genuinely "wait":
-> they're correctly gated, but the system they act on needs an upstream fix
-> before validation is even meaningful. The blocker is the work, not the flags.
 
 ---
 

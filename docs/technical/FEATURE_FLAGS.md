@@ -200,7 +200,10 @@ each is in
 **`poker.strategy` (5)** — the tilt/excursion system (see `TILT_EXCURSION_DESIGN.md`),
 all `db_overridable=True`:
 
-- **BETA** (dev on, prod off): `TILT_CONDITIONING_ENABLED`
+- **STABLE** (dev+prod on): `TILT_CONDITIONING_ENABLED` — promoted 2026-06-11
+  after the reachability blocker was retracted (tilt fires at calibrated rates);
+  active for the maniac (`tilt_conditioning_cap=0.35`), byte-identical for every
+  other archetype.
 - **EXPERIMENTAL** (off everywhere): `TILT_PERSISTENCE_ENABLED`,
   `TILT_TELEGRAPH_ENABLED`, `TILT_ERRATIC_READS_ENABLED`, `TILT_SIGNATURE_ENABLED`
 
@@ -228,8 +231,9 @@ helper in `guest_limits.py` was removed and `test_no_adhoc_bool_env_helpers` now
 bans local boolean env-helpers (a variable-name env read evaded the per-flag
 centralization guard — the gap that hid `GUEST_FREE_CHAT_ENABLED`).
 
-Net: **30/44 on in dev, 29/44 on in prod** (dev exceeds prod by the BETA evals;
-the Director thermostat is now on in both).
+Net: **30/44 on in dev, 30/44 on in prod** (the Director thermostat and
+tilt-conditioning are on in both; dev's extra is the 3 BETA economy evals, prod's
+is `CSRF`/`DECISION_ANALYSIS_QUEUE`/`GUEST_LIMITS` which are correctly dev-off).
 
 > The retired `PRESENCE_SHADOW_WRITE_ENABLED` flag (and the obsolete cutover
 > validation scripts) were removed on 2026-06-10 — the off-grid presence mirror
