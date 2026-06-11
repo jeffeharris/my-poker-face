@@ -353,6 +353,13 @@ def _tier_for_frequency(freq: float) -> set:
 OVERBET_DETECT_RATIO = 1.2  # bet / pot-before-the-bet >= this = an overbet (excludes <=pot bets)
 ORACLE_CONTINUE_EQUITY = 0.80  # facing an overbet, fold unless equity-vs-random >= this (near-nuts)
 
+# vs-3bet/reshove preflop continue model (see build_clone_strategy's preflop branch).
+_VS_3BET_OPEN_CEILING_BB = 3.5  # highest_bet beyond this many BB preflop = a re-raise, not an open
+_VS_3BET_DISCIPLINED_AF = (
+    2.0  # AF at/above this = a reg that folds the bottom of its opens to a 3bet
+)
+_VS_3BET_CONTINUE_FRAC = 0.5  # disciplined reg continues ~this share of its raise-first range
+
 
 def build_clone_strategy(profile: CloneProfile, oracle_punish_overbets: bool = False):
     """Return a strategy function that mimics `profile` for use as a rule_bot.
@@ -378,6 +385,19 @@ def build_clone_strategy(profile: CloneProfile, oracle_punish_overbets: bool = F
     """
     vpip_tier = _tier_for_frequency(profile.vpip)
     pfr_tier = _tier_for_frequency(profile.pfr)
+
+    # vs-3bet/reshove continue range. Facing a re-raise well beyond a normal
+    # open, a DISCIPLINED reg (high AF) folds the bottom of its opening range —
+    # continue only with a tight slice (~half the raise-first range) — so it has
+    # fold equity. A station / passive player (low AF) calls a 3-bet about as
+    # wide as it plays at all, so it keeps its full vpip range = no fold equity.
+    # Without this split the clone re-continues its entire open in every reshove
+    # spot and reads as a calling station (the gap that made reshove unprovable
+    # against clones — see docs/plans/PUSH_FOLD_6MAX_SCOPE.md).
+    is_disciplined = profile.aggression_factor >= _VS_3BET_DISCIPLINED_AF
+    vs_3bet_continue_tier = (
+        _tier_for_frequency(profile.pfr * _VS_3BET_CONTINUE_FRAC) if is_disciplined else vpip_tier
+    )
 
     # P(raise | committing to play postflop) = AF / (AF + 1).
     # AF=2 → raise 67% of betting opportunities; AF=0.5 → raise 33%; AF=1 → raise 50%.
@@ -450,7 +470,23 @@ def build_clone_strategy(profile: CloneProfile, oracle_punish_overbets: bool = F
         if phase == 'PRE_FLOP':
             if cost_to_call == 0 and 'check' in valid:
                 return _check()
-            # Open / facing-raise simplification: gate on hand tier only.
+            # Facing a 3-bet / reshove (a re-raise well beyond a standard open):
+            # continue only with the vs-3bet tier and FOLD the rest. For a
+            # disciplined reg that tier is a tight slice of its opens (fold
+            # equity); for a station it's the full vpip range (no fold equity).
+            # Without this the clone re-raises/calls its whole opening range in
+            # every reshove spot and never folds — the calling-station artifact.
+            big_blind = context.get('big_blind', 0) or 0
+            highest_bet = context.get('highest_bet', 0) or 0
+            facing_3bet = big_blind > 0 and highest_bet > _VS_3BET_OPEN_CEILING_BB * big_blind
+            if facing_3bet:
+                if canonical in vs_3bet_continue_tier:
+                    if 'call' in valid:
+                        return _call()
+                    if 'all_in' in valid:  # calling caps at our stack = a call-off
+                        return {'action': 'all_in', 'raise_to': max_raise or 0}
+                return _fold()
+            # Open / facing a single raise: gate on hand tier only.
             if canonical in pfr_tier and 'raise' in valid:
                 return _raise()
             if canonical in vpip_tier and 'call' in valid:

@@ -17,15 +17,27 @@ HEROES = ["TAG"]
 SEEDS = [42, 142, 242]
 HANDS_PER_SEED = 2000
 BB = 100
-# Field: default = the call-happy rule-bot mix; FIELD=competent = openers that
-# fold to reshoves more correctly (isolates whether reshove is -EV by ranges or
-# by lack of fold equity vs stations).
+# Field: default = the call-happy rule-bot mix; FIELD=competent = GTO-Lite/ABCBot;
+# FIELD=punisher = a folding-reg clone field (the reshove UPSIDE control — openers
+# that actually fold to a reshove, so the gate should let reshove fire +EV).
 _FIELD = os.environ.get("FIELD", "rulemix")
 COMPETENT = ["GTO-Lite", "ABCBot", "GTO-Lite", "ABCBot", "GTO-Lite"]
 
 
+def _register_punisher_clone():
+    from poker.human_clone import load_profile_from_file, register_clone_strategy
+
+    profile = load_profile_from_file("experiments/clone_profiles/punisher.json")
+    register_clone_strategy("clone_punisher", profile)
+    sim.ARCHETYPES["Punisher_clone"] = {"kind": "rule_bot", "strategy": "clone_punisher"}
+
+
 def _opponents():
-    return COMPETENT if _FIELD == "competent" else sim.DEFAULT_RULE_OPPONENTS
+    if _FIELD == "competent":
+        return COMPETENT
+    if _FIELD == "punisher":
+        return ["Punisher_clone"] * 5
+    return sim.DEFAULT_RULE_OPPONENTS
 
 
 def _run_arm(hero, depth, reshove_on):
@@ -46,6 +58,8 @@ def _run_arm(hero, depth, reshove_on):
 
 
 def main():
+    if _FIELD == "punisher":
+        _register_punisher_clone()
     print(
         f"RESHOVE bb/100 A/B [{_FIELD}] — {len(SEEDS)}x{HANDS_PER_SEED} hands/arm "
         f"({len(SEEDS) * HANDS_PER_SEED} pooled), vs {_opponents()}"
