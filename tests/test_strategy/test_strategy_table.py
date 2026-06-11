@@ -179,9 +179,7 @@ class TestLegalActionMasking:
         # {call:0.6, fold:0.4} facing a call-off must NOT renormalize to
         # fold:1.0 — call survives (resolves to all_in) so the committed
         # continue intent is preserved.
-        profile = StrategyProfile(
-            action_probabilities={'call': 0.6, 'fold': 0.4}
-        )
+        profile = StrategyProfile(action_probabilities={'call': 0.6, 'fold': 0.4})
         masked = _mask_and_renormalize(profile, ['fold', 'all_in'])
         assert masked is not None
         assert abs(masked.action_probabilities['call'] - 0.6) < 1e-9

@@ -334,10 +334,10 @@ def _reshove_6max_enabled() -> bool:
 # under-bluffs (β < the balanced reference), folds more of hero's MARGINAL continue
 # — the thin calls at the bottom of the range — while leaving value 4-bets and core
 # flats. The base chart stays the GTO/MDF baseline; this is the per-player dial.
-VS3BET_EXPLOIT_DEFAULT = 0.5   # moderate — the field default for every tiered persona
-VS3BET_BLUFF_REF = 0.40        # balanced 3-bet bluff fraction; at/above this → no exploit
-VS3BET_EXPLOIT_SCALE = 0.6     # maps (ref − β)·knob to a per-hand call→fold shift
-VS3BET_VALUE_CLIFF = 0.50      # villain raise_3x ≥ this = value (mirrors build_vs3bet_defense)
+VS3BET_EXPLOIT_DEFAULT = 0.5  # moderate — the field default for every tiered persona
+VS3BET_BLUFF_REF = 0.40  # balanced 3-bet bluff fraction; at/above this → no exploit
+VS3BET_EXPLOIT_SCALE = 0.6  # maps (ref − β)·knob to a per-hand call→fold shift
+VS3BET_VALUE_CLIFF = 0.50  # villain raise_3x ≥ this = value (mirrors build_vs3bet_defense)
 
 
 def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
