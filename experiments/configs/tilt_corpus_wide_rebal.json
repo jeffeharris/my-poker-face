@@ -1,0 +1,61 @@
+{
+  "name": "tilt_corpus_wide_rebal",
+  "description": "EXP_009 Phase-B slice 2: wide cast + EMOTIONAL_REBALANCE on, with a modestly widened shaken corner (PENALTY_SHAKEN_*_THRESHOLD 0.35->0.40) to lift shaken frequency toward the 5-8% target now that conviction actually reaches the corner.",
+  "tags": [
+    "tilt",
+    "psychology",
+    "corpus",
+    "breadth"
+  ],
+  "num_tournaments": 8,
+  "hands_per_tournament": 250,
+  "num_players": 6,
+  "starting_stack": 10000,
+  "big_blind": 100,
+  "capture_prompts": false,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 1,
+  "personalities": [
+    "Fyodor Dostoevsky",
+    "Freddie Fratboy",
+    "Calamity Jane",
+    "Winston Churchill",
+    "Edgar Allan Poe",
+    "Ebenezer Scrooge"
+  ],
+  "player_types": {
+    "Fyodor Dostoevsky": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Freddie Fratboy": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Calamity Jane": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Winston Churchill": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Edgar Allan Poe": {
+      "type": "tiered",
+      "expression": false
+    },
+    "Ebenezer Scrooge": {
+      "type": "tiered",
+      "expression": false
+    }
+  },
+  "control": {
+    "label": "tilt-corpus-wide",
+    "enable_psychology": true
+  },
+  "random_seed": 42,
+  "zone_params": {
+    "PENALTY_SHAKEN_CONF_THRESHOLD": 0.4,
+    "PENALTY_SHAKEN_COMP_THRESHOLD": 0.4
+  }
+}

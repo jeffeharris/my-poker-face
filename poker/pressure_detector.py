@@ -15,6 +15,17 @@ if TYPE_CHECKING:
     from .equity_snapshot import HandEquityHistory
 
 
+def _emotional_rebalance_enabled() -> bool:
+    """Live read of EMOTIONAL_REBALANCE_ENABLED; False if the registry is unavailable
+    (sim/test isolation) so the off-path stays byte-identical (current threshold)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('EMOTIONAL_REBALANCE_ENABLED')
+    except Exception:
+        return False
+
+
 class PressureEventDetector:
     """Detects pressure events based on game outcomes.
 
@@ -309,25 +320,30 @@ class PressureEventDetector:
 
             event = None
 
+            # EMOTIONAL_SYSTEM_BALANCE.md: lower the equity-shock bar under the
+            # rebalance flag so coolers/bad-beats (composure swings) fire more readily;
+            # off-flag uses the class constant (byte-identical).
+            shock_thr = 0.20 if _emotional_rebalance_enabled() else self.EQUITY_SHOCK_THRESHOLD
+
             # bad_beat: lost AND had 80%+ equity at worst swing AND big negative delta
             if (
                 player_lost
                 and worst_swing_prev_equity >= self.BAD_BEAT_EQUITY_MIN
-                and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD
+                and max_negative_wd <= -shock_thr
             ):
                 event = 'bad_beat'
             # cooler: lost AND had 60-80% equity at worst swing AND big negative delta
             elif (
                 player_lost
                 and self.COOLER_EQUITY_MIN <= worst_swing_prev_equity < self.BAD_BEAT_EQUITY_MIN
-                and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD
+                and max_negative_wd <= -shock_thr
             ):
                 event = 'cooler'
             # got_sucked_out: lost AND big negative delta (no equity constraint)
-            elif player_lost and max_negative_wd <= -self.EQUITY_SHOCK_THRESHOLD:
+            elif player_lost and max_negative_wd <= -shock_thr:
                 event = 'got_sucked_out'
             # suckout: won AND big positive delta (they got lucky)
-            elif player_won and max_positive_wd >= self.EQUITY_SHOCK_THRESHOLD:
+            elif player_won and max_positive_wd >= shock_thr:
                 event = 'suckout'
 
             if event:
