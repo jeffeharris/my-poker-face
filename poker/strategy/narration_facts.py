@@ -102,6 +102,16 @@ NARRATION_ALLOWLIST: frozenset = frozenset(
         ('strong_hand_override', 'default'),
         ('bluff_catch_override', 'default'),
         ('value_vs_station', 'default'),
+        # Tilt-conditioning (PERCEPTIBILITY_CONDITIONING.md Phase 2): a tilt
+        # spike is telegraphed (the both-channels decision) so it's readable,
+        # not silent. One entry per Tendler tilt type.
+        ('tilt_conditioning', 'tilt_bad_beat'),
+        ('tilt_conditioning', 'tilt_got_sucked_out'),
+        ('tilt_conditioning', 'tilt_big_loss'),
+        ('tilt_conditioning', 'tilt_losing_streak'),
+        ('tilt_conditioning', 'tilt_nemesis_loss'),
+        ('tilt_conditioning', 'tilt_crippled'),
+        ('tilt_conditioning', 'tilt_bluff_called'),
     }
 )
 
@@ -200,6 +210,37 @@ REASON_CODE_TO_OBSERVATION: Dict[str, Tuple[str, str]] = {
         "Tight-passive defender behind",
         "Wider open should fold them out",
     ),
+    # ── Tilt-conditioning (Phase 2) — intuition-framed, never a stat/number ──
+    # The reason_code IS the rule_id (tilt_<type>); these telegraph the spike's
+    # CAUSE as a feeling the avatar can voice.
+    'tilt_bad_beat': (
+        "Still stinging from that last one",
+        "Not about to back down now",
+    ),
+    'tilt_got_sucked_out': (
+        "Can't believe that river",
+        "Coming back swinging",
+    ),
+    'tilt_big_loss': (
+        "Trying to win it all back at once",
+        "Pressing hard after that hit",
+    ),
+    'tilt_losing_streak': (
+        "Card-dead and fed up",
+        "Done waiting — forcing the issue",
+    ),
+    'tilt_nemesis_loss': (
+        "This one's personal now",
+        "Out for payback against them",
+    ),
+    'tilt_crippled': (
+        "Short and desperate",
+        "Has to make something happen",
+    ),
+    'tilt_bluff_called': (
+        "Rattled after getting caught",
+        "Reading them more carefully now",
+    ),
 }
 
 
@@ -214,6 +255,15 @@ LAYER_RULE_NARRATIVE_WEIGHT: Dict[Tuple[str, str], float] = {
     ('exploitation', 'high_fold_to_cbet'): 0.8,
     ('exploitation', 'multiway_cbet'): 0.6,
     ('value_vs_station', 'default'): 0.7,
+    # Tilt-conditioning: a tilt spike is one of the most player-legible reads
+    # (the believability thesis) — telegraph it prominently.
+    ('tilt_conditioning', 'tilt_bad_beat'): 0.9,
+    ('tilt_conditioning', 'tilt_got_sucked_out'): 0.9,
+    ('tilt_conditioning', 'tilt_big_loss'): 0.85,
+    ('tilt_conditioning', 'tilt_losing_streak'): 0.85,
+    ('tilt_conditioning', 'tilt_nemesis_loss'): 0.95,
+    ('tilt_conditioning', 'tilt_crippled'): 0.8,
+    ('tilt_conditioning', 'tilt_bluff_called'): 0.7,
 }
 
 
@@ -230,6 +280,14 @@ LAYER_RULE_ACTION_INTENT: Dict[Tuple[str, str], str] = {
     ('strong_hand_override', 'default'): 'value_bet',
     ('bluff_catch_override', 'default'): 'bluff_catch',
     ('value_vs_station', 'default'): 'value_bet',
+    # Tilt-conditioning: the spike amplifies aggression (re-raise/jam).
+    ('tilt_conditioning', 'tilt_bad_beat'): 'aggression',
+    ('tilt_conditioning', 'tilt_got_sucked_out'): 'aggression',
+    ('tilt_conditioning', 'tilt_big_loss'): 'aggression',
+    ('tilt_conditioning', 'tilt_losing_streak'): 'aggression',
+    ('tilt_conditioning', 'tilt_nemesis_loss'): 'aggression',
+    ('tilt_conditioning', 'tilt_crippled'): 'aggression',
+    ('tilt_conditioning', 'tilt_bluff_called'): 'bluff_catch',
 }
 
 
@@ -303,6 +361,36 @@ def _fallback_observation(layer: str, rule_id: str) -> Tuple[str, str]:
         ('value_vs_station', 'default'): (
             "Value spot vs a station",
             "They'll call worse",
+        ),
+        # Tilt-conditioning fallbacks (every tilt_<type> rule maps to a curated
+        # observation above; this generic one covers any future tilt type).
+        ('tilt_conditioning', 'tilt_bad_beat'): (
+            "Still rattled from the last hand",
+            "Playing with a chip on the shoulder",
+        ),
+        ('tilt_conditioning', 'tilt_got_sucked_out'): (
+            "Stewing over that suck-out",
+            "Pushing back harder than usual",
+        ),
+        ('tilt_conditioning', 'tilt_big_loss'): (
+            "Chasing a big loss",
+            "Forcing the action to get it back",
+        ),
+        ('tilt_conditioning', 'tilt_losing_streak'): (
+            "Running bad and frustrated",
+            "Done waiting for a hand",
+        ),
+        ('tilt_conditioning', 'tilt_nemesis_loss'): (
+            "Has a score to settle",
+            "Targeting the one who got them",
+        ),
+        ('tilt_conditioning', 'tilt_crippled'): (
+            "Backed into a corner",
+            "Desperate to spin it up",
+        ),
+        ('tilt_conditioning', 'tilt_bluff_called'): (
+            "Caught bluffing, now wary",
+            "Tightening up after the call",
         ),
     }
     return fallbacks.get((layer, rule_id), ('', ''))

@@ -72,6 +72,25 @@ REGEN_ENABLED: bool = _flag("REGEN_ENABLED")
 SIDE_HUSTLE_ENABLED: bool = _flag("SIDE_HUSTLE_ENABLED")
 
 
+# --- Stake conservation guard ---------------------------------------------
+#
+# The stake state machine's settle-time guard (invariant 3 of
+# CASH_MODE_STAKE_STATE_MACHINE.md): before a stake pays its staker out of the
+# borrower's seat, verify the stake's FUNDING actually credited that borrower
+# seat — not the staker's own seat (the wrong-seat mint bug behind the
+# 2026-06-08 prod drift). When a violation is detected at settle:
+#   - True  → raise StakeConservationError. dev / sim / tests fail loud so a
+#             misrouted-funding regression can never ship silently.
+#   - False → logger.error (Sentry) + proceed. Production is alarm-only per the
+#             doc's staged rollout, so legacy / edge violations are observed
+#             without wedging a live player's table-leave.
+# Default False (alarm-only) keeps prod safe; the sim harness + tests flip it
+# on. The funding fixes (aspiration PR #217 + take_stake) already stop NEW
+# violations — this guard is the structural backstop that makes any future
+# origination path funding the wrong seat impossible to mint through unnoticed.
+STAKE_SETTLE_GUARD_ENFORCE: bool = os.environ.get('STAKE_SETTLE_GUARD_ENFORCE', '0').strip() == '1'
+
+
 # --- Vice mode (mutually-exclusive 3-state toggle) ------------------------
 
 # Which vice mechanism (if any) drains rich AIs into the bank pool.
@@ -410,6 +429,36 @@ RENOWN_V2_PERSIST_AI: bool = _flag("RENOWN_V2_PERSIST_AI")
 # before enabling. Own kill switch; default OFF. See
 # docs/plans/RENOWN_V2_AI_WIRING_PLAN.md (Stage B / B4).
 PRESTIGE_SEEKING_ENABLED: bool = _flag("PRESTIGE_SEEKING_ENABLED")
+
+# Career progression — the Act-1 narrative walkthrough + intake (MASTER flag).
+# When on, a brand-new sandbox enters the Circuit intro: the Lucky Stack intake
+# (name + backstory), the pinned Scene-0 tutorial table (Sal + the fish), and the
+# keyring lobby (you only SEE cardrooms you've been vouched into). When OFF, a new
+# player gets today's full lobby instead — `career_active` never flips on, so the
+# keyring filter, intake prompt, and Scene-0 seed all stay inert (one gate, at the
+# lobby's seed decision, covers all three). Default OFF so the whole narrative
+# ships dark to prod and flips on when ready. The emergent-vouch sub-feature has
+# its own flag below (CAREER_VOUCH_ENABLED) and only matters once a sandbox is in
+# career mode. See docs/plans/CASH_MODE_CAREER_PROGRESSION.md.
+CAREER_PROGRESSION_ENABLED: bool = _flag("CAREER_PROGRESSION_ENABLED")
+
+# Career M2 — emergent vouches. When on, the world ticker evaluates the player's
+# inbound regard edges and fires at most one `vouch_ready` AI per sandbox per tick
+# to reveal that AI's room (slow growth). Default OFF so it ships dark and flips on
+# after a live playtest; only engages for a career sandbox (career_active +
+# tutorial_complete) — so CAREER_PROGRESSION_ENABLED is the master gate for it.
+# See docs/plans/CASH_MODE_CAREER_M2_PLAN.md.
+CAREER_VOUCH_ENABLED: bool = _flag("CAREER_VOUCH_ENABLED")
+
+# Intake world warm-up. When on, completing the Lucky Stack intake fires a short
+# deterministic, no-LLM sim burst across the player's HIDDEN lobby tables (a
+# background task), so the world has accumulated history — AI↔AI relationships,
+# economy movement, table redistribution — by the time they graduate Scene 0
+# (instead of a from-zero cold start). One-shot per sandbox (`world_warmed`).
+# Inert unless CAREER_PROGRESSION_ENABLED (no intake → no trigger), so it's safe
+# ON by default; flip OFF to kill the burst. See flask_app/services/world_warmup.py
+# and docs/plans/CASH_MODE_INTAKE_WORLD_WARMUP.md.
+INTAKE_WORLD_WARMUP_ENABLED: bool = _flag("INTAKE_WORLD_WARMUP_ENABLED")
 
 # Table affinity — success-weighted room stickiness. When on, an idle AI's
 # table-selection score gains `W_AFFINITY * stake_fit * tanh(net_chips / buyins)`

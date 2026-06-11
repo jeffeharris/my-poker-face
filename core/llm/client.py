@@ -427,6 +427,7 @@ class LLMClient:
 
             url = self._provider.extract_image_url(raw_response)
             request_id = self._provider.extract_request_id(raw_response)
+            reported_cost = self._provider.extract_image_cost(raw_response)
 
             response = ImageResponse(
                 url=url,
@@ -437,6 +438,7 @@ class LLMClient:
                 latency_ms=latency_ms,
                 status="ok" if url else "error",
                 request_id=request_id,
+                cost=reported_cost,
                 raw_response=raw_response,
             )
 

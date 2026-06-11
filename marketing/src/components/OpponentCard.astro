@@ -1,0 +1,108 @@
+---
+export interface Props {
+  slug: string;
+  name: string;
+  blurb: string;
+  skill: string;
+  avatar?: string | null;
+}
+const { slug, name, blurb, skill, avatar } = Astro.props;
+const initials = name
+  .split(/\s+/)
+  .slice(0, 2)
+  .map((w) => w[0])
+  .join('')
+  .toUpperCase();
+---
+
+<a class="ocard" href={`/opponents/${slug}/`}>
+  <div class="ocard__avatar">
+    {
+      avatar ? (
+        <img src={avatar} alt={`${name} — AI poker opponent`} width="72" height="72" loading="lazy" />
+      ) : (
+        <span class="ocard__mono" aria-hidden="true">{initials}</span>
+      )
+    }
+  </div>
+  <div class="ocard__body">
+    <div class="ocard__head">
+      <h3 class="ocard__name">{name}</h3>
+      <span class="ocard__skill">{skill}</span>
+    </div>
+    <p class="ocard__blurb">{blurb}</p>
+  </div>
+</a>
+
+<style>
+  .ocard {
+    display: flex;
+    gap: 16px;
+    padding: 18px;
+    border: 1px solid var(--hair-soft);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0));
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+  }
+  .ocard:hover {
+    border-color: var(--hair);
+    transform: translateY(-2px);
+    background: linear-gradient(180deg, rgba(212, 165, 116, 0.06), rgba(255, 255, 255, 0));
+  }
+  .ocard__avatar {
+    flex: 0 0 auto;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(circle at 50% 30%, var(--felt), var(--felt-deep));
+    border: 1px solid var(--hair);
+  }
+  .ocard__avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .ocard__mono {
+    font-family: var(--font-serif);
+    font-size: 26px;
+    color: var(--gold-bright);
+  }
+  .ocard__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .ocard__name {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 20px;
+    margin: 0;
+  }
+  .ocard__skill {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--gold);
+    border: 1px solid var(--hair);
+    border-radius: 999px;
+    padding: 3px 9px;
+    white-space: nowrap;
+  }
+  .ocard__blurb {
+    margin: 7px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-dim);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>

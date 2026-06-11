@@ -225,6 +225,25 @@ class CashSessionRepository(BaseRepository):
             ).fetchall()
             return [_row_to_session(r) for r in rows]
 
+    def sum_hands_for_owner(self, owner_id: str, *, sandbox_id: Optional[str] = None) -> int:
+        """Total cash hands the owner has played, summed across finalised
+        sessions (the `hands_played` finalise field). Cheap aggregate read.
+
+        Used as the play-based clock for the Career-M2 vouch trickle — the
+        cooldown spaces vouches by hands played. NB: a live, not-yet-finalised
+        session's hands aren't counted until leave, so this advances at session
+        boundaries (a coarse-but-fine cadence for a slow trickle). Sandbox-scoped
+        when `sandbox_id` is given, else cross-sandbox.
+        """
+        sql = "SELECT COALESCE(SUM(hands_played), 0) FROM cash_sessions WHERE owner_id = ?"
+        params: list = [owner_id]
+        if sandbox_id is not None:
+            sql += " AND sandbox_id = ?"
+            params.append(sandbox_id)
+        with self._get_connection() as conn:
+            row = conn.execute(sql, params).fetchone()
+            return int(row[0] or 0)
+
     def list_completed_for_sandbox(
         self,
         owner_id: str,

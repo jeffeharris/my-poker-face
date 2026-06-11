@@ -1,0 +1,274 @@
+/* The Lucky Stack intake — a 50s-diner cold open. Portaled to body. */
+
+.lucky__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  overflow-y: auto;
+  background: radial-gradient(120% 120% at 50% 0%, #21130c 0%, #0c0805 70%);
+}
+
+.lucky__card {
+  position: relative;
+  z-index: 1;
+  width: min(460px, 100%);
+  background: #17120e;
+  border: 1px solid #4a3522;
+  border-radius: 14px;
+  padding: 1.5rem 1.4rem 1.6rem;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.6);
+  color: #efe6da;
+  text-align: center;
+}
+
+/* A centered portrait block between the sign and her speech — clean vertical
+   stack. Bottom mask fades her cutout's hard crop into the card. */
+.lucky__waitress-img {
+  display: block;
+  width: 200px;
+  height: auto;
+  margin: 0.5rem auto 0.7rem;
+  object-fit: contain;
+  object-position: bottom center;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.45));
+  -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+  animation: lucky-floater-in 0.45s cubic-bezier(0.18, 0.9, 0.32, 1.2);
+}
+
+@keyframes lucky-floater-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The waitress's speech bubble — print-style beats (filler fades, speech types).
+   Full width, below her portrait. */
+.lucky__speech {
+  position: relative;
+  z-index: 2;
+  text-align: left;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: #d9ccbb;
+  background: #100c09;
+  border: 1px solid #3c2c1c;
+  border-radius: 10px;
+  padding: 0.7rem 0.85rem;
+  margin: 0 0 1.1rem;
+  min-height: 4.4rem;
+}
+.lucky__speech--welcome {
+  margin-top: 1rem;
+}
+.lucky__speech .beat {
+  margin-bottom: 4px;
+}
+.lucky__speech .beat:last-child {
+  margin-bottom: 0;
+}
+.lucky__speech .beat.action {
+  color: #a9967f;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.4s ease-out,
+    transform 0.4s ease-out;
+}
+.lucky__speech .beat.action.visible {
+  opacity: 1;
+  transform: none;
+}
+.lucky__speech .beat.action em {
+  font-style: italic;
+}
+.lucky__speech .beat.speech {
+  color: #ecdfca;
+}
+.lucky__speech .typing-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: #e9b06a;
+  font-weight: 300;
+  animation: lucky-blink 0.8s infinite;
+}
+@keyframes lucky-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.lucky__sign {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffd98a;
+  text-shadow: 0 0 14px rgba(255, 180, 90, 0.45);
+}
+.lucky__sub {
+  font-size: 0.7rem;
+  letter-spacing: 0.3em;
+  color: #b07a45;
+  margin-bottom: 1.1rem;
+}
+
+/* The waitress's spoken question above the reply choices — her voice, not a
+   form label (so it doesn't read as an awkward uppercase field heading). */
+.lucky__prompt {
+  text-align: left;
+  font-size: 0.92rem;
+  font-style: italic;
+  line-height: 1.4;
+  color: #d9ccbb;
+  margin: 0.2rem 0 0.55rem;
+}
+
+.lucky__label {
+  display: block;
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9a7e5e;
+  margin: 0 0 0.3rem;
+}
+.lucky__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 0.7rem;
+  margin-bottom: 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #4a3522;
+  background: #0f0b08;
+  color: #f4ece0;
+  font-size: 0.95rem;
+}
+.lucky__input:focus {
+  outline: none;
+  border-color: #c79552;
+}
+
+.lucky__deals {
+  /* Stacked full-width reply chips (quick-chat style) — each holds a sentence. */
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+  margin: 0.1rem 0 0.5rem;
+}
+
+.lucky__avatar {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 0.6rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  background: #0f2018;
+  border: 2px dashed #3c5a48;
+}
+
+.lucky__bio {
+  font-size: 0.95rem;
+  font-style: italic;
+  color: #d9ccbb;
+  margin: 0 0 1rem;
+}
+.lucky__deal {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid #4a3522;
+  background: #0f0b08;
+  color: #d4c5b1;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.12s,
+    background 0.12s,
+    color 0.12s;
+}
+.lucky__deal:hover {
+  border-color: #8a6334;
+}
+.lucky__deal.is-selected {
+  border-color: #e9b06a;
+  background: #2a1d10;
+  color: #ffe6bf;
+}
+.lucky__deal-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #e9b06a;
+}
+.lucky__deal.is-selected .lucky__deal-title {
+  color: #ffe6bf;
+}
+.lucky__deal-reply {
+  font-size: 0.9rem;
+  font-style: italic;
+  line-height: 1.3;
+}
+
+.lucky__btn {
+  width: 100%;
+  margin-top: 0.3rem;
+  padding: 0.75rem 1rem;
+  border-radius: 9px;
+  border: none;
+  background: #c0832f;
+  color: #1a120a;
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.lucky__btn:hover:not(:disabled) {
+  background: #d6953a;
+}
+.lucky__btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.lucky__reveal {
+  animation: lucky-fade 0.4s ease;
+}
+.lucky__fishname {
+  font-family: 'Georgia', serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #ffd98a;
+  margin: 0.4rem 0 1rem;
+}
+@keyframes lucky-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

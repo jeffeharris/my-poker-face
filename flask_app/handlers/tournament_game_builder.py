@@ -247,6 +247,15 @@ def build_tournament_game(
     # nemesis remembers you busted them. Synthetic `P##` fields skip registration
     # (gated on `real_persona_ids`) so a non-persona field writes no junk rows.
     sandbox_id = resolve_default_sandbox_for(owner_id, sandbox_repo=extensions.sandbox_repo)
+    # Decoupled (exhibition) tournament: the single master lever. Nulling the
+    # local sandbox_id no-ops EVERY durable persona write at once — the
+    # relationship-repo wiring below, the opponent-observation lifetime fold
+    # (`_fold_observations` keys on memory_manager.sandbox_id), the T3-77 psychology
+    # hydration (carry-in) AND the completion flush-back — because each is already
+    # gated on a truthy sandbox_id. So an exhibition leaves no trace on the
+    # persistent world; the field still plays as real personas, but at baseline.
+    if getattr(session, 'decoupled', False):
+        sandbox_id = None
     if extensions.relationship_repo is not None and sandbox_id:
         memory_manager.set_relationship_repo(
             extensions.relationship_repo, cash_mode=False, sandbox_id=sandbox_id
@@ -302,6 +311,9 @@ def build_tournament_game(
         state_machine.game_state, hand_number=1, deck_seed=state_machine.current_hand_seed
     )
 
+    # A decoupled exhibition never reports as a persona field (no mood flush-back).
+    persona_field_flag = False if getattr(session, 'decoupled', False) else is_persona_field
+
     game_data = {
         "state_machine": state_machine,
         "ai_controllers": ai_controllers,
@@ -334,8 +346,10 @@ def build_tournament_game(
         # `tournament_tracker` (the multi-table session owns eliminations) and no
         # `cash_mode`, so handle_eliminations / check_tournament_complete /
         # the cash block all early-return for this game.
+        # The MTT vs single-table boundary split is read off `session.is_multi_table`
+        # (a multi-table session built here), not a game_data flag — so it survives
+        # cold-load and can't desync.
         "tournament_session": session,
-        "tournament_multi_table": True,  # use the MTT boundary, not the single-table one
         "tournament_id": tournament_id,
         "tournament_table_id": session.human_table.table_id,
         "tournament_human_id": session.human_id,
@@ -343,7 +357,12 @@ def build_tournament_game(
         # these after a table balance adds seats, and `_make` (the reconcile
         # controller factory) updates them in place so balanced-in personas get
         # the same flavored build + cold-load contract.
-        "tournament_is_persona_field": is_persona_field,
+        # Belt-and-suspenders for a decoupled exhibition: the completion flush-back
+        # (finalize_tournament) gates on `tournament_is_persona_field` +
+        # `tournament_sandbox_id`, so force both off/None so no evolved mood is
+        # written back even if some future path re-derives a sandbox. (The
+        # nulled-sandbox lever above already makes hydration/folds no-ops.)
+        "tournament_is_persona_field": persona_field_flag,
         "tournament_bot_types": bot_types,
         "tournament_player_llm_configs": player_llm_configs,
         # T3-77 — the cash sandbox this cash-world tournament belongs to, so

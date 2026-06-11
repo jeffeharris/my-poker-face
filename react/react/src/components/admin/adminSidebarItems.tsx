@@ -13,6 +13,8 @@ import {
   Radar,
   Grid3x3,
   GraduationCap,
+  Target,
+  DollarSign,
 } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
@@ -96,9 +98,21 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     description: 'VPIP starting-hand ranges by player, archetype, and bot',
   },
   {
+    id: 'archetype-review',
+    label: 'Archetype Review',
+    icon: <Target size={24} />,
+    description: 'Actual vs target behavioral stats per archetype — tune AI reads',
+  },
+  {
     id: 'coach-metrics',
     label: 'Coach Metrics',
     icon: <GraduationCap size={24} />,
     description: 'Does the live coach help? Leak-nudge follow-through',
+  },
+  {
+    id: 'cost-analytics',
+    label: 'Cost Analytics',
+    icon: <DollarSign size={24} />,
+    description: 'LLM + image-gen spend by owner, call type, and model',
   },
 ];

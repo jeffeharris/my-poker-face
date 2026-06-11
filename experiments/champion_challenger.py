@@ -121,7 +121,37 @@ _WIDER_RFI_PREFLOP_PATH = os.path.abspath(
 )
 
 
+# The pristine pre-rebalance authored postflop chart (snapshot taken before the
+# afq-wtsd-tuning rebalance). Champion loads it directly; challenger uses the live
+# (rebalanced) postflop_strategies.json. Absolute path for the same
+# ProcessPool-worker reason as _WIDER_RFI_PREFLOP_PATH.
+_AUTHORED_POSTFLOP_PATH = os.path.abspath(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        os.pardir,
+        'poker',
+        'strategy',
+        'data',
+        'postflop_strategies.authored.json',
+    )
+)
+
+
 CHANGES: Dict[str, ChangeSpec] = {
+    # ── Chart flavor: the afq-wtsd-tuning postflop rebalance. Challenger = the
+    # live rebalanced chart (more c-betting on unopened + tighter facing-bet
+    # calls); champion = the pristine pre-rebalance authored chart. SAME deviation
+    # profiles on BOTH arms, so this isolates the CHART rebalance's win-rate effect
+    # (the highest-risk piece: folding more facing bets). The profile changes
+    # (sticky broadening, nit auto_cbet) are not A/B'd here. Gate: challenger net
+    # bb/100 >= ~0 within CI ⇒ the tighter/more-aggressive chart costs no chips
+    # head-to-head vs the old passive chart. ──
+    'postflop_rebalance': ChangeSpec(
+        description='rebalanced postflop chart (more c-bet + calling discipline) '
+        'vs the pristine authored chart (chart flavor; same profiles both arms)',
+        champion_table=lambda: load_strategy_table(postflop_path=_AUTHORED_POSTFLOP_PATH),
+        challenger_table=load_strategy_table,
+    ),
     # ── Flag flavor: the only genuinely flag-gated shipped change ──
     'multistreet': ChangeSpec(
         description='enable_multistreet_context = H1 barrel-continuation + H2 '
@@ -256,6 +286,22 @@ CHANGES: Dict[str, ChangeSpec] = {
         challenger_table=load_strategy_table,
         champion_flags={'enable_overbet_context': True, 'adaptive_overbet': False},
         challenger_flags={'enable_overbet_context': True, 'adaptive_overbet': True},
+    ),
+    # ── tag's defend_3bet spot tendency: challenger ON vs champion OFF (disabled
+    # via the spot-tendency ablation seam). Measures the bb/100 of de-polarizing
+    # tag's facing-3-bet response (fold→call + a slice of 4-bet→call) — the fix
+    # for tag over-folding to 3-bets (fold_to_3bet 68→50). Over-folding to 3-bets
+    # is exploitable, so vs a 3-betting field this should read ≥0; a clear
+    # negative would mean the de-polarization flats too much trash. Use
+    # --archetype TAG (the tendency only lives on tag); the default Baseline
+    # backdrop 3-bets ~15%, enough to exercise it. ──
+    'tag_defend': ChangeSpec(
+        description="tag defend_3bet ON (challenger) vs OFF (champion, disabled) — "
+        "does de-polarizing tag's vs_3bet response add bb/100 vs a 3-betting field?",
+        champion_table=load_strategy_table,
+        challenger_table=load_strategy_table,
+        champion_flags={'disable_rules': frozenset({('spot_tendencies', 'defend_3bet')})},
+        challenger_flags={'disable_rules': frozenset()},
     ),
     # ── Calibration changes (EVAL_HARNESS_PLAN §P3/§P4): not real product
     # changes — they validate the *gate itself*. `null` proves the harness is

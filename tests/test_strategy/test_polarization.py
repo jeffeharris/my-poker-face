@@ -242,6 +242,52 @@ class TestHyperPassiveGate:
         assert raise_l1 <= budget + 1e-6
 
 
+class TestHyperPassiveDefendSpotGuard:
+    """#4: the value-extraction raise-push must NOT fire in a preflop DEFEND
+    spot (don't 3-bet a passive opener — a station just flats it). The
+    polarization-gated fold-reduction half is unaffected."""
+
+    def _defend_context(self) -> DecisionContext:
+        # Preflop, facing an open raise (price to call > 0) → a 3-bet-defend spot.
+        return DecisionContext(is_preflop=True, bet_size_pot_ratio=2.5)
+
+    def _open_context(self) -> DecisionContext:
+        # Preflop, first in (no bet to face) → an open/iso spot.
+        return DecisionContext(is_preflop=True, bet_size_pot_ratio=0.0)
+
+    def test_defend_spot_suppresses_value_raise(self):
+        offsets = compute_exploitation_offsets(
+            _noisy_station_stats(),
+            adaptation_bias=0.85,
+            decision_context=self._defend_context(),
+            available_actions=['fold', 'call', 'raise_67'],
+        )
+        # Guard: no 3-bet push vs a station in a defend spot...
+        assert offsets.get('raise_67', 0.0) == 0.0
+        # ...but the fold-reduction half still fires (flat wider, just don't 3-bet).
+        assert offsets.get('fold', 0.0) < 0
+
+    def test_open_spot_still_pushes_value_raise(self):
+        # Opening / isolating a station still extracts value via raises.
+        offsets = compute_exploitation_offsets(
+            _noisy_station_stats(),
+            adaptation_bias=0.85,
+            decision_context=self._open_context(),
+            available_actions=['fold', 'call', 'raise_67'],
+        )
+        assert offsets.get('raise_67', 0.0) > 0
+
+    def test_defend_spot_trace_flag(self):
+        _offsets, traces = compute_exploitation_offsets_with_traces(
+            _noisy_station_stats(),
+            adaptation_bias=0.85,
+            decision_context=self._defend_context(),
+            available_actions=['fold', 'call', 'raise_67'],
+        )
+        hp = next(t for t in traces if t.layer == 'exploitation' and t.rule_id == 'hyper_passive')
+        assert hp.inputs['is_preflop_defend_spot'] is True
+
+
 class TestAggregateFromSpotsEquityWeighting:
     """`aggregate_from_spots` stake-weights the equity-at-action means
     and MIN-aggregates the per-bucket sample counters."""

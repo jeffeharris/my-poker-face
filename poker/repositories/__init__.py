@@ -9,6 +9,7 @@ import os
 from .bankroll_repository import BankrollRepository
 from .base_repository import BaseRepository
 from .capture_label_repository import CaptureLabelRepository
+from .career_progress_repository import CareerProgress, CareerProgressRepository
 from .cash_scalps_repository import CashScalpsRepository
 from .cash_session_repository import CashSessionRepository
 from .cash_table_repository import CashTableRepository
@@ -90,6 +91,7 @@ def create_repos(db_path: str) -> dict:
         'user_avatar_repo': UserAvatarRepository(db_path),
         'holdings_snapshots_repo': HoldingsSnapshotsRepository(db_path),
         'prestige_snapshots_repo': PrestigeSnapshotsRepository(db_path),
+        'career_progress_repo': CareerProgressRepository(db_path),
         'cash_scalps_repo': CashScalpsRepository(db_path),
         'renown_field_repo': RenownFieldRepository(db_path),
         'entity_presence_repo': EntityPresenceRepository(db_path),
@@ -101,6 +103,8 @@ __all__ = [
     'BankrollRepository',
     'BaseRepository',
     'CaptureLabelRepository',
+    'CareerProgress',
+    'CareerProgressRepository',
     'CashSessionRepository',
     'CashTableRepository',
     'ChipLedgerRepository',

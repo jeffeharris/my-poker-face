@@ -540,7 +540,11 @@ def _narrate_and_emit(kind: str, starts: list, sandbox_id: Optional[str]) -> Non
 def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     """Run one world-advancing refresh for a sandbox + push the deltas."""
     from cash_mode import economy_flags
-    from cash_mode.activity import recent_events, serialize_event
+    from cash_mode.activity import (
+        filter_events_for_player,
+        recent_events,
+        serialize_event,
+    )
     from cash_mode.lobby import refresh_unseated_tables
     from flask_app import extensions
     from flask_app.handlers.game_handler import live_cash_seated_pids
@@ -614,6 +618,9 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
     # event-emit block below so a quadrant-shift beat it records into the
     # activity buffer rides out on this same tick.
     _maybe_recompute_prestige(owner_id, sandbox_id)
+    # Career M2: fire an emergent vouch if a played-with AI now likes+respects the
+    # player enough. Before the emit block so the EVENT_VOUCH rides out this tick.
+    _maybe_fire_vouches(owner_id, sandbox_id)
 
     # Circuit Main Event hook (flag-gated, default OFF): offer/expire invites on
     # the tick and advance the owner's autonomous tournament one step, recording
@@ -631,12 +638,174 @@ def _tick_sandbox(socketio, owner_id: str, sandbox_id: str) -> None:
         if e.created_at > prev_marker
     ]
     if fresh:
+        # Advance the marker over ALL fresh events (visible or not) so
+        # awareness-hidden events don't re-qualify as fresh every tick.
         _last_marker[owner_id] = fresh[0].created_at
-        for event in reversed(fresh):
+        # Awareness-gate for a Circuit player: only push beats from rooms on
+        # their keyring (+ roomless/global beats). Full feed for non-career
+        # sandboxes. Best-effort — a progress-load hiccup falls back to all.
+        visible = fresh
+        repo = getattr(extensions, "career_progress_repo", None)
+        if repo is not None:
+            try:
+                progress = repo.load(sandbox_id, owner_id)
+                visible = filter_events_for_player(
+                    fresh,
+                    career_active=progress.career_active,
+                    revealed_table_ids=progress.revealed_table_ids,
+                )
+            except Exception:
+                visible = fresh
+        for event in reversed(visible):
             socketio.emit("world_event", serialize_event(event), to=room)
 
     # Lightweight nudge so a mounted lobby refetches the snapshot.
     socketio.emit("lobby_tick", {"sandbox_id": sandbox_id, "ts": time.time()}, to=room)
+
+
+def _resolve_ai_home_table(table_repo, rel_repo, personality_repo, sandbox_id: str, ai_id: str):
+    """`ai_id`'s home table — the lobby room where it has played the MOST hands
+    (>= the home-table floor) — as (table_id, stake_label, table_name,
+    ai_display_name), or None if it has no established home among the live rooms.
+
+    Career M2: a vouch reveals the AI's home court (where it actually grinds),
+    not wherever it happens to sit this tick. Eligible rooms = the sandbox's
+    current `table_type == 'lobby'` tables, so casino/scripted are never vouched
+    and a counted room that has since closed is skipped. No fallback to the
+    current seat — an AI with no established home simply doesn't vouch this tick.
+    """
+    lobby_tables = [
+        t
+        for t in table_repo.list_all_tables(sandbox_id=sandbox_id)
+        if getattr(t, "table_type", "lobby") == "lobby"
+    ]
+    if not lobby_tables:
+        return None
+    by_id = {t.table_id: t for t in lobby_tables}
+
+    home_table_id = rel_repo.resolve_home_table(
+        ai_id,
+        sandbox_id=sandbox_id,
+        eligible_table_ids=frozenset(by_id),
+    )
+    if home_table_id is None:
+        return None
+    table = by_id[home_table_id]
+
+    # Display name: seat dicts carry no name, and the AI may not even be seated
+    # at its home table this tick — resolve via the personality repo, falling
+    # back to the raw id.
+    ai_name = ai_id
+    if personality_repo is not None:
+        try:
+            ai_name = personality_repo.display_names_by_ids([ai_id]).get(ai_id) or ai_id
+        except Exception:
+            pass
+
+    table_name = table.name or table.stake_label
+    return table.table_id, table.stake_label, table_name, ai_name
+
+
+def _maybe_fire_vouches(owner_id: str, sandbox_id: str) -> None:
+    """Career M2: fire at most one emergent vouch for the player this tick.
+
+    Reads the player's inbound regard, ranks the `vouch_ready` (respect-gated,
+    likability-driven), not-yet-vouched AIs they've played with by eagerness, and
+    reveals the warmest one's HOME table — the lobby room where that AI has played
+    the most hands (`resolve_home_table`), not wherever it happens to sit this
+    tick. Flag-gated (`CAREER_VOUCH_ENABLED`), career-only (`career_active +
+    tutorial_complete`), one per sandbox per tick AND trickled to one per
+    `VOUCH_COOLDOWN_HANDS` of player cash play (so a backlog of ready AIs opens
+    one door at a time, not in a burst). Best-effort — a failure here never
+    breaks the world tick.
+    """
+    from cash_mode import career_progression as cp, economy_flags
+    from flask_app import extensions
+
+    if not economy_flags.CAREER_VOUCH_ENABLED:
+        return
+    repo = getattr(extensions, "career_progress_repo", None)
+    rel_repo = getattr(extensions, "relationship_repo", None)
+    table_repo = getattr(extensions, "cash_table_repo", None)
+    personality_repo = getattr(extensions, "personality_repo", None)
+    session_repo = getattr(extensions, "cash_session_repo", None)
+    if repo is None or rel_repo is None or table_repo is None:
+        return
+
+    try:
+        progress = repo.load(sandbox_id, owner_id)
+        if not (progress.career_active and progress.tutorial_complete):
+            return
+
+        # Inbound regard: every AI who's interacted with the player has an edge.
+        inbound = rel_repo.load_inbound_relationships(owner_id)
+        if not inbound:
+            return
+
+        ready = []
+        for ai_id, state in inbound.items():
+            if ai_id == owner_id:
+                continue
+            is_ready = cp.vouch_ready(
+                respect=state.respect,
+                likability=state.likability,
+                played_with=True,  # an inbound edge means they've sat together
+                already_vouched=progress.has_vouched(ai_id),
+            )
+            # Instrumentation (feeds threshold tuning): how close is the field?
+            logger.info(
+                "[VOUCH] eval sandbox=%s ai=%s respect=%.2f like=%.2f vouched=%s ready=%s",
+                sandbox_id,
+                ai_id,
+                state.respect,
+                state.likability,
+                progress.has_vouched(ai_id),
+                is_ready,
+            )
+            if is_ready:
+                ready.append((cp.vouch_eagerness(state.likability), ai_id))
+
+        if not ready:
+            return
+
+        # Trickle: hold off until the player has logged VOUCH_COOLDOWN_HANDS more
+        # cash hands since the last vouch, so a backlog of ready AIs opens one
+        # door at a time. The first emergent vouch (last_vouch_at_hands == 0) is
+        # uncapped; each fire stamps the current hand count as the new mark.
+        hands_now = 0
+        if session_repo is not None:
+            try:
+                hands_now = session_repo.sum_hands_for_owner(owner_id, sandbox_id=sandbox_id)
+            except Exception:
+                hands_now = 0
+        if (
+            progress.last_vouch_at_hands
+            and hands_now - progress.last_vouch_at_hands < cp.VOUCH_COOLDOWN_HANDS
+        ):
+            return
+
+        # Warmest first; fire exactly one (the world blooms a room at a time).
+        ready.sort(key=lambda t: t[0], reverse=True)
+        _eager, voucher_id = ready[0]
+        room = _resolve_ai_home_table(
+            table_repo, rel_repo, personality_repo, sandbox_id, voucher_id
+        )
+        if room is None:
+            return  # voucher has no established home yet — try again next tick
+        table_id, stake_label, table_name, voucher_name = room
+        cp.fire_vouch(
+            career_progress_repo=repo,
+            sandbox_id=sandbox_id,
+            owner_id=owner_id,
+            voucher_id=voucher_id,
+            voucher_name=voucher_name,
+            table_id=table_id,
+            stake_label=stake_label,
+            table_name=table_name,
+            at_hands=hands_now,
+        )
+    except Exception:
+        logger.exception("[TICKER] vouch evaluation failed for owner=%s", owner_id)
 
 
 def _maybe_record_holdings_snapshot(sandbox_id: str) -> None:

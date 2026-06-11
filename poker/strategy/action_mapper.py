@@ -12,13 +12,14 @@ exact mapped value. Eliminates sizing tells without changing EV
 expectation (the band is symmetric around the table's intent).
 """
 
+import math
 import random
-from typing import Optional, Tuple
+from typing import NoReturn, Optional, Tuple
 
 from .action_vocab import ENGINE_ONLY_TOKENS, AbstractAction, EngineAction
 
 
-def _raise_unknown_abstract(abstract_action: str):
+def _raise_unknown_abstract(abstract_action: str) -> NoReturn:
     """Raise for an abstract token the resolvers can't size.
 
     We do NOT alias engine tokens to their abstract equivalents — that would
@@ -36,6 +37,49 @@ def _raise_unknown_abstract(abstract_action: str):
     raise ValueError(f"Unknown abstract action: {abstract_action!r}")
 
 
+def _nice_step(raw: float) -> int:
+    """Snap a raw step to a clean chip denomination (…, 1, 2, 2.5, 5, 10, 25, 50,
+    100, 250, … — the 1/2/2.5/5×10ⁿ ladder people actually use), so the rounded
+    bet lands on human amounts at any blind level (bb/4 = 12.5 → step 10, not 12)."""
+    if raw <= 1:
+        return 1
+    mag = 10 ** math.floor(math.log10(raw))
+    best = mag
+    for f in (1, 2, 2.5, 5, 10):
+        cand = f * mag
+        if abs(cand - raw) < abs(best - raw):
+            best = cand
+    return max(1, int(round(best)))
+
+
+def round_to_human_bet(amount: float, big_blind: int) -> int:
+    """Round a raise/bet amount to a natural chip increment, the way people bet.
+
+    A jittered raise of 287 reads as a bot tell — humans bet round numbers (275,
+    300). Round to a step that scales with the bet size (finer for small opens,
+    coarser for big 4-bets) and snaps to a clean denomination, so the jitter's
+    *variety* survives but lands on human-looking amounts:
+
+      * < 5 BB  (opens)        → ~quarter-BB steps (25 at BB=100)
+      * 5–15 BB (3-bets)       → ~half-BB steps    (50)
+      * ≥ 15 BB (4-bets/deep)  → ~whole-BB steps    (100)
+
+    Applied only on the LIVE path (callers gate on jitter>0) so deterministic
+    sim / Baseline-GTO sizes stay exact. ``big_blind<=0`` → plain int rounding.
+    """
+    if amount <= 0 or big_blind <= 0:
+        return int(round(amount))
+    bb = big_blind
+    if amount < 5 * bb:
+        raw_step = bb / 4.0
+    elif amount < 15 * bb:
+        raw_step = bb / 2.0
+    else:
+        raw_step = float(bb)
+    step = _nice_step(raw_step)
+    return int(round(amount / step) * step)
+
+
 def _compute_raise_to(
     multiplier: float,
     base_amount: int,
@@ -43,6 +87,8 @@ def _compute_raise_to(
     max_raise: int,
     rng: Optional[random.Random] = None,
     jitter: float = 0.0,
+    big_blind: int = 0,
+    size_multiplier: float = 1.0,
 ) -> int:
     """Compute raise-to amount, clamped to legal bounds.
 
@@ -57,13 +103,21 @@ def _compute_raise_to(
             jitter=0.15, the target is sampled uniformly from
             [target * 0.85, target * 1.15] before clamping. 0.0
             (default) preserves exact table-derived sizing.
+        big_blind: blind unit for human-rounding the jittered amount. Only used
+            when jitter fires (live path); 0 keeps plain integer rounding.
+        size_multiplier: per-player sizing-personality center (sizing_tendencies
+            P1). Scales the chart target BEFORE jitter — chart token × this →
+            jitter ±band → human-round — so the personality sets the center and
+            the jitter wobbles around it. 1.0 (default) is a perfect no-op: the
+            deterministic / Baseline-GTO path stays byte-identical.
     """
-    target = multiplier * base_amount
+    target = multiplier * base_amount * size_multiplier
     if rng is not None and jitter > 0.0:
-        # Sample uniformly from [target*(1-jitter), target*(1+jitter)]
+        # Sample uniformly from [target*(1-jitter), target*(1+jitter)], then snap
+        # to a natural chip increment so the jitter doesn't read as a bot tell.
         low = target * (1.0 - jitter)
         high = target * (1.0 + jitter)
-        target = rng.uniform(low, high)
+        target = round_to_human_bet(rng.uniform(low, high), big_blind)
     target_int = int(round(target))
     return max(min_raise, min(target_int, max_raise))
 
@@ -74,6 +128,7 @@ def resolve_preflop_sizing(
     player_idx: int,
     rng: Optional[random.Random] = None,
     sizing_jitter: float = 0.0,
+    size_multiplier: float = 1.0,
 ) -> Tuple[str, int]:
     """Resolve abstract preflop action to concrete game engine action + amount.
 
@@ -81,6 +136,10 @@ def resolve_preflop_sizing(
         abstract_action: Action from strategy table (e.g., 'raise_2.5bb', 'fold', 'call', 'jam')
         game_state: Current PokerGameState with player stacks, bets, blinds
         player_idx: Index of the acting player
+        size_multiplier: per-player sizing-personality center (sizing_tendencies
+            P1). Scales the chart-derived raise target BEFORE jitter/rounding so
+            same-archetype players size differently. 1.0 (default) is a no-op —
+            the deterministic sim / Baseline-GTO reference stays byte-identical.
 
     Returns:
         Tuple of (game_action, amount) where:
@@ -123,6 +182,8 @@ def resolve_preflop_sizing(
             player_total,
             rng=rng,
             jitter=sizing_jitter,
+            big_blind=big_blind,
+            size_multiplier=size_multiplier,
         )
     elif action.endswith('x'):
         # Multiplier of current bet: raise_3x, raise_4x, raise_2.2x
@@ -134,6 +195,8 @@ def resolve_preflop_sizing(
             player_total,
             rng=rng,
             jitter=sizing_jitter,
+            big_blind=big_blind,
+            size_multiplier=size_multiplier,
         )
     else:
         _raise_unknown_abstract(abstract_action)
@@ -214,6 +277,12 @@ def resolve_postflop_sizing(
         raise_to = highest_bet + int(target)
     else:
         _raise_unknown_abstract(abstract_action)
+
+    # Snap the live (jittered) bet to a natural chip increment so it doesn't read
+    # as a bot tell — same realism pass as preflop. Live-only (jitter>0); the
+    # deterministic sim/Baseline path keeps exact pot-fraction sizing.
+    if rng is not None and sizing_jitter > 0.0:
+        raise_to = round_to_human_bet(raise_to, game_state.current_ante)
 
     # Clamp to legal bounds
     raise_to = max(min_raise, min(raise_to, player_total))

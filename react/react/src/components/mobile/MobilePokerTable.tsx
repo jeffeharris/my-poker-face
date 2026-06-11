@@ -9,6 +9,8 @@ import { MobileCommunityCards } from './MobileCommunityCards';
 import { MobileHero } from './MobileHero';
 import { MobileActionArea } from './MobileActionArea';
 import { FloatingChat } from './FloatingChat';
+import { SalFloater } from './SalFloater';
+import { RunoutStageSplash } from './RunoutStageSplash';
 import { MobileWinnerAnnouncement } from './MobileWinnerAnnouncement';
 import { TournamentComplete } from '../game/TournamentComplete';
 import { MobileChatSheet } from './MobileChatSheet';
@@ -22,6 +24,7 @@ import { CoachBubble } from './CoachBubble';
 import { MobileCashSheet } from '../cash/MobileCashSheet';
 import { BustModal } from '../cash/BustModal';
 import { SoloTableModal } from '../cash/SoloTableModal';
+import { leaveTable } from '../cash/api';
 import { CharacterDetailCard } from '../character';
 import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
@@ -35,6 +38,7 @@ import { useMobileCoach } from '../../hooks/useMobileCoach';
 import { useInterhandMessaging } from '../../hooks/useInterhandMessaging';
 import { useInterhandDirector } from '../../hooks/useInterhandDirector';
 import { isBettingPhase } from '../../constants/gamePhases';
+import { deriveTier, scale, STAGE_SPLASH_MS } from '../../constants/presentationTiming';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
@@ -66,6 +70,10 @@ export function MobilePokerTable({
   const [showChatSheet, setShowChatSheet] = useState(false);
   const [showCashSheet, setShowCashSheet] = useState(false);
   const [recentAiMessage, setRecentAiMessage] = useState<ChatMessage | null>(null);
+  // Sal's lines play through a QUEUE (see SalFloater) — he fires several in a row
+  // (the graduation reveal is three) and a single "latest message" slot would
+  // drop all but the last. Non-Sal AI chatter still uses the single slot above.
+  const [salQueue, setSalQueue] = useState<ChatMessage[]>([]);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
@@ -74,14 +82,30 @@ export function MobilePokerTable({
   // Incrementing this state forces a re-render after the ref is mutated on fade completion
   const [, setFadeKey] = useState(0);
 
-  // Callbacks for handling AI messages (for floating bubbles)
+  // Callbacks for handling AI messages (for floating bubbles). Sal is special-
+  // cased into a queue so every one of his lines surfaces; everyone else uses the
+  // single "most recent" slot that FloatingChat renders.
   const handleNewAiMessage = useCallback((message: ChatMessage) => {
-    setRecentAiMessage(message);
+    if (message.sender === 'Sal Monroe') {
+      setSalQueue((q) => (q.some((m) => m.id === message.id) ? q : [...q, message]));
+    } else {
+      setRecentAiMessage(message);
+    }
   }, []);
 
   const dismissRecentAiMessage = useCallback(() => {
     setRecentAiMessage(null);
   }, []);
+
+  const dismissSalMessage = useCallback((id: string) => {
+    setSalQueue((q) => q.filter((m) => m.id !== id));
+  }, []);
+
+  // Scripted scene finished → return to the lobby once Sal's closing lines have
+  // played (the SalFloater queue drains), where his handoff beat continues. The
+  // backend fires `scene_complete`; we wait for the queue so the reveal isn't cut.
+  const [pendingLobbyReturn, setPendingLobbyReturn] = useState(false);
+  const handleSceneComplete = useCallback(() => setPendingLobbyReturn(true), []);
 
   // Coach state
   const [showCoachPanel, setShowCoachPanel] = useState(false);
@@ -122,6 +146,7 @@ export function MobilePokerTable({
   const phase = useGameStore((state) => state.phase);
   const pot = useGameStore((state) => state.pot);
   const communityCards = useGameStore((state) => state.communityCards);
+  const cardDeal = useGameStore((state) => state.cardDeal);
   const currentPlayerIdx = useGameStore((state) => state.currentPlayerIdx);
   const dealerIdx = useGameStore((state) => state.dealerIdx);
   const highestBet = useGameStore((state) => state.highestBet);
@@ -133,6 +158,7 @@ export function MobilePokerTable({
   const bettingContext = useGameStore((state) => state.bettingContext);
   const awaitingAction = useGameStore((state) => state.awaitingAction);
   const runItOut = useGameStore((state) => state.runItOut);
+  const runoutDirectorActive = useGameStore((state) => state.runoutDirectorActive);
   const cashMode = useGameStore((state) => state.cashMode);
   const fastForward = useGameStore((state) => state.fastForward);
   const worldEvents = useGameStore((state) => state.worldEvents);
@@ -149,6 +175,7 @@ export function MobilePokerTable({
     revealedCards,
     heroCommitted,
     heroRetreating,
+    isPlaying,
     tournamentResult,
     socketRef,
     isConnected,
@@ -168,6 +195,7 @@ export function MobilePokerTable({
     onGameCreated,
     onNewAiMessage: handleNewAiMessage,
     onGameLoadFailed,
+    onSceneComplete: handleSceneComplete,
   });
 
   // Multi-table tournament felt: relocation toasts + bust/win routing to the
@@ -181,6 +209,24 @@ export function MobilePokerTable({
 
   // Usage stats for guest limit modal
   const { stats: usageStats } = useUsageStats();
+
+  // Scene-complete → lobby return. Once Sal's closing lines have played out (the
+  // floater queue is empty), cash out of the tutorial table and go to the lobby,
+  // where his handoff beat greets the player. A fallback timer returns even if
+  // the queue never drains so the player is never stranded.
+  useEffect(() => {
+    if (!pendingLobbyReturn) return undefined;
+    const toLobby = () => {
+      leaveTable()
+        .catch(() => {})
+        .finally(() => {
+          window.location.href = '/cash';
+        });
+    };
+    const delay = salQueue.length === 0 ? 1200 : 45000;
+    const t = setTimeout(toLobby, delay);
+    return () => clearTimeout(t);
+  }, [pendingLobbyReturn, salQueue.length]);
 
   // Handle tournament completion - clean up and return to menu
   const handleTournamentComplete = useCallback(async () => {
@@ -198,11 +244,11 @@ export function MobilePokerTable({
       }
     }
     clearTournamentResult();
-    // Call onBack if available, otherwise reload
+    // Call onBack if available, otherwise reload back to the menu
     if (onBack) {
       onBack();
     } else {
-      window.location.href = '/';
+      window.location.href = '/menu';
     }
   }, [gameId, clearTournamentResult, onBack]);
 
@@ -264,6 +310,23 @@ export function MobilePokerTable({
   // Community card animation hook - handles slide-in with cascade delays
   const communityCardAnimations = useCommunityCardAnimation(communityCards?.length ?? 0);
 
+  // Non-run-out dealing: lift the community ABOVE the chat while the cards slide
+  // into place (so the deal is visible over table talk), then drop it back BELOW
+  // the chat once settled. Run-out dealing has its own stage z-handling, so this
+  // is gated to !stageMode. Driven by the one-shot cardDeal token (per street).
+  const [communityDealElevated, setCommunityDealElevated] = useState(false);
+  const cardDealToken = cardDeal?.token;
+  useEffect(() => {
+    if (cardDealToken === undefined || stageMode) return undefined;
+    setCommunityDealElevated(true);
+    // Cover the slide cascade (flop is longer than a single turn/river card).
+    const ms = (cardDeal?.count ?? 1) >= 3 ? 3000 : 1300;
+    const t = window.setTimeout(() => setCommunityDealElevated(false), ms);
+    return () => window.clearTimeout(t);
+    // Fires only on a new deal; stageMode is read at fire time (not a trigger).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardDealToken]);
+
   // Auto-scroll to center the active opponent when turn changes
   useEffect(() => {
     if (!storePlayers || !currentPlayer || currentPlayer.is_human) return;
@@ -306,6 +369,29 @@ export function MobilePokerTable({
   // During showdown, move folded players to the ghost rail so active players have more room in the main row
   const isInShowdown =
     revealedCards?.players_cards && Object.keys(revealedCards.players_cards).length >= 2;
+
+  // Run-out "stage" mode: during an all-in run-out (the board-dealing director is
+  // active) or a multiway showdown reveal, the table reconfigures to open a clear
+  // band in the middle for table banter — the top nav hides, the avatars crop up,
+  // and the pot / community / hero slide down so the cards aren't buried under
+  // chat. Driven entirely by CSS off `data-stage` (transforms, no reflow).
+  // Dev-only `?stagePreview` forces it on against a normal table so the
+  // choreography can be tuned without dealing a live all-in.
+  const stagePreview = useMemo(
+    () => import.meta.env.DEV && new URLSearchParams(window.location.search).has('stagePreview'),
+    []
+  );
+  const stageMode = stagePreview || runoutDirectorActive || !!isInShowdown;
+  // The splash label reflects what kicked off the stage: an all-in board run-out
+  // ("All In") vs. a plain river showdown reveal ("Showdown").
+  const stageSplashLabel = runItOut ? 'All In' : 'Showdown';
+  // Splash duration scales with the pacing tier (fastest → 0 → no splash), and
+  // the sequencer holds the reveal/run-out behind it by the matching tier-scaled
+  // BEAT.stageSplashHold (see handSequencer.planReveal).
+  const stageSplashMs = scale(
+    STAGE_SPLASH_MS,
+    deriveTier(fastForward, alwaysFastForward, aiInstant)
+  );
 
   // Run-out reveal cascade order: each revealed opponent reveals after the
   // previous one finishes (and within an opponent, card 2 after card 1). The
@@ -388,6 +474,7 @@ export function MobilePokerTable({
       className="mobile-poker-table"
       data-testid="mobile-poker-table"
       data-connected={isConnected ? 'true' : 'false'}
+      data-stage={stageMode ? 'true' : 'false'}
     >
       {/* Initial loading overlay - slides off screen when game data arrives */}
       <ShuffleLoading
@@ -499,13 +586,25 @@ export function MobilePokerTable({
           <MobileCommunityCards
             communityCards={communityCards}
             animations={communityCardAnimations}
+            elevated={communityDealElevated && !stageMode}
           />
 
-          {/* Floating AI Message */}
+          {/* Floating AI Message. Sal "The Clock" gets special treatment — his
+              lines are routed to the SalFloater queue (handleNewAiMessage) and
+              never reach recentAiMessage, so FloatingChat only shows everyone else. */}
           <FloatingChat
             message={recentAiMessage}
             onDismiss={dismissRecentAiMessage}
             playerAvatars={playerAvatars}
+          />
+          <SalFloater queue={salQueue} onShown={dismissSalMessage} />
+
+          {/* Run-out / showdown splash — drops over the table on the rising edge
+              of stage mode, masking the layout reconfigure behind it. */}
+          <RunoutStageSplash
+            stageActive={stageMode}
+            label={stageSplashLabel}
+            durationMs={stageSplashMs}
           />
 
           {/* Hero Section - Your Cards */}
@@ -573,9 +672,13 @@ export function MobilePokerTable({
             />
           )}
 
-          {/* Tournament Complete - only show when winner announcement is dismissed */}
-          {/* This ensures winner announcement is ALWAYS shown first, then tournament complete after */}
-          {!winnerInfo && (
+          {/* Tournament Complete — shown only after the hand presentation is
+              fully done: the run-out sequencer has drained (`!isPlaying`) AND the
+              winner overlay has been dismissed (`!winnerInfo`). Without the
+              `isPlaying` guard the backend's synchronous `tournament_complete`
+              (emitted at the hand boundary) flashes results over a still-
+              animating final hand. */}
+          {!winnerInfo && !isPlaying && (
             <TournamentComplete
               result={tournamentResult}
               onComplete={handleTournamentComplete}

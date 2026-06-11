@@ -126,6 +126,13 @@ class FeatureFlag:
     prod: bool = False  # default when current_env() == 'prod'
     db_overridable: bool = False  # may an app_settings row override it at runtime?
     since: str = ""  # ISO date the flag was introduced (lifecycle tracking)
+    # When True, this flag's resolved value is published to the browser via
+    # /api/feature-flags and attached to Sentry events (errors/replays/feedback)
+    # so a bug report shows which UX-affecting flags were active. Keep this to
+    # player-facing toggles — do NOT mark internal economy/sim flags, since the
+    # endpoint is readable by any client (incl. guests). See sentry_relay_routes
+    # / FEATURE_FLAGS.md.
+    client_exposed: bool = False
 
     def default_for(self, env: str) -> bool:
         if self.stage is Stage.GRADUATED:
@@ -231,9 +238,24 @@ def snapshot(env: Optional[str] = None) -> list[dict]:
                 "db_overridable": flag.db_overridable,
                 "since": flag.since,
                 "description": flag.description,
+                "client_exposed": flag.client_exposed,
             }
         )
     return rows
+
+
+def client_snapshot(env: Optional[str] = None) -> dict[str, bool]:
+    """`{name: value}` for flags marked ``client_exposed`` — the browser view.
+
+    Backs the ``/api/feature-flags`` endpoint and the Sentry feature-flag
+    context. Intentionally narrow: only player-facing toggles are published,
+    since the endpoint is readable by any client. See the ``client_exposed``
+    note on :class:`FeatureFlag`.
+    """
+    env = env or current_env()
+    return {
+        flag.name: resolve(flag, env=env)[0] for flag in REGISTRY.values() if flag.client_exposed
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +400,7 @@ register(
         owner=_ECON,
         dev=True,
         prod=True,
+        client_exposed=True,  # player-observable: AI demeanor shifts toward them
     )
 )
 register(
@@ -388,6 +411,7 @@ register(
         owner=_ECON,
         dev=True,
         prod=True,
+        client_exposed=True,  # player-facing: gates a dossier UI feature
     )
 )
 
@@ -440,6 +464,7 @@ register(
         owner=_ECON,
         dev=True,
         prod=True,
+        client_exposed=True,  # player-facing: Main Event invites surface in UI
     )
 )
 register(
@@ -450,6 +475,7 @@ register(
         owner=_ECON,
         dev=True,
         prod=True,
+        client_exposed=True,  # player-observable: AIs visibly leave the table
     )
 )
 
@@ -492,5 +518,93 @@ register(
         owner=_ECON,
         dev=False,
         prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "CAREER_PROGRESSION_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Act-1 narrative master gate: Lucky Stack intake + Scene-0 tutorial + keyring lobby for a brand-new sandbox.",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "CAREER_VOUCH_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Career-M2 emergent vouches: the ticker reveals a played-with AI's home room when it likes+respects the player enough.",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "INTAKE_WORLD_WARMUP_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Pre-warm the hidden lobby with a short deterministic sim burst on intake completion (inert without CAREER_PROGRESSION_ENABLED).",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
+
+# --- Strategy: archetype conditioning ---
+_STRAT = "poker.strategy"
+register(
+    FeatureFlag(
+        "TILT_CONDITIONING_ENABLED",
+        Stage.BETA,
+        "Option-C tilt_conditioning layer: state-conditioned aggression spike in re-raise spots (inert until an archetype opts in via DeviationProfile.tilt_conditioning_cap).",
+        owner=_STRAT,
+        dev=True,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TILT_PERSISTENCE_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt-excursion persistence (TILT_EXCURSION_DESIGN.md): slow-recovery-while-tilted + second-wind escape in PlayerPsychology.recover() so tilt lasts long enough to be felt without going chronic. Inert (byte-identical recover) when off.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TILT_TELEGRAPH_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt telegraph (TILT_EXCURSION_DESIGN.md §4): on entering a tilt episode, a probabilistic Layer-3 trigger that forces the sharp bot to speak and hands the LLM the tilt state + loose suggestions (own words, not a fixed line). Frequency-neutral; off => no telegraph block, no forced speech.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TILT_ERRATIC_READS_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt coupling (TILT_EXCURSION_DESIGN.md §4): replace the deterministic exploitation cliff (_zone_to_tilt_factor 1.0/0.5/0.0) with an ERRATIC random taper scaled by tilt intensity, so a tilted sharp bot's reads get unreliable (never a hard 0.0). Changes decisions; off => the legacy deterministic cliff.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TILT_SIGNATURE_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Tilt behavioral signature (TILT_EXCURSION_DESIGN.md §4): make the tiered bot's emotional distortion under tilt CHARACTER-driven by risk_identity — risk-seekers SPEW (more aggressive), risk-averse COLLAPSE (more passive) — instead of the state-driven default (tilted=aggressive for all). Brings the tiered bot to parity with the standard bot's compute_modifiers split. Changes decisions; off => state-driven direction.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
     )
 )

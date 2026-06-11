@@ -60,6 +60,36 @@ services:
     networks:
       - poker-network
 
+  # Out-of-band decision-analysis worker. Drains the Redis decision-analysis
+  # queue so the heavy per-decision equity-MC runs off the gameplay worker.
+  # Starts with the stack. In dev it idles on an empty queue unless the backend
+  # is run with DECISION_ANALYSIS_QUEUE_ENABLED=1 (left off here so pytest in the
+  # backend container keeps inline-analysis behavior). Prod activates it — see
+  # docs/SCALING.md + OPS_RUNBOOK §9.
+  analytics-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        INSTALL_DEV: "true"
+    volumes:
+      - ./data:/app/data
+      - ./poker:/app/poker
+      - ./flask_app:/app/flask_app
+      - ./core:/app/core
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379
+      - DECISION_ANALYSIS_ITERATIONS=${DECISION_ANALYSIS_ITERATIONS:-2000}
+    env_file:
+      - .env
+    command: python -m poker.decision_analysis_worker
+    depends_on:
+      - redis
+    networks:
+      - poker-network
+
   # React frontend development server
   frontend:
     build:
@@ -76,6 +106,8 @@ services:
       - VITE_BACKEND_PORT=${BACKEND_PORT:-5000}
       - VITE_ENABLE_DEBUG=${ENABLE_DEBUG:-false}
       - VITE_ENABLE_AI_DEBUG=${ENABLE_AI_DEBUG:-false}
+      # Sentry (session replay + bug-report widget). Empty => Sentry stays off.
+      - VITE_SENTRY_DSN=${VITE_SENTRY_DSN:-}
     depends_on:
       - backend
     command: sh -c "rm -rf node_modules/.vite* && npm run dev -- --host 0.0.0.0"
@@ -121,9 +153,12 @@ volumes:
 networks:
   poker-network:
     driver: bridge
-    # Pin a dedicated subnet so this worktree's network doesn't collide with the
-    # other my-poker-face worktrees (desktop .45 / main .46 / circuit .47) when
-    # Docker's default address pool is exhausted. See the desktop-parity fix.
+    # Pin a dedicated subnet so this checkout's network doesn't collide with the
+    # other my-poker-face worktrees when Docker's default address pool is
+    # exhausted. This committed value is the MAIN checkout's slot (.46); every
+    # other worktree pins its own distinct /24 via a gitignored
+    # docker-compose.override.yml (in use: circuit .47 / narrative-beats .48 /
+    # user-feedback .49). Keep each worktree's override unique.
     ipam:
       config:
-        - subnet: 10.123.48.0/24
+        - subnet: 10.123.46.0/24

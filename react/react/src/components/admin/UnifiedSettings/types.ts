@@ -10,7 +10,8 @@ export type SettingsCategory =
   | 'storage'
   | 'pricing'
   | 'appearance'
-  | 'alerting';
+  | 'alerting'
+  | 'gameplay';
 
 export interface CategoryConfig {
   id: SettingsCategory;

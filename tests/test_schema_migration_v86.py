@@ -52,9 +52,9 @@ def _create_v85_schema_subset(conn: sqlite3.Connection) -> None:
 
 
 def _apply_v86(conn: sqlite3.Connection) -> None:
-    from poker.repositories.schema_manager import SchemaManager
+    from poker.repositories.legacy_migrations import LegacyMigrations
 
-    sm = SchemaManager.__new__(SchemaManager)
+    sm = LegacyMigrations()
     sm._migrate_v86_add_opponent_model_ids(conn)
 
 

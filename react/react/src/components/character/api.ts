@@ -23,6 +23,21 @@ export interface DossierCashPairStats {
   hands_played_cash: number;
 }
 
+/** Home-table intel — the lobby room this AI plays the most. Relationship-gated:
+ *  revealed once the AI likes the player enough (inbound likability past a
+ *  threshold below the vouch threshold), so it's a milestone on the road to a
+ *  vouch. Locked otherwise, with a hint. */
+export interface DossierHomeTable {
+  revealed: boolean;
+  /** Revealed-only: where they play. */
+  table_id?: string;
+  table_name?: string;
+  stake_label?: string;
+  /** Locked-only: whether an established home exists yet, plus a nudge. */
+  has_home?: boolean;
+  hint?: string;
+}
+
 /** Player-facing subset of the AI's psychology anchors (5 of 9
  *  axes — the ones that meaningfully shape what shows across the
  *  table). The other anchors (ego, recovery_rate, etc.) are
@@ -278,6 +293,9 @@ export interface DossierResponse {
   credit_history?: DossierCreditHistory | null;
   relationship: DossierRelationship | null;
   cash_pair_stats: DossierCashPairStats | null;
+  /** Home-table intel — relationship-gated (revealed past a likability
+   *  threshold). Null outside a Circuit sandbox. */
+  home_table?: DossierHomeTable | null;
   memorable_hands: DossierMemorableHand[];
   note: string | null;
   /** B1 (Renown v2) AI standing badge. Null when not yet persisted. */

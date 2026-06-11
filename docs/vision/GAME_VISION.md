@@ -1,3 +1,10 @@
+---
+purpose: Product vision and design philosophy for My Poker Face: drama over math, emergent personalities, a living world
+type: vision
+created: 2025-06-03
+last_updated: 2026-06-10
+---
+
 # My Poker Face - Game Vision
 
 ## Vision Statement
@@ -34,7 +41,7 @@ Success comes not just from playing cards well, but from reading personalities, 
 - **Pure API**: JSON endpoints, no templates
 - **WebSocket Support**: Real-time multiplayer
 - **Persistence**: SQLite with automatic saves
-- **AI Integration**: OpenAI API for personalities
+- **AI Integration**: a provider-agnostic LLM layer (OpenAI, Anthropic, Groq, and others) for character voice. The poker decisions are not made by the model. See the AI opponents section below.
 
 ### Deployment: Docker Compose
 - **Multi-Service**: Frontend, backend, Redis
@@ -48,9 +55,21 @@ Success comes not just from playing cards well, but from reading personalities, 
 - **Testable**: Pure functions throughout
 - **Extensible**: Clear separation of concerns
 
+### AI Opponents: Deterministic Decisions, LLM Voice
+
+The opponents are built in three layers, and only one of them is the language model:
+
+- **Strategic Core (what to do).** Solver-derived baselines plus poker heuristics. Deterministic. The chips are decided here, by math, not by a model.
+- **Personality Modifier (how to deviate).** A bounded, measurable distortion of those base frequencies, so a maniac over-bets and a nit folds because a dial was turned on purpose.
+- **Expression Layer (what to say).** The LLM. Chat, reactions, table talk, mood. It narrates the character; it does not get a vote on the chips.
+
+This is a deliberate reversal of the original 2023 prototype, where one big LLM prompt made the decisions. That version was a great demo and a statistically poor poker player, and it did not transfer across models. Moving the decision out of the model is what made the characters shapeable, made large-scale simulation and tournaments possible, and made the game cheap enough to leave running.
+
 ---
 
 ## Feature Roadmap
+
+> **Note (2026-06-10):** The Phase 1 through 5 numbering below is from the original planning era and is superseded for current priorities by `NEXT_PHASE_VISION.md`. As of mid-2026, cash mode v1 and the cross-session relationship layer have shipped, and the open decision is the solver go/no-go (Gate 1). The design philosophy above still holds; the specific sequencing here does not.
 
 ### Phase 1: Dynamic Personality System ✅ COMPLETED
 
@@ -184,11 +203,11 @@ Every personality trait has elasticity—how much it can change based on events:
 
 ## Technical Considerations
 
-### Non-Determinism as Feature
-- Embrace AI unpredictability
-- Design systems that guide rather than control
-- Create boundaries, let AI fill the space
-- Learn to read personalities, not memorize patterns
+### Determinism Where It Counts, Unpredictability Where It Delights
+- Poker decisions are deterministic and measurable. The bot's strategy is math, which is what makes characters shapeable, simulation possible, and the game cheap to run.
+- The model's unpredictability is embraced where it belongs: the voice. Table talk, reactions, and mood read differently every time.
+- Personality is a bounded distortion of correct play, not random noise. The boundaries are the design; the character fills the space inside them.
+- The skill the game rewards is reading a personality through how it plays, not memorizing a fixed pattern.
 
 ### Performance Optimizations
 - Pre-generate personality images

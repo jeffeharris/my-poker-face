@@ -39,9 +39,19 @@ export default defineConfig({
       workbox: {
         // Cache static assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        // Don't cache API calls or WebSocket
+        // Don't serve the SPA shell for API/WebSocket — or for the separate
+        // static marketing site (landing, /opponents/*, /blog/*), which Caddy
+        // routes to the poker-marketing container. Without these, the SW's
+        // navigateFallback shadows those routes with the cached app index for
+        // any visitor who has loaded the game (the SW is scoped to '/').
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/socket.io/],
+        navigateFallbackDenylist: [
+          /^\/api/,
+          /^\/socket\.io/,
+          /^\/$/, // homepage is the marketing landing
+          /^\/opponents(\/|$)/,
+          /^\/blog(\/|$)/,
+        ],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,

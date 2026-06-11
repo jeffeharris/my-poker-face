@@ -65,6 +65,39 @@ def _get_setting(key: str, default: str) -> str:
         return default
 
 
+# --- Gameplay: live-tunable AI talk-volume dial ---
+# Higher => AI players speak (post-hand commentary) on more hands. Read at
+# hand-end by commentary_generator._should_speak so the table's chattiness can
+# be tuned from the admin Settings UI WITHOUT a restart. Default 1.3 ≈ a
+# speaker on ~44% of hands at chattiness 0.5 (scripts/drama_gate_calibration.py).
+DRAMA_SPEAK_SCORE_WEIGHT_DEFAULT = 1.3
+
+
+def get_drama_speak_score_weight() -> float:
+    """Live AI talk-volume dial (post-hand commentary speak gate)."""
+    try:
+        return float(
+            _get_setting('DRAMA_SPEAK_SCORE_WEIGHT', str(DRAMA_SPEAK_SCORE_WEIGHT_DEFAULT))
+        )
+    except (TypeError, ValueError):
+        return DRAMA_SPEAK_SCORE_WEIGHT_DEFAULT
+
+
+# In-hand counterpart of the post-hand dial — scales how often AIs speak AND
+# gesture DURING a hand (drama-gated via speak_gate). Higher => chattier table
+# mid-hand; lower => routine folds/checks stay silent (and skip the expression
+# LLM call on the tiered path). Read per decision by compute_narration_gate.
+MIDGAME_SPEAK_WEIGHT_DEFAULT = 1.3
+
+
+def get_midgame_speak_weight() -> float:
+    """Live AI talk-volume dial (in-hand narration gate: speech + gesture)."""
+    try:
+        return float(_get_setting('MIDGAME_SPEAK_WEIGHT', str(MIDGAME_SPEAK_WEIGHT_DEFAULT)))
+    except (TypeError, ValueError):
+        return MIDGAME_SPEAK_WEIGHT_DEFAULT
+
+
 def get_default_provider() -> str:
     return _get_setting('DEFAULT_PROVIDER', DEFAULT_PROVIDER)
 

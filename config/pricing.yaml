@@ -413,8 +413,20 @@ providers:
   runware:
     # Runware.ai image models
     # See: https://runware.ai/docs/image-inference/api-reference
+    # NOTE: the live path now records Runware's actual per-image cost from the
+    # API response (includeCost), so these SKUs are the fallback / the basis for
+    # reconciling historical rows that predate response-cost capture.
     runware:100@1:
       display_name: "FLUX.1 [schnell]"
+      image_512x512: 0.0006
+      image_1024x1024: 0.0013
+      capabilities:
+        img_gen: true
+
+    # Older FLUX variant — seen in historical usage but never priced (caused
+    # ~1.4k uncosted image rows). 512 price estimated ~half of 1024; verify.
+    runware:101@1:
+      display_name: "FLUX.1 [schnell] (101)"
       image_512x512: 0.0006
       image_1024x1024: 0.0013
       capabilities:
@@ -428,8 +440,17 @@ providers:
         img_gen: true
         img2img: true
 
+    runware:400@2:
+      display_name: "FLUX.2 [klein] 9B"
+      image_512x512: 0.00039  # estimated ~half of 1024; verify with Runware
+      image_1024x1024: 0.00078
+      capabilities:
+        img_gen: true
+        img2img: true
+
     runware:400@4:
       display_name: "FLUX.2 [klein] 4B"
+      image_512x512: 0.0006  # matches live DB override (2026-06-10)
       image_1024x1024: 0.0006
       capabilities:
         img_gen: true

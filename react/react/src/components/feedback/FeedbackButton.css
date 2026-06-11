@@ -1,0 +1,68 @@
+/* Floating bug-report launcher. Rests in the bottom-left corner everywhere; on
+   game routes it's raised (see .feedback-button--in-game) to clear the action
+   bar. Draggable (see FeedbackButton.tsx) — a dragged position overrides these
+   defaults via inline styles. z-index clears the action panel (z-index 1000) so
+   it stays visible/clickable; modals/sheets portal to <body> with higher z and
+   still cover it. */
+.feedback-button {
+  position: fixed;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 1001;
+
+  /* Own the pointer so a touch-drag repositions the launcher instead of
+     scrolling the page (the JS uses pointer capture). */
+  touch-action: none;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+
+  color: #cdd3dc;
+  background: rgba(24, 28, 35, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+
+  opacity: 0.55;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+/* In a hand (Fold/Call/Raise visible): raise to mirror the coach puck's default
+   spot (right:16/bottom:120) on the opposite side, just above the action bar. */
+.feedback-button--in-game {
+  bottom: 120px;
+}
+
+.feedback-button:hover,
+.feedback-button:focus-visible {
+  opacity: 1;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.feedback-button:active {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback-button {
+    transition: opacity 0.18s ease;
+  }
+  .feedback-button:hover,
+  .feedback-button:focus-visible,
+  .feedback-button:active {
+    transform: none;
+  }
+}

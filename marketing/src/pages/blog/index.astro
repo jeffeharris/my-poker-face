@@ -1,0 +1,276 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+
+// Drafts are visible in `astro dev` for previewing but excluded from the
+// production build (and therefore the sitemap), so unfinished posts aren't
+// public or indexable until draft:false.
+const posts = (
+  await getCollection('blog', ({ data }) => (import.meta.env.PROD ? !data.draft : true))
+).sort((a, b) => a.data.order - b.data.order);
+
+// Group for discovery: standalone posts (no series) first as an entry point,
+// then each series in the order its first post appears (posts are already
+// sorted by `order`, so series-internal order is correct too).
+const standalone = posts.filter((p) => !p.data.series);
+const seriesNames: string[] = [];
+for (const p of posts) {
+  if (p.data.series && !seriesNames.includes(p.data.series)) seriesNames.push(p.data.series);
+}
+const sections = [
+  ...(standalone.length ? [{ title: 'Start here', count: 0, posts: standalone }] : []),
+  ...seriesNames.map((name) => {
+    const sp = posts.filter((p) => p.data.series === name);
+    return { title: name, count: sp.length, posts: sp };
+  }),
+];
+
+const title = 'Devlog & Notes: Building My Poker Face';
+const description =
+  'Honest build notes from My Poker Face: how the AI opponents work, why the LLM stopped making the decisions, and what makes a poker table feel alive.';
+---
+
+<BaseLayout title={`${title} | My Poker Face`} description={description} path="/blog/">
+  <section class="shell bloglist">
+    <header class="bloglist__head">
+      <p class="kicker">Devlog &amp; notes</p>
+      <h1 class="bloglist__title">Building a poker game with living opponents</h1>
+      <p class="bloglist__dek">
+        Two threads, one project. The <strong>Devlog</strong> is how it's built;
+        <strong>Inside the Table</strong> is what it's like to play. No press-release gloss. The
+        wrong turns are kept in.
+      </p>
+    </header>
+
+    {
+      sections.map((sec) => (
+        <section class="blogsec">
+          <div class="blogsec__head">
+            <h2 class="blogsec__title">{sec.title}</h2>
+            {sec.count > 0 && <span class="blogsec__count">{sec.count}-part series</span>}
+          </div>
+          <ol class="bloglist__items">
+            {sec.posts.map((post) => (
+              <li class="pcard" data-track={post.data.track}>
+                <a class="pcard__link" href={`/blog/${post.id}/`}>
+                  {post.data.hero && (
+                    <div class="pcard__media">
+                      <img
+                        src={post.data.hero}
+                        alt={post.data.heroAlt ?? post.data.title}
+                        loading="lazy"
+                      />
+                    </div>
+                  )}
+                  <div class="pcard__body">
+                    <p class="pcard__meta">
+                      <span class={`tag tag--${post.data.track === 'Devlog' ? 'devlog' : 'table'}`}>
+                        {post.data.track}
+                      </span>
+                      {post.data.draft && <span class="tag tag--draft">Draft</span>}
+                    </p>
+                    <h3 class="pcard__title">{post.data.title}</h3>
+                    <p class="pcard__excerpt">{post.data.excerpt}</p>
+                    <span class="pcard__more">Read →</span>
+                  </div>
+                </a>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))
+    }
+
+    <aside class="bloglist__next">
+      <h2 class="bloglist__next-title">Read on, or sit down</h2>
+      <p>
+        Every post here is about the opponents you actually play against.
+        <a href="/opponents/">Browse all 76 characters</a> and read their playing profiles, or
+        <a href="/login">pull up a chair and play a free hand</a> in your browser.
+      </p>
+    </aside>
+  </section>
+</BaseLayout>
+
+<style>
+  .bloglist {
+    max-width: 900px;
+    padding-top: clamp(28px, 6vw, 64px);
+    padding-bottom: clamp(48px, 8vw, 96px);
+  }
+  .bloglist__head {
+    margin-bottom: clamp(28px, 5vw, 52px);
+  }
+  .bloglist__title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(2rem, 6vw, 3.4rem);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+    margin: 10px 0 16px;
+  }
+  .bloglist__dek {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: clamp(1.05rem, 2.4vw, 1.25rem);
+    color: var(--text-dim);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .bloglist__dek strong {
+    font-style: normal;
+    color: var(--gold-bright);
+    font-weight: 600;
+  }
+
+  /* Series / group sections */
+  .blogsec {
+    margin-bottom: clamp(40px, 6vw, 68px);
+  }
+  .blogsec__head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 22px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .blogsec__title {
+    margin: 0;
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(1.4rem, 3.4vw, 2rem);
+    line-height: 1.1;
+  }
+  .blogsec__count {
+    font-family: var(--font-sans);
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--gold-bright);
+    white-space: nowrap;
+  }
+
+  .bloglist__next {
+    margin-top: clamp(36px, 6vw, 64px);
+    padding: clamp(24px, 3vw, 36px);
+    border: 1px solid var(--hair);
+    border-radius: 16px;
+    background: linear-gradient(180deg, var(--ink-2), var(--ink));
+  }
+  .bloglist__next-title {
+    margin: 0 0 10px;
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(1.3rem, 3vw, 1.6rem);
+  }
+  .bloglist__next p {
+    margin: 0;
+    color: var(--text-dim);
+    line-height: 1.6;
+    max-width: 60ch;
+  }
+  .bloglist__next a {
+    color: var(--gold-bright);
+    text-decoration: none;
+  }
+  .bloglist__next a:hover {
+    text-decoration: underline;
+  }
+
+  .bloglist__items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 22px;
+  }
+
+  .pcard {
+    border: 1px solid var(--hair);
+    border-radius: 16px;
+    background: linear-gradient(180deg, var(--ink-2), var(--ink));
+    overflow: hidden;
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease;
+  }
+  .pcard:hover {
+    border-color: rgba(212, 165, 116, 0.4);
+    transform: translateY(-2px);
+  }
+
+  .pcard__link {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    text-decoration: none;
+    color: inherit;
+  }
+  .pcard__media {
+    overflow: hidden;
+    background: var(--ink-3);
+  }
+  .pcard__media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .pcard__body {
+    padding: clamp(18px, 3vw, 28px);
+  }
+  .pcard__meta {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 12px;
+  }
+
+  .tag {
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--hair);
+  }
+  .tag--devlog {
+    color: var(--gold-bright);
+    border-color: rgba(212, 165, 116, 0.4);
+  }
+  .tag--table {
+    color: #8fd0b6;
+    border-color: rgba(143, 208, 182, 0.35);
+  }
+  .tag--draft {
+    color: var(--text-faint);
+  }
+
+  .pcard__title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: clamp(1.3rem, 3vw, 1.7rem);
+    line-height: 1.15;
+    margin: 0 0 10px;
+  }
+  .pcard__excerpt {
+    color: var(--text-dim);
+    margin: 0 0 14px;
+    line-height: 1.55;
+  }
+  .pcard__more {
+    font-family: var(--font-sans);
+    font-size: 0.86rem;
+    color: var(--gold-bright);
+  }
+
+  @media (max-width: 640px) {
+    .pcard__link {
+      grid-template-columns: 1fr;
+    }
+    .pcard__media {
+      max-height: 200px;
+    }
+  }
+</style>

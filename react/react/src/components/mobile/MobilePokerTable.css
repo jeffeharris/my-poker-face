@@ -624,8 +624,14 @@
   margin-top: 1.5dvh;
 }
 
-/* Override pot styles for floating context - more compact */
+/* Override pot styles for floating context - more compact. Stacks the "POT"
+   label directly above the amount (vertical) rather than beside it, which reads
+   tighter in the narrow floating chip and keeps a consistent footprint as the
+   amount grows. */
 .mobile-floating-pot .mobile-pot {
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.05;
   padding: var(--space-1) var(--space-4);
   background: rgba(0, 0, 0, 0.7);
   border: 1px solid rgba(212, 165, 116, 0.3);
@@ -635,7 +641,7 @@
 }
 
 .mobile-floating-pot .mobile-pot__label {
-  font-size: 10px;
+  font-size: 9px;
 }
 
 .mobile-floating-pot .mobile-pot__amount {
@@ -654,6 +660,13 @@
   max-height: 21dvh;
   box-sizing: border-box;
   position: relative;
+}
+
+/* While the cards slide into place (non-run-out dealing), lift the board above
+   the chat so the deal is visible over table talk; once settled the class is
+   removed and the board drops back below the chat (z auto). */
+.mobile-community--dealing {
+  z-index: calc(var(--z-interhand-hud) + 5);
 }
 
 .community-cards-row {
@@ -754,14 +767,15 @@
   animation: currentPlayerPulse 2s ease-in-out infinite;
 }
 
-/* Hero folded state */
+/* Hero folded state — dim via brightness/grayscale, NOT opacity, so the cards
+   stay fully OPAQUE. (With opacity, the chat stacking behind the hero panel in
+   run-out "stage" mode would bleed through the folded cards.) */
 .mobile-hero.folded {
-  opacity: 0.5;
-  filter: grayscale(0.3);
+  filter: brightness(0.5) grayscale(0.4);
 }
 
 .mobile-hero.folded .hero-cards {
-  opacity: 0.4;
+  filter: brightness(0.85);
 }
 
 .hero-info {
@@ -875,7 +889,10 @@
   left: 0;
   right: 0;
   width: 100%;
-  z-index: var(--z-sticky);
+  /* Just above the inter-hand HUD layer (160) so the hero's controls always sit
+     over transient AI chatter / the Sal floater, but still below modals & sheets
+     (200+). Keeps the action bar the highest *table* element and tappable. */
+  z-index: calc(var(--z-interhand-hud) + 10);
   height: 12dvh;
   min-height: 12dvh;
   margin: 0;
@@ -1317,6 +1334,134 @@
      per-card animation. */
   .hero-cards--committed > div {
     animation: none !important;
+  }
+}
+
+/* =========================================
+   RUN-OUT "STAGE" MODE
+   During an all-in run-out (board-dealing director active) or a multiway
+   showdown reveal, the table reconfigures so the cards aren't buried under the
+   table banter: the top nav slides away, the opponent avatars crop/pull up, and
+   the pot + community + hero slide DOWN (community tucking its bottom edge toward
+   the hero panel, hero showing just the tops of the hole cards). That opens a
+   clear band in the MIDDLE — between the avatars and the community cards — into
+   which the chat stack relocates and stacks.
+
+   All movement is transform/opacity based so it animates in and out and never
+   reflows the underlying fixed-height sections. Tunables live on the root.
+   ========================================= */
+.mobile-poker-table {
+  --stage-pot-shift: -14dvh; /* pot rides up to just below the avatars */
+  --stage-community-shift: -18dvh; /* community rides up, snug under the pot.
+                                      Leaves the lower band for the chat, which
+                                      rises and cuts off the card bottoms. */
+  --stage-chat-top: 44dvh; /* chat anchors here (≈ community card bottom); the
+                              first bubble lands at the card bottoms and the stack
+                              grows downward toward the hero */
+  --stage-hero-drop: 15dvh; /* hero drops far — with the action bar gone, this is
+                               what keeps only the hole-card TOPS peeking from the
+                               bottom edge */
+  --stage-opp-rise: -6dvh; /* pull the whole avatar row up toward the page top
+                              (the hidden nav frees the space) */
+  --stage-opp-height: calc(
+    (35dvh - 5dvh) * 0.78
+  ); /* shrink the avatar CONTAINER
+                              ~22% — object-fit:cover crops the photo and the
+                              name/stack rides up with the shorter card */
+  --stage-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Smooth the reconfigure on every mover, both into stage and back out. */
+.opponents-wrapper,
+.mobile-opponent,
+.mobile-floating-pot,
+.mobile-community,
+.mobile-hero,
+.mobile-action-area {
+  transition:
+    transform 0.45s var(--stage-ease),
+    height 0.45s var(--stage-ease);
+}
+
+/* Top nav slides up out of the way for the sequence (it carries no actionable
+   controls during a run-out / showdown). */
+.mobile-poker-table[data-stage='true'] .menu-bar {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.4s var(--stage-ease),
+    opacity 0.3s ease;
+}
+
+/* Avatars: pull the whole row up toward the top of the page, shrink each card
+   (object-fit:cover crops the photo's lower body) and top-anchor the row so the
+   freed space falls BELOW the faces — into the chat band. */
+.mobile-poker-table[data-stage='true'] .opponents-wrapper {
+  transform: translateY(var(--stage-opp-rise));
+}
+.mobile-poker-table[data-stage='true'] .mobile-opponents {
+  align-items: flex-start;
+}
+.mobile-poker-table[data-stage='true'] .mobile-opponent {
+  height: var(--stage-opp-height);
+}
+
+/* Pot sits above the community; both settle to mid. Z-order is the key: the
+   community sits LOW on z (2) so the chat rises in FRONT of it and cuts off the
+   community card bottoms; the pot stays ABOVE the chat (9) so it's never covered;
+   the hero panel is highest (10) so the chat tucks BENEATH it as the stack grows
+   down. */
+.mobile-poker-table[data-stage='true'] .mobile-community {
+  transform: translateY(var(--stage-community-shift));
+  z-index: 2;
+}
+.mobile-poker-table[data-stage='true'] .mobile-floating-pot {
+  transform: translateY(var(--stage-pot-shift));
+  z-index: 9;
+}
+.mobile-poker-table[data-stage='true'] .mobile-hero {
+  transform: translateY(var(--stage-hero-drop));
+  z-index: 10;
+  /* Opaque dark backing (the idle panel bg is translucent rgba 0.4–0.6) so the
+     chat tucked behind the panel is fully hidden, not bleeding through. */
+  background: linear-gradient(to top, rgb(10, 11, 16) 0%, rgb(15, 17, 24) 100%);
+}
+
+/* No actions during a run-out / showdown — the action bar slides away (it has
+   no opaque fill, so leaving it would let the dropped community show through
+   it). It also sits ABOVE the chat on z so chat floats up from behind it. */
+.mobile-poker-table[data-stage='true'] .mobile-action-area {
+  transform: translateY(110%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The chat anchors at the TOP of the lower band — its first bubble lands at the
+   bottom of the community cards — and each new message stacks DOWNWARD beneath it,
+   toward the hero. z:8 puts it IN FRONT of the community (2), cutting off the card
+   bottoms, but BEHIND the pot (9) and hero panel (10), so the stack tucks under
+   the hero as it grows down and never covers the pot. */
+.mobile-poker-table[data-stage='true'] .floating-chat-stack {
+  top: var(--stage-chat-top);
+  bottom: auto;
+  left: 16px;
+  right: 16px;
+  max-width: 420px;
+  flex-direction: column;
+  z-index: 8;
+}
+
+/* Reduced motion: still reconfigure (the layout is the point), just don't
+   animate the slide. */
+@media (prefers-reduced-motion: reduce) {
+  .mobile-floating-pot,
+  .mobile-community,
+  .mobile-hero,
+  .mobile-action-area,
+  .opponent-avatar,
+  .mobile-poker-table[data-stage='true'] .menu-bar {
+    transition: none;
   }
 }
 

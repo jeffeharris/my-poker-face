@@ -1,0 +1,280 @@
+"""Per-archetype behavioral target ranges + scoring.
+
+The tiered-bot archetypes (``deviation_profile_name``) are meant to be
+*readable* opponents — a player should be able to get a reliable read on a
+``nit`` vs a ``maniac``. To shape them we need (a) an explicit target range
+for each behavioral stat per archetype and (b) a way to score the actual
+measured behavior against it.
+
+This module owns the targets. The review route (``archetype_review_routes``)
+measures actuals from ``player_decision_analysis`` and calls :func:`score_stat`.
+
+Targets are **cash-game** oriented (100bb 6-max). Tournament play distorts
+these (ICM, short stacks) and gets separate handling later.
+
+Numbers are starting points calibrated against standard poker stat ranges —
+they are meant to be *tuned*. They can be overridden at runtime via the
+``ARCHETYPE_TARGET_OVERRIDES`` app setting (JSON) without a code change; see
+:func:`get_targets`.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+# Canonical production archetypes (mirror DEVIATION_PROFILES keys that are
+# actually assigned in production — isolation/validation profiles excluded).
+PRODUCTION_ARCHETYPES = (
+    'nit',
+    'rock',
+    'tag',
+    'lag',
+    'maniac',
+    'calling_station',
+    'weak_fish',
+)
+
+# The stats we target, in display order, with human-facing labels and whether
+# a higher value is "more aggressive" (used only for UI hinting).
+STAT_LABELS: Dict[str, str] = {
+    'vpip': 'VPIP %',
+    'pfr': 'PFR %',
+    'threebet': '3-bet %',
+    'fourbet': '4-bet %',
+    'fold_to_3bet': 'Fold-to-3bet %',
+    'af': 'Aggression Factor',
+    'all_in': 'All-in %',
+    'afq': 'AFq %',
+    'wtsd': 'WTSD %',
+    'wsd': 'W$SD %',
+    'flop_af': 'Flop AF',
+    'turn_af': 'Turn AF',
+    'river_af': 'River AF',
+    'cbet': 'C-bet %',
+    'fold_to_cbet': 'Fold-to-CB %',
+}
+
+# (lo, hi) inclusive target band per archetype per stat. See module docstring.
+# DENOMINATORS (must match archetype_review_routes computation):
+#   vpip/pfr        = per preflop hand-instance (% of hands)
+#   threebet        = raise AT a vs_open node / decisions facing an open
+#                     ("3-bet when facing an open" — NOT % of all hands, which
+#                     runs ~half this. A solid reg is ~15% here, not ~7%.)
+#   fourbet         = raise at a vs_3bet node / decisions facing a 3-bet
+#   fold_to_3bet    = fold at a vs_3bet node / decisions facing a 3-bet
+#   af              = postflop (bet+raise)/call (a ratio, not a %)
+#   all_in          = hand-instances with any all-in / hands
+#   afq             = postflop (bet+raise)/(bet+raise+call+fold) % (folds in the
+#                     denominator — the AF discriminator; checks EXCLUDED). Bands
+#                     re-baselined 2026-06-09 by poker judgment (no hard
+#                     population citation exists at this granularity) against the
+#                     6-max mixed-field probe: the originals ran ~10-15pts low for
+#                     the tight/aggressive types because AFq excludes checks, so
+#                     even a "tight" player's non-check actions skew aggressive.
+#   wtsd            = went-to-showdown / saw-the-flop % (research §1B, 6-max)
+#   wsd             = won-at-showdown / went-to-showdown % (research §1B, 6-max)
+#   flop/turn/river_af = per-street (bet+raise)/call. NO target band by design
+#                     (renders no_target, like c-bet) until sim data sets bands.
+#   cbet            = flop c-bets / times the preflop aggressor saw an un-bet
+#                     flop % (the aggressor's continuation-bet rate; research §1B,
+#                     6-max). Live is best-effort (reconstructed from rows).
+#   fold_to_cbet    = folds to a flop c-bet / times facing one % (research §1B).
+ARCHETYPE_TARGETS: Dict[str, Dict[str, Tuple[float, float]]] = {
+    'nit': {
+        'vpip': (10, 16),
+        'pfr': (8, 13),
+        'threebet': (2, 7),
+        'fourbet': (3, 10),
+        'fold_to_3bet': (60, 80),
+        'af': (1.5, 2.8),
+        'all_in': (0, 3),
+        # AFq re-baselined 20-35 -> 35-50 (2026-06-09 gut-check). AFq EXCLUDES
+        # checks, so a nit's non-check postflop actions are dominated by
+        # value-bets (strong range) + folds, with few calls — that runs ~40-48%,
+        # not the old too-low band. Judgment call, not a hard citation.
+        'afq': (35, 50),
+        'wtsd': (22, 28),  # was 20-24; real 6-max nit WTSD ~24-28, band widened
+        'wsd': (52, 58),
+        # cbet 55-70 -> 50-70: our nit sits between rock (passive) and tag — a
+        # touch below textbook TAG c-bet, defensibly so given its low aggression.
+        'cbet': (50, 70),
+        'fold_to_cbet': (55, 70),
+    },
+    # Rock: tight-PASSIVE (backlog #10, Option A) — tightest in the field, plays
+    # those hands passively (low PFR/VPIP, low AF, high fold-to-3bet). Distinct
+    # read from nit (tight-AGGRESSIVE). Bands tuned vs archetype_mixedfield_probe;
+    # postflop passivity (AF < nit) carried by the `passive_postflop` spot tendency.
+    'rock': {
+        'vpip': (8, 15),
+        'pfr': (5, 10),
+        'threebet': (1, 5),
+        'fourbet': (1, 9),
+        'fold_to_3bet': (65, 85),
+        'af': (0.8, 1.8),
+        'all_in': (0, 2),
+        # Rock is tight-PASSIVE: more checks/calls than a nit → lower AFq, but
+        # still not as low as the old band. ~25-40 (gut-check, 2026-06-09).
+        'afq': (25, 40),
+        'wtsd': (22, 30),  # was 20-24; widened (tight-passive shows down a bit)
+        'wsd': (54, 60),
+        # cbet lowered 45-60 -> 26-46: rock is tight-PASSIVE, it checks back far
+        # more as the aggressor than a TAG/nit. The old band assumed too much
+        # c-betting for a passive identity; even eased, rock c-bets ~25% (gut-check).
+        'cbet': (26, 46),
+        'fold_to_cbet': (55, 70),
+    },
+    'tag': {
+        'vpip': (20, 28),
+        'pfr': (16, 23),
+        # 3-bet widened 10-16 -> 11-18 (backlog #5). tag's measured ~16 facing-open
+        # is LIVE-faithful (live reg ~13%, recreational higher — research §1B in OUR
+        # opportunity denominator), not an over-3bet to trim toward online numbers.
+        # A TAG legitimately 3-bets a polarized range facing opens; the band (not
+        # the chart) was the fix — widening clears the boundary WARN.
+        'threebet': (11, 18),
+        'fourbet': (5, 13),
+        'fold_to_3bet': (40, 58),
+        'af': (2.5, 3.8),
+        'all_in': (0, 5),
+        'afq': (42, 55),  # was 35-45; balanced-aggressive TAG AFq ~45-55 (gut-check)
+        'wtsd': (26, 32),  # was 26-29; 3-pt band too narrow for a noisy stat
+        'wsd': (52, 56),
+        'cbet': (55, 70),
+        'fold_to_cbet': (45, 55),
+    },
+    'lag': {
+        'vpip': (28, 40),
+        'pfr': (22, 32),
+        'threebet': (16, 26),
+        'fourbet': (10, 20),
+        'fold_to_3bet': (30, 48),
+        'af': (3.3, 5.5),
+        'all_in': (0, 7),
+        'afq': (48, 62),  # was 40-52; LAG aggression runs higher (gut-check)
+        'wtsd': (27, 33),  # was 27-31; slight widen
+        # W$SD widened 48-52 -> 45-52: a LAG shows down a WIDER range, so it wins a
+        # slightly smaller fraction at showdown; 48-52 was an unrealistically tight
+        # 4-pt band for a noisy outcome stat.
+        'wsd': (45, 52),
+        'cbet': (60, 75),
+        'fold_to_cbet': (40, 50),
+    },
+    # Maniac 3-bet/4-bet bands re-set to the LOWERED Phase-3 baseline (#9 /
+    # PERCEPTIBILITY_CONDITIONING.md). The bands describe the DEFAULT (flag-OFF)
+    # behavior: a sustained ~30 facing-open 3-bet, NOT the old ~37 caricature.
+    # IMPORTANT: when TILT_CONDITIONING_ENABLED is on AND the maniac is freshly
+    # tilted, the tilt_conditioning layer lifts 3-bet into the 30s/low-40s — those
+    # transient tilt-STATE spikes are DESIGNED to exceed this band (the conditioned
+    # tail; a high frequency is realistic, a *constant* one is the caricature).
+    # The band is the calm baseline, not the ceiling. Floor caveat: ~30 is the
+    # lowest the cap can pull it (the shared loose chart's own re-raise mass is
+    # ~30%); the ~20-25 research target needs a maniac-only chart (deferred, #5).
+    'maniac': {
+        'vpip': (45, 70),
+        'pfr': (35, 58),
+        'threebet': (26, 34),
+        # fourbet 26-38 → 10-24 (2026-06-10, the vs_3bet equity-gradient regen).
+        # The old band was only reachable by 4-betting OFFSUIT trash (the stub's
+        # universal ~10% trash-4-bet, amplified). The regen polarizes the 4-bet
+        # — value + SUITED blocker bluffs, never offsuit junk — and suited combos
+        # cap a polarized 4-bet at ~15%. This is the believable maniac the
+        # research §B calls for ("a *constant* high frequency is a caricature";
+        # live maniacs 4-bet far less than the old caricature band). See
+        # ARCHETYPE_SHAPING_FINDINGS.md § Finding 1a / § B.
+        'fourbet': (10, 24),
+        # fold_to_3bet ceiling 40→48: a polarized maniac that 4-bets less (no
+        # offsuit trash) flats fewer junk hands too, so it folds-to-3bet a touch
+        # more — the correct consequence of de-caricaturing, not an over-fold.
+        'fold_to_3bet': (15, 48),
+        'af': (5, 9),
+        'all_in': (3, 14),
+        'afq': (55, 72),  # was 48-65; maniac is the most aggressive type (gut-check)
+        'wtsd': (30, 40),
+        'wsd': (40, 48),
+        'cbet': (75, 95),
+        'fold_to_cbet': (25, 40),
+    },
+    'calling_station': {
+        'vpip': (40, 58),
+        'pfr': (4, 12),
+        'threebet': (1, 5),
+        'fourbet': (0, 5),
+        'fold_to_3bet': (20, 40),
+        'af': (0.4, 1.2),
+        'all_in': (0, 4),
+        'afq': (12, 28),  # call-dominated denominator → low AFq (top nudged up)
+        'wtsd': (33, 45),
+        'wsd': (44, 50),
+        'cbet': (25, 45),
+        'fold_to_cbet': (20, 35),
+    },
+    'weak_fish': {
+        'vpip': (33, 52),
+        'pfr': (6, 15),
+        'threebet': (2, 7),
+        'fourbet': (1, 7),
+        'fold_to_3bet': (25, 45),
+        'af': (0.7, 1.6),
+        'all_in': (0, 5),
+        'afq': (15, 32),  # spewy-passive: a touch more aggression than a station
+        'wtsd': (30, 40),
+        'wsd': (45, 50),
+        'cbet': (24, 48),  # loose-passive fish barely c-bets (checks back a lot)
+        'fold_to_cbet': (30, 45),
+    },
+}
+
+# Below this many observations a stat is reported but flagged low-confidence.
+MIN_SAMPLE = 20
+
+# How far outside the band (as a fraction of the band width, min 1 unit) still
+# counts as a "warn" rather than a hard "fail".
+WARN_MARGIN_FRAC = 0.5
+
+
+def get_targets(override_json: Optional[str] = None) -> Dict[str, Dict[str, Tuple[float, float]]]:
+    """Return the target table, merged with an optional JSON override.
+
+    ``override_json`` is the raw value of the ``ARCHETYPE_TARGET_OVERRIDES``
+    app setting: ``{archetype: {stat: [lo, hi]}}``. Unknown archetypes/stats
+    are ignored; a malformed blob falls back to the built-in defaults.
+    """
+    targets = {a: dict(s) for a, s in ARCHETYPE_TARGETS.items()}
+    if not override_json:
+        return targets
+    try:
+        overrides = json.loads(override_json)
+    except (ValueError, TypeError):
+        logger.warning('ARCHETYPE_TARGET_OVERRIDES is not valid JSON; using defaults')
+        return targets
+    for arch, stats in (overrides or {}).items():
+        if arch not in targets or not isinstance(stats, dict):
+            continue
+        for stat, band in stats.items():
+            if stat in targets[arch] and isinstance(band, (list | tuple)) and len(band) == 2:
+                targets[arch][stat] = (float(band[0]), float(band[1]))
+    return targets
+
+
+def score_stat(actual: Optional[float], band: Tuple[float, float], sample: int) -> str:
+    """Classify an actual value against its target band.
+
+    Returns one of: ``no_data`` (no actual), ``low_n`` (below MIN_SAMPLE),
+    ``pass`` (inside the band), ``warn`` (just outside, within WARN_MARGIN_FRAC
+    of the band width), or ``fail`` (clearly outside).
+    """
+    if actual is None:
+        return 'no_data'
+    if sample < MIN_SAMPLE:
+        return 'low_n'
+    lo, hi = band
+    if lo <= actual <= hi:
+        return 'pass'
+    margin = max((hi - lo) * WARN_MARGIN_FRAC, 1.0)
+    if (lo - margin) <= actual <= (hi + margin):
+        return 'warn'
+    return 'fail'

@@ -66,9 +66,18 @@ interface GameStore {
   // responsiveness; this holds the pre-action slices so we can revert if the
   // action is rejected. Cleared as soon as authoritative state arrives.
   optimisticSnapshot: OptimisticSnapshot | null;
+  // Highest server-stamped frame version applied so far. A socket frame whose
+  // `state_version` is <= this is stale (a leaked socket or a late sequencer
+  // beat) and is dropped, so the table can't regress to an earlier hand — the
+  // "two hands flickering" class of bug. An authoritative REST refresh resets
+  // this baseline (it accepts any version, even after a server-restart counter
+  // reset). 0 = nothing applied yet; server versions start at 1.
+  stateVersion: number;
 
   // Actions
-  applyGameState: (state: GameState) => void;
+  // `authoritative` (REST cold-load / refresh) bypasses the staleness guard and
+  // resets the version baseline; socket pushes leave it false (guarded).
+  applyGameState: (state: GameState, authoritative?: boolean) => void;
   updatePlayers: (updater: (prev: Player[] | null) => Player[] | null) => void;
   updatePlayerOptions: (options: string[]) => void;
   pushWorldEvent: (event: LobbyEvent) => void;
@@ -117,6 +126,7 @@ const initialState = {
   runoutDirectorActive: false,
   cardDeal: null as { token: number; count: number; total: number } | null,
   optimisticSnapshot: null as OptimisticSnapshot | null,
+  stateVersion: 0,
 };
 
 /** Compare two Player objects field-by-field, including nested objects. */
@@ -183,8 +193,23 @@ function arePlayersEqual(a: Player, b: Player): boolean {
 export const useGameStore = create<GameStore>((set) => ({
   ...initialState,
 
-  applyGameState: (state: GameState) => {
+  applyGameState: (state: GameState, authoritative = false) => {
     set((prev) => {
+      // Staleness guard (socket path only). Drop a frame whose server version is
+      // older than the last one we applied — a leaked/orphaned socket or a late
+      // sequencer beat re-applying an earlier hand. Authoritative REST refreshes
+      // skip this and reset the baseline below, so a server restart (which
+      // resets the global counter) can never wedge us into dropping everything.
+      const incomingVersion = state.state_version;
+      if (
+        !authoritative &&
+        typeof incomingVersion === 'number' &&
+        incomingVersion <= prev.stateVersion
+      ) {
+        return {};
+      }
+      const nextVersion = typeof incomingVersion === 'number' ? incomingVersion : prev.stateVersion;
+
       // Structural sharing: reuse Player references when data hasn't changed
       let players = state.players;
       if (prev.players && state.players) {
@@ -236,6 +261,7 @@ export const useGameStore = create<GameStore>((set) => ({
         // Authoritative state supersedes any optimistic guess — drop the
         // rollback snapshot so a later, unrelated action can't revert to it.
         optimisticSnapshot: null,
+        stateVersion: nextVersion,
       };
     });
   },

@@ -7,8 +7,8 @@ import { LoginForm } from './components/auth/LoginForm';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { GamePage } from './components/game/GamePage';
 import { rememberAdminOrigin } from './components/admin/adminOrigin';
-import { useAuth } from './hooks/useAuth';
-import { isNativePlatform } from './utils/nativeAuth';
+import { setTournamentOrigin } from './utils/tournamentOrigin';
+import { useAuth, hasPermission } from './hooks/useAuth';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
 import { useUsageStats } from './hooks/useUsageStats';
 import { useNicknameOverridesStore } from './stores/nicknameOverridesStore';
@@ -16,6 +16,8 @@ import { fetchNicknameOverrides } from './components/character/api';
 import { ShuffleLoading, GuestLimitModal } from './components/shared';
 import { pickQuote } from './components/game/WinnerAnnouncement/quote-flavor';
 import { logger } from './utils/logger';
+import { FeedbackButton } from './components/feedback/FeedbackButton';
+import { setSentryUser, setSentryGame, setReplayRecording } from './sentry';
 import { config } from './config';
 import { type Theme } from './types/theme';
 import toast, { Toaster } from 'react-hot-toast';
@@ -40,6 +42,9 @@ const CustomGameConfig = lazy(() =>
 const CareerStats = lazy(() =>
   import('./components/stats/CareerStats').then((m) => ({ default: m.CareerStats }))
 );
+const MyStory = lazy(() =>
+  import('./components/stats/MyStory').then((m) => ({ default: m.MyStory }))
+);
 const SettingsPage = lazy(() =>
   import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))
 );
@@ -48,9 +53,6 @@ const InstallPrompt = lazy(() =>
 );
 const AdminRoutes = lazy(() =>
   import('./components/admin/AdminRoutes').then((m) => ({ default: m.AdminRoutes }))
-);
-const LandingPage = lazy(() =>
-  import('./components/landing').then((m) => ({ default: m.LandingPage }))
 );
 const Lobby = lazy(() => import('./components/cash/Lobby').then((m) => ({ default: m.Lobby })));
 const TournamentPage = lazy(() =>
@@ -95,6 +97,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/personalities': 'Manage Personalities - My Poker Face',
   '/cash': 'The Circuit - My Poker Face',
   '/stats': 'My Stats - My Poker Face',
+  '/story': 'Your Journey - My Poker Face',
   '/settings': 'Settings - My Poker Face',
   '/profile': 'Settings - My Poker Face',
   '/admin': 'Admin Dashboard - My Poker Face',
@@ -196,6 +199,30 @@ function App() {
       fetchSavedGamesCount();
     }
   }, [isAuthenticated, location.pathname]);
+
+  // Keep Sentry's identity context in sync so every session replay and bug
+  // report is searchable by player (and the feedback form prefills name/email).
+  // No-op when Sentry is disabled.
+  const userId = user?.id;
+  const userName = user?.name;
+  const userEmail = user?.email;
+  const userIsGuest = user?.is_guest;
+  const userIsAdmin = hasPermission(user, 'can_access_admin_tools');
+  useEffect(() => {
+    setSentryUser(
+      userId ? { id: userId, name: userName ?? '', email: userEmail, isGuest: userIsGuest } : null
+    );
+    // Only record replays for authenticated sessions (not anonymous landing-page
+    // browsing), and never for admins (us) — both to protect the free-tier quota.
+    setReplayRecording(isAuthenticated && !userIsAdmin);
+  }, [isAuthenticated, userId, userName, userEmail, userIsGuest, userIsAdmin]);
+
+  // Tag the active game id (from /game/:id) so a feedback report links straight
+  // to that game's admin debug views. Cleared on any non-game route.
+  useEffect(() => {
+    const match = location.pathname.match(/^\/game\/([^/]+)$/);
+    setSentryGame(match && match[1] !== 'new' ? match[1] : null);
+  }, [location.pathname]);
 
   // Redirect to menu after login if on login page
   useEffect(() => {
@@ -580,7 +607,12 @@ function App() {
                       rememberAdminOrigin(location.pathname);
                       navigate('/admin');
                     }}
-                    onMultiTable={() => navigate('/tournament')}
+                    onMultiTable={() => {
+                      // Launched from the Tournament menu — the standings hub
+                      // should back out here, not to the cash lobby.
+                      setTournamentOrigin('/menu/tournament');
+                      navigate('/tournament');
+                    }}
                     onBack={() => navigate('/menu')}
                     savedGamesCount={savedGamesCount}
                     isCreatingGame={isCreatingGame}
@@ -651,6 +683,15 @@ function App() {
             />
 
             <Route
+              path="/story"
+              element={
+                <ProtectedRoute>
+                  <MyStory onBack={() => navigate('/cash')} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
               path="/settings"
               element={
                 <ProtectedRoute>
@@ -705,23 +746,18 @@ function App() {
               }
             />
 
-            {/* Landing page and fallback. The native (Capacitor) app skips the
-                marketing landing page and opens straight at /login — there's no
-                "learn more / sign up" funnel inside an installed app. Web keeps
-                the landing page. */}
+            {/* Root + fallback. The public landing page is the standalone Astro
+                marketing site (served at / by the Caddy edge); the SPA only sees
+                these routes when reached client-side (e.g. an installed PWA, or a
+                stray in-app URL), so send guests to login rather than the pitch. */}
             <Route
               path="/"
-              element={
-                isAuthenticated ? (
-                  <Navigate to="/menu" replace />
-                ) : isNativePlatform() ? (
-                  <Navigate to="/login" replace />
-                ) : (
-                  <LandingPage />
-                )
-              }
+              element={<Navigate to={isAuthenticated ? '/menu' : '/login'} replace />}
             />
-            <Route path="*" element={<Navigate to={isAuthenticated ? '/menu' : '/'} replace />} />
+            <Route
+              path="*"
+              element={<Navigate to={isAuthenticated ? '/menu' : '/login'} replace />}
+            />
           </Routes>
         </Suspense>
       </ErrorBoundary>
@@ -785,6 +821,9 @@ function App() {
 
       {/* PWA Install Prompt */}
       <InstallPrompt />
+
+      {/* App-wide bug-report launcher (renders only when Sentry is configured) */}
+      <FeedbackButton />
     </>
   );
 }

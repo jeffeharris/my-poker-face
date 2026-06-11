@@ -2,8 +2,191 @@
 purpose: A progressive, scene-based career narrative where the player earns their way into a growing world of cardrooms through vouches (likability-driven, respect-gated) rather than being dropped into the full lobby
 type: design
 created: 2026-05-26
-last_updated: 2026-05-26
+last_updated: 2026-06-06
 ---
+
+> **M1 shipped (2026-05-30, branch `circuit-progression`).** The thinnest
+> playable slice is built + tested:
+> - **Keyring** — per-`(sandbox, owner)` `career_progress` table (schema v124,
+>   `CareerProgressRepository`) with a `career_active` master switch that
+>   **defaults off = full lobby** (legacy-safe; can never blank an existing
+>   playtester). `get_lobby` filters to `visible_tables` (scripted + revealed).
+> - **Scene 0** — `cash_mode/career_progression.py` seeds a pinned
+>   `table_type='scripted'` table (Sal Moretti + the fish *Loose Larry*, both
+>   added to `personalities.json` as **non-circulating** authored personas;
+>   the seeder now honours `"circulating": false`). The table is excluded from
+>   movement/live-fill in `refresh_unseated_tables` **and** the human-table
+>   hook. Chip-conservation verified (bankroll-debit, no mint).
+> - **Scene 0 plays at the table (rebuilt — the modal is gone).** A first cut
+>   delivered the lesson as a lobby pop-up quiz; it playtested as incoherent and
+>   was **deleted** (modal, `/api/cash/scene0/spot*` endpoints, the ported
+>   `training/` engine, `career_spots.py`). The shipped design deals the lesson
+>   on the real felt:
+>   - **One-shot provided-deck seam** (`poker_state_machine.provide_hand_deck`)
+>     — a pre-stacked deck replaces the shuffle for exactly one hand, then
+>     clears (mirrors the existing seed override). Hand 1 stays a normal deal.
+>   - **`cash_mode/career_scene.py`** — the Scene-0 script (hand 1 normal, then
+>     the bluff-catch teaching hand) + `build_hand_deck` (orders a stacked deck
+>     from the live seating) + `resolve_scripted_action` (the cast's scripted
+>     intents → legal moves).
+>   - **`game_handler` hooks** — at the pinned Scene-0 table: init roles + the
+>     opening line; inject **scripted actions for the fish + mentor** so the
+>     lesson is reliable (Larry over-bluffs the river, Sal folds out of the way);
+>     a hand-boundary driver that judges the finished teaching hand (hero folded
+>     = failed), narrates **Sal in table chat**, pre-stacks the next hand, and
+>     **graduates** (the first vouch → home court) when the script ends.
+>   - Tested: the deck seam, the rig builder (round-trips through the dealer),
+>     the action resolver, and the hook chain (init → rig → deal → scripted bet).
+
+# The Circuit — world, tone & the Scene-0 redesign (2026-05-30)
+
+> This section is the **narrative canon** for cash/career mode (now "**The
+> Circuit**") and the **spec for the Scene-0 rebuild**. It came out of a design
+> riff and supersedes the earlier Scene-0 beat sheet's "grind a realistic fish"
+> framing and the M1 lobby-modal delivery. The mechanical spine below (keyring,
+> vouches, anti-skip, build sequence) is unchanged — this is the skin and the
+> onboarding it hangs on.
+
+## Tone
+
+**Comedy. Chill, absurd, warm — never tragic.** The register is "a normal person
+wanders into a surreal place and rolls with it," not "a broken hustler chasing
+redemption." A light *Matrix*-ish "wait… I can see how this works" allusion is
+welcome as a *touch*, never a thesis. The teaching is **invisible** — there is no
+"TUTORIAL" chrome, no "Lesson 1/3"; it's just your first night at a soft table
+with a chatty old-timer who took a shine to you.
+
+## The world: poker rooms where there shouldn't be poker rooms
+
+The Circuit is a string of venues that **shouldn't quite be poker rooms, but
+somehow are** — a 50s diner, a dive bar, somebody's garage, a lodge, a hotel
+mezzanine, a private back room. Familiar enough that a game there is plausible,
+slightly dreamlike, each carried by a **single strong exterior/interior image**
+(cheap to convey — one shot per venue). The stakes ladder *is* the venue
+escalation: **low → high → private rooms.** (The existing lobby names already fit
+this universe almost exactly — Coffee Counter, Murphy's Bar, The Garage, Saturday
+Home Game, The Lodge, Hotel Mezzanine, High Roller Pit.)
+
+**Cardroom venues are scattered** — each vouched room is its own distinct place
+(the Lucky Stack diner, Murphy's Bar, The Garage, …), which is what makes "who do
+you know / hosts of tables" have texture. The **casino** tier (the public,
+pool-funded fish floor) *may* instead be **tables all in one building** — open.
+
+## The fish are literally fish
+
+Many patrons are **actual fish dressed up as people** — the loose-passive
+tourists (Vacation Greg, Loose Larry, …). The **main cast (Sal, the waitress) are
+not fish**, and whether *Sal* is one is a **running tease we never resolve**
+(*"takes one to know one, kid"* — no wink, no answer). Conveyed in **text first**:
+- **Names do the work** — everyone has a goofy tourist handle; the player being
+  christened "Juke Joint Jeff" is the first quiet clue.
+- ***blub*** tics laced into fish chat, plus clueless on-the-nose lines ("are
+  clubs higher than spades?"), and delight when you stack them ("great hand,
+  buddy, I almost had it!"). Loose Larry never figures out he's the fish.
+- **Flash-fish (optional, image-gen):** one DALL·E portrait of a fish persona in
+  its outfit, **flashed for a beat** at a charged moment so the player isn't sure
+  they saw it. A good **one-time beat for Larry**; not necessarily recurring.
+  **No Sal flash** — keep him ambiguous.
+- **Slow burn:** the player isn't told. The penny drops on its own; Sal confirms
+  it later, lightly.
+
+## The economy is a closed loop — and nobody asks why
+
+The **bank stakes the fish** (this is canon, and the seed of the whole meta). The
+money cycles: **bank → fish → sharks → vices → back to the tables → repeat.** The
+rich win, blow it on vices, and grind it back to blow again. *Nothing ever really
+happens* — the same chips circle forever. This is never explained on screen; it's
+just the water everyone swims in, and it doubles as the **diegetic reason the chip
+ledger is a closed/conserved economy** (`cash_mode/closed_economy.py`). **Why** the
+bank floats the fish is a deliberate, unexplained mystery (maybe the waitress is
+the quiet hand behind it — open, unwritten).
+
+## The player: a silent wrong-turn at the Lucky Stack
+
+The human **never played poker.** They stop at a 50s diner, **The Lucky Stack**,
+for coffee and biscuits and gravy; the **waitress waves them toward "the back,"**
+assuming they're there for the game. Before they can object, there's a comped
+stack of chips in front of them (**this *is* the 200-chip seed** —
+`DEFAULT_PLAYER_STARTING_BANKROLL`, reframed as the house comping a newcomer) and
+an old guy named Sal saying *"sit down, kid."* Crucially this is **mistaken
+identity / wrong line — not an insult.** They were never "made for a sucker."
+
+- **Silent protagonist (GTA III-style).** The human says nothing; Sal and the
+  waitress carry every scene. The running gag — *"I just wanted the biscuits and
+  gravy"* — is implied by everyone *else*, never voiced by the player.
+- **Intake is snappy, not a profile form:** name + one tidbit → the system
+  assigns a **fish-name** (enter "Jeff" → "**Juke Joint Jeff**"; a juke/tourist
+  prefix + your name). This is the **create-a-player seam** (name now, avatar/bio
+  deferrable) — and it's the *same* machinery the endgame's protégé reuses.
+- **The fish-name is a status marker, shed at the first vouch:** *"A fish can't
+  get vouched — that's the one rule. Lucky for you, somewhere around that last
+  hand, you stopped being one."* You walk into the next room as just **Jeff**.
+
+## Sal "The Clock" Moretti — the mentor, and a preview of the endgame
+
+Grizzled but **chill and funny** — "the guy who wandered into the right place and
+stayed to vibe," not a wreck. He **made it out** of the Circuit and comes back
+because he likes it here: *"I'm not on the circuit anymore, kid. I just come out
+here to feed the fish."* (Hold the "nit" characterisation — he's a former Circuit
+player, not defined by tightness. He **doesn't bust because he isn't playing to
+win** — he's here for the company, which also lets him splash through the scripted
+hands without it mattering.)
+
+- **How he bonds / the one elegant mechanic:** Sal talks strategy *out loud at the
+  table* and the fish never react — **fish can't hear a word about the game.** The
+  player *can*. That's how Sal clocks they're not a fish, and it's why he engages.
+  The reveal is **quick and light, said later** (don't overplay): *"You ever
+  notice none of 'em answer me? You heard me from the first hand. That's how I
+  knew."* The teaching mechanism, the bond, and the reveal are one thing.
+- **He is your endgame, foreshadowed.** Late game you "make it out" and come back
+  to **feed the fish** — i.e. stake/mentor a player (the protégé chip-sink in
+  `CASH_MODE_CAREER_ENDGAME.md`). Closing-loop image: a new wanderer sits at the
+  Lucky Stack and a grizzled *you* says the same line. Onboarding and endgame are
+  the same scene from opposite chairs.
+
+## Scene 0, redesigned: ~10 hands, dealt at the table, teaching invisible
+
+Replaces the lobby modal. The player sits at the Lucky Stack table (Sal + Loose
+Larry + you) and plays a **rigged ~10-hand session** on the real felt:
+
+- **Hand 1 is just poker** — settle in, feel the table; Sal sizes you up quietly.
+- **3 teaching spots** seeded among **~7 quiet filler hands** (fold trash, win/lose
+  small) so it reads as a *real soft game*, not a quiz:
+  1. **Value** — top pair vs the station: *bet it, make him pay* (check → Sal
+     ribs you for leaving money on the felt).
+  2. **Bluff-catch** — Larry over-bets the river with air: *look him up* (the
+     exact leak the live `weak_fish` shows; see
+     `reference_fish_is_tiered_weak_fish`).
+  3. **Discipline** — Larry actually has it this time: *lay it down* (fish aren't
+     *always* bluffing).
+- **Nobody busts.** The deck is rigged so all pots stay small/medium; Sal isn't
+  playing to win; Larry's oblivious and "rebuys all night." This is the Scene-0
+  **can't-fail-out** guarantee, met by construction.
+- **Sal narrates in table chat (text)**, firing on the teaching spots, keyed to
+  the player's action — approval on a good line (builds the respect that earns the
+  vouch), a corrective rib on a mistake (he still teaches; you don't hard-fail).
+- **Graduation:** finishing the sequence having shown you can spot + punish the
+  fish → Sal vouches you → a home-court room opens (the keyring reveal) and the
+  fish-name is shed.
+
+**Implementation (BUILT — committed `1144fc2c`, branch `circuit-progression`):**
+the deck is rigged per-hand on the live felt via the state machine's name-keyed
+`provide_hand_holes` seam (resolved against the post-button-rotation seating);
+the script + cast lines live in `cash_mode/career_scene.py`; the driver is a
+**reusable scene system** (`cash_mode/table_scenes.py` `TableScene` + registry,
+driven by scene-generic hooks in `flask_app/handlers/game_handler.py`) with
+cold-load durability (`career_progress.scene_progress`). The three teaching hands
+are **real famous hands** (skill not luck), cast so the hero does what the legend
+got wrong — catalogue + sourcing in `CASH_MODE_FAMOUS_HANDS_LIBRARY.md`. Sal
+narrates principle only (never the hero's hole cards). The intake beat + fish-name
+generator are new surface; flash-fish is still deferred. (The earlier
+`from_saved_state` reconstruction plan was NOT used — the in-table rig replaced
+it; re-port that engine from `training-room` if M3 hand-replay needs it.)
+
+*Still open:* venues scattered vs one building; the waitress as recurring intake /
+cash-out character and possible hidden hand behind the float; how much the player
+authors at intake (name now, avatar/bio later); whether to ship the flash-fish in
+the first cut.
 
 # Cash Mode: Career Progression (the narrative spine)
 
@@ -98,10 +281,25 @@ vouch_ready(ai → human):
   (0.80+) is too tough to demand for *every* door; ~0.70 is reachable
   through a good session without being a gimme. The further likability
   climbs above it, the sooner/more eagerly they vouch.
-- **Mentors start warm.** Curated personas (and home-court regulars you
-  click with) seed a relatively **high baseline regard** toward you, so
-  you're "already kind of high" and only need to close the last gap with
-  a memorable hand or two — not grind a relationship up from zero.
+- **Mentors start warm; everyone else earns it (v1, shipped).** Only the
+  **mentor (Sal)** is seeded with a high baseline regard toward you
+  (`cash_routes.py`, 0.85/0.85 on the graduation stake — load-bearing for
+  forgiveness). Sal has *already* vouched (scripted), so emergent vouches
+  come from **other** AIs, who start at **neutral** and must be raised by
+  *play + social events*. Respect ≥ floor is easy (it equals neutral and
+  rises when you play well); **likability ≥ 0.70 is the real gate**, and
+  raw poker *erodes* it (bad beats, dominated showdowns) — so the only way
+  up is **social warmth**: compliments, props, friendly banter,
+  commiseration (`chat_relationship.py`). Net effect: emergent vouches are
+  a **rare reward for the socially-engaged player**, not something a
+  heads-down grinder trips. This matches "warmth opens doors" below.
+  > **FOLLOW-UP (next): more ways to raise likability.** The original
+  > "home-court regulars also seed a high baseline" idea is **deliberately
+  > deferred** — we ship social-accrual-only first and measure reachability
+  > from the live `[VOUCH] eval` instrumentation. Candidate follow-ups:
+  > seed home-court regulars warm on first sit; reward repeat sessions with
+  > the same AI; small per-session likability drip for non-hostile play.
+  > See `CASH_MODE_CAREER_M2_PLAN.md` § "Follow-ups".
 
 The two failure modes are thematically clean and **opposite to the
 prestige axis** (where respect dominates — see the attractiveness doc):
@@ -247,6 +445,12 @@ hook: this is the *Rounders* opening — the grinder-mentor, the soft game,
 earning your way into the room. See below.)
 
 ### Scene-0 beat sheet ("The Clock's table")
+
+> **Superseded by "The Circuit — Scene 0, redesigned" at the top of this doc
+> (2026-05-30).** The graduation gate is no longer "win pots off a live fish";
+> it's a rigged ~10-hand session of scripted spots dealt at the table, teaching
+> invisible, Sal narrating in chat. This original beat sheet is kept for its
+> dialogue seeds (the cold open, the reads), which still apply.
 
 Cast: **you** (200 chips), **Sal Moretti** (the pro), **one fish** (a
 tourist persona — Greg / Carl / Bobby). Only this casino table is visible.
@@ -474,22 +678,37 @@ Optional by design, so it sequences after the core loop is proven.
 
 > **Decided:** one vouch per AI (v1, revisit if limiting);
 > `LIKE_THRESHOLD` ≈ **0.70**; vouches require having **played with** the
-> AI; mentors **seed a warm baseline** regard; first vouch gated on
-> **min-hands + winning pots off the fish**; the home court is a **random**
+> AI; mentors **seed a warm baseline** regard; the home court is a **random**
 > cardroom; the Scene-0 mentor is **Sal Moretti, an authored/controlled
 > character** (celebs stay autonomous, `starting_bankroll` 6,000 to keep
 > him anchored at $2); **staking unlocks at the second-cardroom
-> milestone** (anti-skip backstop); **Scene -1 training lounge** (optional,
-> skippable, persistent) with an **$80 double-or-bust freeroll** (bust →
-> covered; double → keep ~$40; first playthrough only).
+> milestone** (anti-skip backstop).
+>
+> **Decided in the 2026-05-30 "Circuit" riff** (see the section at the top):
+> tone is **comedy / chill-absurd**; **teaching is invisible** (no tutorial
+> chrome); Scene-0 graduation is a **rigged ~10-hand session of scripted spots
+> dealt at the table** (hand 1 normal, 3 teaching spots among ~7 fillers, nobody
+> busts), **not** a grind-the-fish chip gate, and **not** a lobby modal; the
+> **patrons are literally fish** (main cast aren't; Sal stays ambiguous, never
+> resolved); the **bank stakes the fish** and the economy is a closed,
+> unexplained cycle; the human is a **silent** wrong-turn into **The Lucky
+> Stack** diner, comped the 200-seed, given a **fish-name** (Juke Joint Jeff)
+> that's **shed at the first vouch**; **cardroom venues are scattered** (distinct
+> places); Sal **foreshadows the endgame** (you come back to "feed the fish").
 
 - **`RESPECT_FLOOR` value** and how steeply vouch eagerness scales with
   likability above 0.70. Tune in playtest.
-- **`min_hands` for the first vouch**, and how many big pots off the fish
-  "count." Tune so graduation is reliable but earned.
+- **Casino floor layout.** Cardrooms are scattered (decided); the **casino**
+  tier (the public fish floor) **may be all in one building** — undecided.
+- **The waitress** — recurring intake / cash-out character, and possibly the
+  hidden hand behind the float (the economy mystery)? Unwritten.
+- **Intake authoring depth** — name + a tidbit + fish-name now; avatar/bio
+  deferred how long?
+- **Flash-fish** — ship the one-time Larry fish-flash (DALL·E portrait) in the
+  first cut, or text-only first?
 - **How controlled is Sal?** Pure scripted controller, a constrained LLM
   persona, or a normal persona with scene-pinned regard/behavior? Enough
-  control to guarantee the graduation beat; how much beyond is open.
+  control to guarantee the scripted hands + graduation; how much beyond is open.
 - **Lateral vs vertical balance.** Does the early game over-widen ($2
   sprawl) before letting you climb? May want the mentor's first vouch to
   bias toward lateral (home court) and later vouches toward vertical.

@@ -107,6 +107,17 @@ _EMOTIONAL_DIRECTION = {
 }
 
 
+def _tilt_signature_enabled() -> bool:
+    """Live read of TILT_SIGNATURE_ENABLED; False if the registry is unavailable
+    (sim/test isolation) so the off-path keeps the state-driven direction map."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('TILT_SIGNATURE_ENABLED')
+    except Exception:
+        return False
+
+
 # ── Trait offset computation ─────────────────────────────────────────────
 
 
@@ -141,10 +152,16 @@ def compute_trait_offsets(
         elif cat == 'passive':
             offsets[i] -= agg_dev * profile.aggression_scale
 
-        # Looseness: penalize fold, boost non-fold
+        # Looseness: penalize fold (widen the range you ENTER), routing the
+        # freed entry to CALLING — not raising. Looseness widens *which hands you
+        # play*, not *how often you 3-bet*; boosting aggressive actions here made
+        # loose archetypes (lag/maniac/station/fish) double-count looseness as
+        # aggression, a primary driver of the preflop 3-bet inflation. Aggression
+        # frequency is governed solely by agg_dev × aggression_scale above.
+        # (Knob 1b — see docs/technical/ARCHETYPE_SHAPING_FINDINGS.md.)
         if cat == 'fold':
             offsets[i] -= loose_dev * profile.looseness_scale
-        else:
+        elif cat == 'passive':
             offsets[i] += loose_dev * profile.looseness_scale * 0.5
 
         # Risk identity: boost jam, penalize passive
@@ -161,7 +178,20 @@ def compute_trait_offsets(
     if emotional_state is not None and emotional_state.state != 'composed':
         poise_gate = 1.0 - anchors.poise
         scale = emotional_state.intensity * poise_gate
-        direction = _EMOTIONAL_DIRECTION.get(emotional_state.state)
+        # §4 behavioral signature (flag TILT_SIGNATURE_ENABLED): under a TILT
+        # state the distortion direction is CHARACTER-driven by risk_identity —
+        # risk-seekers spew (aggressive), risk-averse collapse (passive) — instead
+        # of the state-driven default (tilted=aggressive for everyone). Mirrors the
+        # standard bot's compute_modifiers shaken-gate split. Overconfident (a
+        # confidence state, not tilt) is left on the state map. Off => legacy map.
+        if _tilt_signature_enabled() and emotional_state.state in (
+            'tilted',
+            'shaken',
+            'dissociated',
+        ):
+            direction = 'aggressive' if anchors.risk_identity >= 0.5 else 'passive'
+        else:
+            direction = _EMOTIONAL_DIRECTION.get(emotional_state.state)
 
         if direction and scale > 0:
             for i, action in enumerate(actions):

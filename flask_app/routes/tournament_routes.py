@@ -470,6 +470,95 @@ def accept_invite():
     ), 201
 
 
+@tournament_bp.route('/api/tournament/spawn', methods=['POST'])
+def spawn_tournament():
+    """Spawn an on-demand, fully-ISOLATED exhibition ("decoupled") tournament —
+    the Tournaments-menu "Main Event" button.
+
+    Modeled on `accept_invite` but WITHOUT an invite: a free-buy-in, real-persona
+    field at baseline mood with NO wires to the persistent world (no money,
+    persona-mood carry, renown, or escrow). It is exempt from the one-active-per-
+    owner guard and never shadows/blocks the cash-circuit Main Event invite.
+    Results still count in the shared tournament career stats.
+
+    Body (all optional): field_size, table_size, starting_stack. Returns
+    {tournament_id, standings} 201; 409 if the persona pool can't field MIN_FIELD;
+    400 on out-of-bounds sizes.
+    """
+    from flask import request
+
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    body = request.get_json(silent=True) or {}
+
+    # Validate sizes against sane bounds (defaults mirror the lobby card).
+    def _int(value, default, lo, hi):
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return default
+        return max(lo, min(hi, n))
+
+    field_size = _int(body.get('field_size'), 18, 2, 100)
+    table_size = _int(body.get('table_size'), 6, 2, 10)
+    starting_stack = _int(body.get('starting_stack'), 10_000, 500, 10_000_000)
+    if table_size > field_size:
+        table_size = field_size
+
+    import time
+
+    from flask_app.services import game_state_service, tournament_economy_service as econ
+    from flask_app.services.tournament_spawn import DraftScanError, create_human_tournament
+
+    # Human side of the double-presence guard: leave any cash seat first (the
+    # same as accept), so the player is in exactly one place.
+    _leave_cash_if_seated(owner_id)
+
+    repos = _economy_repos()
+    sandbox_id = _resolve_sandbox_id(owner_id)
+    seed = int(time.time())
+    with game_state_service.get_sandbox_lock(sandbox_id):
+        try:
+            built = create_human_tournament(
+                owner_id=owner_id,
+                sandbox_id=sandbox_id,
+                personality_repo=repos['personality_repo'],
+                bankroll_repo=repos['bankroll_repo'],
+                ledger_repo=repos['ledger_repo'],
+                session_repo=repos['session_repo'],
+                cash_table_repo=repos['cash_table_repo'],
+                buy_in=0,
+                field_size=field_size,
+                table_size=table_size,
+                starting_stack=starting_stack,
+                seed=seed,
+                rng_seed=seed,
+                decoupled=True,
+            )
+        except DraftScanError:
+            # Fail-closed exclusion scan (it already logged) — treat as "can't
+            # field right now" rather than 500-ing the menu.
+            return jsonify({'error': 'cannot_field_tournament'}), 409
+        except econ.InsufficientFundsError:
+            # Should never happen on a free buy-in, but never 500 the menu.
+            return jsonify({'error': 'cannot_field_tournament'}), 409
+    if built is None:
+        # The persona pool was smaller than MIN_FIELD (or every persona excluded).
+        return jsonify({'error': 'cannot_field_tournament'}), 409
+
+    tournament_id = built['tournament_id']
+    rec = registry.get(tournament_id)
+    return jsonify(
+        {
+            'tournament_id': tournament_id,
+            'standings': named_standings(rec['session']) if rec else None,
+        }
+    ), 201
+
+
 @tournament_bp.route('/api/tournament/invite/decline', methods=['POST'])
 def decline_invite():
     """Decline the open invite → it starts autonomously (AI-only)."""

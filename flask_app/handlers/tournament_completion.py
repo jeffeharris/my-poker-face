@@ -106,10 +106,18 @@ def build_completion_result(
     # so the screen shows exactly what was awarded. Renown shown only when the
     # draw economy is on (else it's never granted). Merged onto the in-the-money
     # standings rows by finishing position; out-of-money rows keep amount 0.
+    #
+    # A DECOUPLED (exhibition) tournament awards no purse and no renown — force
+    # both off so the end screen shows no money/renown chrome even if the global
+    # draw flag is on. prize_pool is already 0 for these (economy row stamped
+    # 'skipped'), so amounts are 0; this also zeroes the renown column.
     from cash_mode import economy_flags
     from flask_app.services.tournament_renown import payout_breakdown
 
-    renown_enabled = bool(economy_flags.TOURNAMENT_DRAW_ENABLED)
+    decoupled = bool(getattr(session, 'decoupled', False))
+    if decoupled:
+        prize_pool = 0
+    renown_enabled = bool(economy_flags.TOURNAMENT_DRAW_ENABLED) and not decoupled
     by_pos = {
         row['finishing_position']: row
         for row in payout_breakdown(

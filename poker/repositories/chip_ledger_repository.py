@@ -121,6 +121,71 @@ class ChipLedgerRepository(BaseRepository):
             ).fetchone()
         return int(row["bal"] or 0)
 
+    def entries_for_stake(
+        self,
+        stake_id: str,
+        *,
+        sandbox_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Every ledger row tagged with `context.stake_id == stake_id`.
+
+        The substrate for per-contract conservation checks (the stake state
+        machine's settle-time guard): a single stake's funding + settlement
+        rows, so the caller can verify the funding reached the borrower's seat
+        and that the contract's signed amounts net out.
+
+        Matching is a `context_json LIKE` on the canonical JSON spelling
+        (`"stake_id": "<id>"`) — every stake chip-flow writer stamps the id
+        that way via `record_*(context={'stake_id': ...})`. Rows whose
+        `context_json` is malformed JSON are skipped (they can't be a tagged
+        stake row). `sandbox_id=None` spans every sandbox; an explicit id
+        scopes to one save file. Returns rows oldest-first (funding before
+        settlement) so a running signed-amount total reads naturally.
+        """
+        # The space after the colon matches json.dumps' default separators,
+        # which every `record_transfer` context goes through. Escape any LIKE
+        # wildcards in the id defensively (stake ids are hex, but don't trust).
+        needle = stake_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f'%"stake_id": "{needle}"%'
+        where = "context_json LIKE ? ESCAPE '\\'"
+        params: List[Any] = [like]
+        if sandbox_id is not None:
+            where += " AND sandbox_id = ?"
+            params.append(sandbox_id)
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT entry_id, created_at, source, sink, amount, reason, context_json
+                FROM chip_ledger_entries
+                WHERE {where}
+                ORDER BY created_at ASC, entry_id ASC
+                """,
+                params,
+            ).fetchall()
+
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            try:
+                context = json.loads(row['context_json']) if row['context_json'] else {}
+            except (TypeError, ValueError):
+                continue
+            # LIKE can theoretically match a substring in an unrelated field;
+            # confirm the parsed context actually carries this exact stake_id.
+            if context.get('stake_id') != stake_id:
+                continue
+            out.append(
+                {
+                    'entry_id': row['entry_id'],
+                    'created_at': row['created_at'],
+                    'source': row['source'],
+                    'sink': row['sink'],
+                    'amount': int(row['amount']),
+                    'reason': row['reason'],
+                    'context': context,
+                }
+            )
+        return out
+
     def sum_creations_by_reason(
         self,
         since_iso: Optional[str] = None,

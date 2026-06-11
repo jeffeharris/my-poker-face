@@ -1,0 +1,25 @@
+{
+  "name": "tilt_persistence_check",
+  "description": "Real-hands validation of TILT_PERSISTENCE_ENABLED: do hotheads reach tilt and recover in felt-but-bounded episodes when driven by the real pressure detector? Tiered (solver, no-LLM) bots, expression off, psychology on.",
+  "tags": ["tilt", "psychology", "validation"],
+  "num_tournaments": 6,
+  "hands_per_tournament": 200,
+  "num_players": 4,
+  "starting_stack": 10000,
+  "big_blind": 100,
+  "capture_prompts": false,
+  "reset_on_elimination": true,
+  "parallel_tournaments": 1,
+  "personalities": ["Fyodor Dostoevsky", "Edgar Allan Poe", "Abraham Lincoln", "Buddha"],
+  "player_types": {
+    "Fyodor Dostoevsky": {"type": "tiered", "expression": false},
+    "Edgar Allan Poe": {"type": "tiered", "expression": false},
+    "Abraham Lincoln": {"type": "tiered", "expression": false},
+    "Buddha": {"type": "tiered", "expression": false}
+  },
+  "control": {
+    "label": "tilt-persistence-check",
+    "enable_psychology": true
+  },
+  "random_seed": 42
+}

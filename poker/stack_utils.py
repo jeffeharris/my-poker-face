@@ -1,9 +1,17 @@
 """Stack-depth helpers shared across bot controllers.
 
 "Effective stack" here means the poker concept — the smaller of hero's
-stack and the largest active opponent's stack. That's the most you can
-actually win or lose this hand, and it's the right depth signal for
+total chips and the largest active opponent's total chips. That's the most
+you can actually win or lose this hand, and it's the right depth signal for
 SPR, push/fold, and short-stack heuristics.
+
+Each player's total = remaining `stack` + chips already committed this
+street (`bet`). Including `bet` is load-bearing: when an opponent is all-in
+their `stack` is 0 but their `bet` holds the amount at risk, so a hero facing
+an all-in (or facing a table of all-ins) still reads the true effective depth
+instead of collapsing to 0. (This matches the all-in test in poker_game.py,
+`amount == player.stack + player.bet`, and the push/fold lookup, which is now
+routed through this same helper rather than a divergent inline copy.)
 
 Note: `BettingContext.effective_stack` in `betting_context.py` is a
 different (per-action) quantity — "stack remaining after calling" — and
@@ -28,24 +36,31 @@ def big_blind_of(game_state, default: int = ANTE_FALLBACK_BB) -> int:
     return int(bb)
 
 
+def _player_total(p) -> int:
+    """A player's total chips in play: remaining stack + chips committed this
+    street. Counts an all-in player's at-risk `bet` (their `stack` is 0)."""
+    return int(getattr(p, 'stack', 0) or 0) + int(getattr(p, 'bet', 0) or 0)
+
+
 def _active_opponent_stacks(game_state, hero_name: str) -> list[int]:
     return [
-        int(getattr(p, 'stack', 0) or 0)
+        _player_total(p)
         for p in game_state.players
         if p.name != hero_name and not getattr(p, 'is_folded', False)
     ]
 
 
 def effective_stack_chips(game_state, hero) -> int:
-    """min(hero stack, max active opponent stack) — the most you can
-    win or lose this hand. Falls back to hero's stack alone if no
-    active opponents remain.
+    """min(hero total, max active opponent total) — the most you can win or
+    lose this hand, where each total is remaining stack + committed bet (see
+    module docstring). Falls back to hero's total alone if no active opponents
+    remain.
     """
-    hero_stack = int(getattr(hero, 'stack', 0) or 0)
+    hero_total = _player_total(hero)
     opp_stacks = _active_opponent_stacks(game_state, hero.name)
     if not opp_stacks:
-        return hero_stack
-    return min(hero_stack, max(opp_stacks))
+        return hero_total
+    return min(hero_total, max(opp_stacks))
 
 
 def effective_stack_bb(

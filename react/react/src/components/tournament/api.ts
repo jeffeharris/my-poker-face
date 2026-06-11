@@ -32,7 +32,8 @@ async function postJson<T>(path: string, body: object = {}): Promise<T> {
 
 export const tournamentApi = {
   lobby: () => getJson<TournamentLobbyResponse>('/lobby'),
-  register: (body: RegisterRequest) => postJson<RegisterResponse>('/register', body),
+  /** Start an on-demand, fully-isolated exhibition ("decoupled") Main Event. */
+  spawn: (body: RegisterRequest) => postJson<RegisterResponse>('/spawn', body),
   /** Build (or return) the human's LIVE single-table game; navigate to /game/:id. */
   sit: (id: string) => postJson<{ game_id: string }>(`/${id}/sit`),
   standings: (id: string) => getJson<TournamentStandings>(`/${id}/standings`),

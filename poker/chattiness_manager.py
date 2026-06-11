@@ -11,6 +11,8 @@ import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from . import speak_gate
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,23 +52,14 @@ class ConversationContext:
 
 
 class ChattinessManager:
-    """Manages speaking probability for AI players based on traits and context."""
+    """Manages speaking probability for AI players based on traits and context.
 
-    # Base modifiers for different situations
-    CONTEXT_MODIFIERS = {
-        'just_won_big': 0.3,  # Winners tend to talk
-        'just_lost_big': -0.2,  # Losers might go quiet
-        'big_pot': 0.2,  # Big pots generate excitement
-        'all_in': 0.4,  # All-ins are dramatic moments
-        'bluffing': -0.1,  # Might stay quiet when bluffing
-        'strong_hand': 0.1,  # Confidence breeds conversation
-        'weak_hand': -0.1,  # Might be quieter with bad cards
-        'long_silence': 0.2,  # Break awkward silences
-        'just_joined': 0.3,  # New players often announce themselves
-        'heads_up': 0.2,  # More talk in 1v1 situations
-        'multi_way_pot': -0.1,  # Less talk with many players
-        'showdown': 0.3,  # Showdowns prompt reactions
-    }
+    Speaking probability is computed from the shared drama→speak model
+    (poker.speak_gate): the situational signal is the MomentAnalyzer drama
+    level (passed in via context['drama']), not the old per-flag modifier dict.
+    This class layers the stateful concerns on top: back-to-back rate limiting,
+    table-silence tracking, and per-personality overrides.
+    """
 
     # Personality-specific overrides
     PERSONALITY_ADJUSTMENTS = {
@@ -136,29 +129,26 @@ class ChattinessManager:
         Returns:
             float: Probability of speaking (0.0-1.0)
         """
-        # Special case for true silence (0.0 = mime/silent character)
-        if base_chattiness == 0.0:
-            # Mimes can still gesture on dramatic moments
-            if context.get('all_in', False) or context.get('showdown', False):
-                return 0.5  # 50% chance to make gestures on big moments
-            return 0.0  # Otherwise truly silent
+        # Drama + dial come from compute_narration_gate via the context dict;
+        # default to a routine, neutral-weight spot for any caller that doesn't
+        # supply them.
+        drama = float(context.get('drama', speak_gate.LEVEL_DRAMA['routine']))
+        weight = float(context.get('speak_weight', 1.3))
+        callout_bonus = float(context.get('callout_bonus', 0.0))
 
-        # Use exponential curve with lower base for more realistic chattiness
-        # 0.1 -> 12%, 0.3 -> 20%, 0.5 -> 31%, 0.7 -> 45%, 0.9 -> 61%
-        probability = 0.10 + (base_chattiness**1.5) * 0.6
+        # Special case for true silence (0.0 = mime/silent character): only a
+        # genuinely big moment — or being directly addressed — pulls a word out.
+        if base_chattiness <= 0.0:
+            if callout_bonus > 0.0 or drama >= speak_gate.LEVEL_DRAMA['high_stakes']:
+                return 0.3
+            return 0.0
 
-        # Apply contextual modifiers with a cap to prevent stacking abuse
-        total_modifier = sum(
-            modifier
-            for condition, modifier in self.CONTEXT_MODIFIERS.items()
-            if context.get(condition, False)
+        # Shared drama→speak model — same shape as the post-hand gate. Routine
+        # spots sit low (quiet folds/checks); eventful spots and direct callouts
+        # bring the table alive.
+        probability = speak_gate.speak_probability(
+            drama, base_chattiness, weight, callout_bonus=callout_bonus
         )
-        capped_modifier = min(total_modifier, 0.3)  # Cap at +30%
-        probability += capped_modifier
-        if total_modifier > 0:
-            logger.debug(
-                f"Applied modifiers: {total_modifier:+.2f} (capped to {capped_modifier:+.2f})"
-            )
 
         # Rate limiting: penalize back-to-back speaking
         player_silence = self.conversation_context.turns_since_last_spoke.get(
@@ -171,11 +161,6 @@ class ChattinessManager:
         elif player_silence < 3:
             probability *= 0.6  # Moderate penalty
             logger.debug(f"Applied recent-speech penalty: *0.6 (silence={player_silence})")
-
-        # Small bonus for breaking table-wide silence (keeps some social flow)
-        if self.conversation_context.consecutive_silent_turns > 3:
-            probability += 0.1  # Break extended table-wide silence
-            logger.debug("Applied silence-breaker bonus: +0.1")
 
         # Apply personality-specific adjustments
         if player_name in self.PERSONALITY_ADJUSTMENTS:

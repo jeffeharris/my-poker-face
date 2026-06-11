@@ -92,6 +92,27 @@ class TestDecisionAnalysis:
         result = repo.list_decision_analyses(decision_quality='mistake')
         assert result['total'] == 1
 
+    def test_list_decisions_label_filter(self, repo, db_path, prompt_capture_repo):
+        from poker.repositories.capture_label_repository import CaptureLabelRepository
+
+        d1 = repo.save_decision_analysis(self._make_analysis(action_taken='fold'))
+        d2 = repo.save_decision_analysis(self._make_analysis(action_taken='call'))
+        repo.save_decision_analysis(self._make_analysis(action_taken='raise'))
+
+        labels = CaptureLabelRepository(db_path, prompt_capture_repo=prompt_capture_repo)
+        labels.add_labels(d1, ['cooler', 'mistake'])
+        labels.add_labels(d2, ['cooler'])
+
+        # ANY-match (default)
+        assert repo.list_decisions(labels=['cooler'])['total'] == 2
+        assert repo.list_decisions(labels=['mistake'])['total'] == 1
+        assert repo.list_decisions(labels=['nope'])['total'] == 0
+        # ALL-match
+        assert repo.list_decisions(labels=['cooler', 'mistake'], label_match_all=True)['total'] == 1
+        # no labels => unfiltered
+        assert repo.list_decisions()['total'] == 3
+        labels.close()
+
     def test_get_decision_analysis_stats(self, repo):
         repo.save_decision_analysis(
             self._make_analysis(

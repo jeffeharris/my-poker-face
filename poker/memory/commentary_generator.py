@@ -12,16 +12,34 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.llm import CallType, LLMClient
-from core.llm.settings import get_default_model, get_default_provider
+from core.llm.settings import (
+    get_default_model,
+    get_default_provider,
+    get_drama_speak_score_weight,
+)
 
 from ..config import COMMENTARY_ENABLED, is_development_mode
 from ..hand_narrator import narrate_hand_recap
 from ..moment_analyzer import MomentAnalyzer
 from ..prompt_manager import DRAMA_CONTEXTS, TONE_MODIFIERS, PromptManager
+from ..speak_gate import speak_probability
 from .hand_history import RecordedHand
+from .hand_score import score_hand
 from .session_memory import SessionMemory
 
 logger = logging.getLogger(__name__)
+
+# Post-hand speech gate. A player's visible commentary is gated on the hand's
+# narrative drama score (hand_score.score_hand — the same 0..100 scorer the
+# circuit journey uses to rank a session's hands), fed through the shared
+# speak model (poker.speak_gate) with the live post-hand dial:
+#   prob = speak_probability(drama/100, chattiness, get_drama_speak_score_weight())
+# Calibrated against real recorded hands (scripts/drama_gate_calibration.py):
+# at dial 1.3, ~44% of hands draw a speaker at chattiness 0.5 (vs ~96% under the
+# old per-signal rolls + unconditional "any pot >= 5bb -> speak" branch). The
+# dial is read per hand-end from app_settings, tunable live from the admin
+# Settings UI; speak_gate owns the shaping constants (shared with the in-hand
+# gate).
 
 
 @dataclass
@@ -244,64 +262,38 @@ class CommentaryGenerator:
     ) -> bool:
         """Determine if a hand is dramatic enough to warrant table talk.
 
-        Higher threshold than reflection - only speak on interesting hands.
-
-        Drama signals (all-in, showdown, pressure) raise the probability of
-        speech but no longer guarantee it — every player at the table
-        unconditionally piling on after every showdown was the dominant
-        source of chat-volume excess. All branches now roll against the
-        player's chattiness so quiet personalities stay quiet.
+        Gated on the hand's narrative drama score (``hand_score.score_hand``,
+        the 0..100 scorer the circuit journey uses to rank a session's hands),
+        scaled by the player's chattiness. Routine hands — the bulk — score low
+        and stay quiet; coolers, big all-ins and suckouts score high and get
+        talked about. This subsumes the old per-signal rolls (all-in / showdown
+        / pressure) and the unconditional "any pot >= 5bb -> speak" branch that
+        together fired commentary on ~96% of hands.
 
         Args:
             hand: The completed hand record
             player_name: Name of the player considering commentary
-            big_blind: Current big blind for dynamic thresholds (fallback to $200)
-            chattiness: Player's chattiness level (affects all speech rolls)
+            big_blind: Current big blind — sharpens the pot-magnitude component
+            chattiness: Player's chattiness level (shifts the speak probability)
 
         Returns:
-            bool: True if the hand is worth speaking about
+            bool: True if this player should visibly comment on the hand
         """
-        # === DRAMA SIGNALS (chattiness-weighted, not unconditional) ===
-
-        # All-in anywhere in the hand: 35–80% across chattiness range
-        if any(a.action == 'all_in' for a in hand.actions):
-            prob = 0.30 + chattiness * 0.50
-            if random.random() < prob:
-                logger.debug(f"Should speak: all-in (prob={prob:.2f})")
-                return True
-
-        # Showdown: 45–85% across chattiness range
-        if hand.was_showdown:
-            prob = 0.40 + chattiness * 0.50
-            if random.random() < prob:
-                logger.debug(f"Should speak: showdown (prob={prob:.2f})")
-                return True
-
-        # Pressure situations: pot is >30% of any player's starting stack
-        for player_info in hand.players:
-            if player_info.starting_stack > 0:
-                pressure_ratio = hand.pot_size / player_info.starting_stack
-                pressure_threshold = 0.3 + (0.3 * (1.0 - chattiness))
-                if pressure_ratio > pressure_threshold:
-                    logger.debug(
-                        f"Should speak: pressure situation "
-                        f"(pot/stack={pressure_ratio:.2f} for {player_info.name})"
-                    )
-                    return True
-
-        # === STANDARD FILTERS ===
-
-        # Dynamic pot threshold: 5x big blind or fallback to $200
-        min_pot_threshold = (big_blind * 5) if big_blind else 200
-
-        # Small pots aren't worth talking about
-        if hand.pot_size < min_pot_threshold:
-            logger.debug(f"Should not speak: pot {hand.pot_size} < {min_pot_threshold}")
+        try:
+            drama = score_hand(hand, player_name, big_blind=big_blind).score
+        except Exception:
+            # The scorer is pure and defensive, but never let it block a hand.
+            logger.debug("drama scoring failed; staying quiet", exc_info=True)
             return False
 
-        # Pot is big enough
-        logger.debug(f"Should speak: pot {hand.pot_size} >= {min_pot_threshold}")
-        return True
+        # Shared speak model (speak_gate) with the live post-hand dial.
+        prob = speak_probability(drama / 100.0, chattiness, get_drama_speak_score_weight())
+        speak = random.random() < prob
+        logger.debug(
+            f"_should_speak({player_name}): drama={drama} chat={chattiness:.2f} "
+            f"prob={prob:.2f} -> {speak}"
+        )
+        return speak
 
     def _analyze_hand_drama(
         self, hand: RecordedHand, player_outcome: str, big_blind: Optional[int] = None

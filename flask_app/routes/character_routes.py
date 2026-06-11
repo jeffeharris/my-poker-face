@@ -688,6 +688,47 @@ def get_dossier(identifier: str):
             'hands_played_cash': cps.hands_played_cash,
         }
 
+    # Home-table intel (scouting↔vouch loop): the lobby room this AI plays the
+    # most. RELATIONSHIP-gated — revealed once the AI likes the player enough
+    # (inbound likability ≥ HOME_TABLE_REVEAL_LIKABILITY, set below the vouch
+    # threshold), so learning where they play is a visible milestone on the road
+    # to their vouch. Locked otherwise, with a hint. Per-sandbox; None outside a
+    # Circuit sandbox.
+    response['home_table'] = None
+    if sandbox_id:
+        try:
+            from cash_mode.career_progression import HOME_TABLE_REVEAL_LIKABILITY
+            from flask_app.extensions import cash_table_repo
+
+            if cash_table_repo is not None:
+                inbound = relationship_repo.load_relationship_state(personality_id, observer_id)
+                like = inbound.likability if inbound is not None else 0.0
+                lobby = [
+                    t
+                    for t in cash_table_repo.list_all_tables(sandbox_id=sandbox_id)
+                    if getattr(t, 'table_type', 'lobby') == 'lobby'
+                ]
+                by_id = {t.table_id: t for t in lobby}
+                home_id = relationship_repo.resolve_home_table(
+                    personality_id, sandbox_id=sandbox_id, eligible_table_ids=frozenset(by_id)
+                )
+                home = by_id.get(home_id) if home_id else None
+                if home is not None and like >= HOME_TABLE_REVEAL_LIKABILITY:
+                    response['home_table'] = {
+                        'revealed': True,
+                        'table_id': home.table_id,
+                        'table_name': home.name or home.stake_label,
+                        'stake_label': home.stake_label,
+                    }
+                else:
+                    response['home_table'] = {
+                        'revealed': False,
+                        'has_home': home is not None,
+                        'hint': 'Get on their good side to learn where they play.',
+                    }
+        except Exception as e:
+            logger.debug("[CHARACTER] home_table intel failed: %s", e)
+
     # Durable cross-game observation (Phase 1 scouting memory). Prefer it
     # over the live in-game read when a lifetime row exists: it accumulates
     # across every game in this sandbox (folded each hand), so it's the more

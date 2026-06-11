@@ -45,6 +45,37 @@ class SafeJSONProvider(DefaultJSONProvider):
         return super().dumps(_sanitize_for_json(obj), **kwargs)
 
 
+def _detect_gunicorn_runtime():
+    """Best-effort parse of the gunicorn worker class + worker count from argv.
+
+    gunicorn doesn't rewrite a worker's ``sys.argv`` (it sets the proctitle
+    separately), so the master command line — including ``-k <worker-class>``
+    and ``-w <n>`` — is still visible from inside ``create_app()``. Returns
+    ``(worker_class, workers)``; either may be ``None`` when not launched via
+    gunicorn (dev server, tests) or the flag wasn't passed.
+    """
+    import sys
+
+    argv = sys.argv or []
+    worker_class = None
+    workers = None
+    for i, arg in enumerate(argv):
+        nxt = argv[i + 1] if i + 1 < len(argv) else None
+        if arg in ("-k", "--worker-class") and nxt:
+            worker_class = nxt
+        elif arg.startswith("--worker-class="):
+            worker_class = arg.split("=", 1)[1]
+        elif arg in ("-w", "--workers") and nxt:
+            workers = nxt
+        elif arg.startswith("--workers="):
+            workers = arg.split("=", 1)[1]
+    try:
+        workers = int(workers) if workers is not None else None
+    except (TypeError, ValueError):
+        workers = None
+    return worker_class, workers
+
+
 def _log_async_runtime():
     """PRH-24: log (and check) the Socket.IO async model at startup.
 
@@ -64,10 +95,16 @@ def _log_async_runtime():
     except Exception:
         patched = False
 
+    worker_class, workers = _detect_gunicorn_runtime()
+    is_gevent_ws_worker = bool(worker_class and "geventwebsocket" in worker_class.lower())
+
     logger.info(
-        "[ASYNC] socketio async_mode=%s; gevent socket monkey-patch active=%s",
+        "[ASYNC] socketio async_mode=%s; gevent socket monkey-patch active=%s; "
+        "worker_class=%s workers=%s",
         SOCKETIO_ASYNC_MODE,
         patched,
+        worker_class,
+        workers,
     )
     if SOCKETIO_ASYNC_MODE == "threading" and not patched and not is_development:
         logger.error(
@@ -75,6 +112,43 @@ def _log_async_runtime():
             "monkey-patching — blocking I/O will NOT yield cooperatively and can "
             "stall the single worker. Run under the gevent-websocket gunicorn "
             "worker (docker-compose.prod.yml) or set SOCKETIO_ASYNC_MODE=gevent."
+        )
+
+    # PRH-24 follow-up (two-hand-flicker): the monkey-patch check above reports
+    # active=True under the gevent-websocket worker and stays silent — its blind
+    # spot. Even with patching ON, `async_mode='threading'` serves the WS
+    # transport via simple_websocket while the worker exposes geventwebsocket: a
+    # transport mismatch that can break a WS upgrade at the protocol level (1002).
+    #
+    # Downgraded ERROR→WARNING after pulling prod evidence (2026-06-08): the
+    # "repeated 1002 closes + reconnect storms" framing was overstated — a quiet
+    # ~7-min window showed a *single* `simple_websocket 1002` and only ~6 distinct
+    # sids (no storm). The real observed effect is that clients run on the heavier
+    # long-polling fallback (`transport=polling` only, 0 websocket upgrades) rather
+    # than a crash. So this is a degradation worth flagging, not a broken deploy.
+    # `gevent` is still the standards-aligned pairing under this worker; flipping
+    # to it should be validated (does `transport=websocket` then appear?) rather
+    # than assumed — see docs/SCALING.md PRH-40 for the counter-argument.
+    if is_gevent_ws_worker and SOCKETIO_ASYNC_MODE == "threading" and not is_development:
+        logger.warning(
+            "[ASYNC] running under the gevent-websocket gunicorn worker with "
+            "async_mode=threading — WS upgrades use simple_websocket and may hit "
+            "1002 protocol errors, so clients fall back to long-polling (heavier "
+            "on the single worker). Consider validating SOCKETIO_ASYNC_MODE=gevent."
+        )
+
+    # Single-process socket-state assumption: the Socket.IO rate limiter
+    # (socket_rate_limit), the cash presence registry (services/presence), and
+    # the world ticker (services/ticker_service) are all in-process. With >1
+    # gunicorn worker, room emits from background tasks won't fan out across
+    # workers (no Socket.IO message_queue is configured) and per-caller caps
+    # multiply per worker. Refuse to run silently mis-scaled in production.
+    if workers is not None and workers > 1 and not is_development:
+        logger.error(
+            "[ASYNC] gunicorn started with %d workers, but Socket.IO presence, "
+            "rate limiting, and the world ticker are single-process. Run with "
+            "-w 1, or add a Socket.IO message_queue + shared stores before scaling.",
+            workers,
         )
 
 
@@ -92,8 +166,68 @@ def recover_interrupted_experiments():
         logger.error(f"Error recovering interrupted experiments on startup: {e}")
 
 
+def _init_sentry():
+    """Initialize backend error monitoring (no-op unless SENTRY_DSN is set).
+
+    Ties server-side exceptions to the same Sentry project the frontend reports
+    to, so a UX session replay can be cross-referenced with the server error
+    behind it. The FlaskIntegration is auto-enabled by sentry-sdk when Flask is
+    importable. Kept cheap: low trace sampling, send_default_pii off (we attach
+    identity explicitly elsewhere if needed).
+    """
+    dsn = os.environ.get("SENTRY_DSN")
+    if not dsn:
+        return
+
+    def _attach_feature_flags(event, _hint):
+        """Stamp the resolved feature-flag state onto each event (best-effort).
+
+        Backend bugs often hinge on which flags were live, so attach the full
+        snapshot as a context. Cheap: the registry resolves in-memory (no flag
+        is currently db_overridable), and errors are infrequent.
+        """
+        try:
+            from core import feature_flags
+
+            event.setdefault("contexts", {})["feature_flags"] = {
+                row["name"]: row["value"] for row in feature_flags.snapshot()
+            }
+        except Exception:
+            pass
+        return event
+
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.logging import LoggingIntegration
+
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.environ.get("FLASK_ENV", "development"),
+            traces_sample_rate=0.1,
+            send_default_pii=False,
+            before_send=_attach_feature_flags,
+            integrations=[
+                # By default the SDK turns every `logger.error(...)` into its own
+                # Sentry issue + alert — which flooded us with routine operational
+                # logs (LLM 400s, "Invalid session", the [ASYNC] WS notice, etc.).
+                # Keep INFO+ logs as breadcrumbs (event_level=None disables
+                # event creation from logs) so only real unhandled exceptions and
+                # explicit capture_* calls create issues. The FlaskIntegration
+                # still reports actual crashes, so we don't lose true errors.
+                LoggingIntegration(level=logging.INFO, event_level=None),
+            ],
+        )
+        logger.info("[SENTRY] backend error monitoring enabled (logs→breadcrumbs)")
+    except Exception as e:  # never let monitoring setup break app boot
+        logger.error("[SENTRY] init failed: %s", e, exc_info=True)
+
+
 def create_app():
     """Create and configure the Flask application."""
+    # Initialize Sentry before the app + extensions so its integrations can
+    # instrument them. No-op without SENTRY_DSN.
+    _init_sentry()
+
     app = Flask(__name__)
     app.json_provider_class = SafeJSONProvider
     app.json = SafeJSONProvider(app)
@@ -253,11 +387,14 @@ def register_blueprints(app: Flask) -> None:
     """Register all Flask blueprints."""
     from .routes import (
         admin_dashboard_bp,
+        archetype_review_bp,
         capture_label_bp,
         cash_bp,
         character_bp,
+        character_request_bp,
         chip_ledger_bp,
         coach_bp,
+        cost_analytics_bp,
         debug_bp,
         experiment_bp,
         game_bp,
@@ -268,6 +405,7 @@ def register_blueprints(app: Flask) -> None:
         prompt_preset_bp,
         range_explorer_bp,
         replay_experiment_bp,
+        sentry_relay_bp,
         stats_bp,
         tournament_bp,
         training_bp,
@@ -285,13 +423,17 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(experiment_bp)
     app.register_blueprint(prompt_preset_bp)
     app.register_blueprint(range_explorer_bp)
+    app.register_blueprint(archetype_review_bp)
     app.register_blueprint(capture_label_bp)
     app.register_blueprint(replay_experiment_bp)
+    app.register_blueprint(sentry_relay_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(coach_bp)
+    app.register_blueprint(cost_analytics_bp)
     app.register_blueprint(cash_bp)
     app.register_blueprint(chip_ledger_bp)
     app.register_blueprint(character_bp)
+    app.register_blueprint(character_request_bp)
     app.register_blueprint(tournament_bp)
     app.register_blueprint(training_bp)
 

@@ -1,0 +1,118 @@
+/* Sal "The Clock" Moretti — the mentor's floating portrait + speech bubble. */
+
+.sal-floater {
+  position: fixed;
+  left: 0.5rem;
+  /* Sit fully ABOVE the 12dvh action bar so the portrait never overlaps the
+     hero's controls. The bar is also raised above this HUD layer (see
+     .mobile-action-area), so even a tall bubble tucks behind it, not over it. */
+  bottom: calc(12dvh + 0.75rem);
+  /* HUD layer, same as FloatingChat — NOT above modals (the old raw 1200 put
+     Sal over sheets and the action bar). */
+  z-index: var(--z-interhand-hud);
+  display: flex;
+  align-items: flex-end;
+  gap: 0.4rem;
+  max-width: min(94vw, 460px);
+  cursor: pointer;
+  animation: sal-in 0.32s cubic-bezier(0.18, 0.9, 0.32, 1.2);
+}
+
+.sal-floater__img {
+  flex: 0 0 auto;
+  width: 116px;
+  height: auto;
+  /* Soften the cutout's bottom crop into the table. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+}
+
+.sal-floater__bubble {
+  position: relative;
+  margin-bottom: 1.4rem;
+  background: #14181a;
+  border: 1px solid #5a4326;
+  border-radius: 12px 12px 12px 2px;
+  padding: 0.6rem 0.8rem;
+  color: #efe6da;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.sal-floater__bubble::after {
+  /* little tail pointing back at Sal */
+  content: '';
+  position: absolute;
+  left: -7px;
+  bottom: 8px;
+  border-width: 6px 7px 6px 0;
+  border-style: solid;
+  border-color: transparent #14181a transparent transparent;
+}
+
+/* Print-style beats (the shared DramaticText renderer): action asides FADE in
+   (dimmed italic), speech TYPES out with a blinking cursor. */
+.sal-floater__bubble .beat {
+  margin-bottom: 3px;
+}
+.sal-floater__bubble .beat:last-child {
+  margin-bottom: 0;
+}
+.sal-floater__bubble .beat.action {
+  color: #c8beb4;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.4s ease-out,
+    transform 0.4s ease-out;
+}
+.sal-floater__bubble .beat.action.visible {
+  opacity: 0.85;
+  transform: none;
+}
+.sal-floater__bubble .beat.action em {
+  font-style: italic;
+}
+.sal-floater__bubble .beat.speech {
+  color: #efe6da;
+}
+.sal-floater__bubble .typing-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: #f0c674;
+  font-weight: 300;
+  animation: sal-blink 0.8s infinite;
+}
+@keyframes sal-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.sal-floater__name {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d8b24a;
+  margin-bottom: 0.15rem;
+}
+
+@keyframes sal-in {
+  from {
+    opacity: 0;
+    transform: translateX(-16px) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -128,7 +128,7 @@ jobs:
       - name: Check for relevant changes
         if: github.event_name == 'pull_request'
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             e2e_relevant:
@@ -199,7 +199,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -228,11 +228,30 @@ jobs:
           file: ./react/react/Dockerfile
           push: true
           provenance: false
+          # VITE_SENTRY_DSN is a public client key (send-only) — safe to bake in.
+          # Set it as a repo secret to enable session replay + the bug widget in
+          # prod; absent, the app's Sentry init is a no-op.
+          build-args: |
+            VITE_SENTRY_DSN=${{ secrets.VITE_SENTRY_DSN }}
+            VITE_SENTRY_RELEASE=${{ github.sha }}
           tags: |
             ghcr.io/jeffeharris/my-poker-face-frontend:${{ github.sha }}
             ghcr.io/jeffeharris/my-poker-face-frontend:latest
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Build and push marketing image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./marketing
+          file: ./marketing/Dockerfile
+          push: true
+          provenance: false
+          tags: |
+            ghcr.io/jeffeharris/my-poker-face-marketing:${{ github.sha }}
+            ghcr.io/jeffeharris/my-poker-face-marketing:latest
+          cache-from: type=gha,scope=marketing
+          cache-to: type=gha,mode=max,scope=marketing
 
   deploy:
     name: Deploy to Production

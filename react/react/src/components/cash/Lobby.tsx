@@ -28,8 +28,17 @@ import { createAuthedSocket } from '../../utils/socket';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Trophy } from 'lucide-react';
 import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
-import { getLobby, getState, leaveTable, releaseSeat, sitAtTable, setWorldPace } from './api';
+import {
+  getLobby,
+  getState,
+  leaveTable,
+  releaseSeat,
+  sitAtTable,
+  sponsorAndSit,
+  setWorldPace,
+} from './api';
 import { SponsorModal } from './SponsorModal';
+import { LuckyStackIntake } from './LuckyStackIntake';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
 import { MainEventCard } from './MainEventCard';
@@ -42,6 +51,7 @@ import {
 import { feedEventKey, renderEventIcon } from './tickerEvents';
 import { selectInterhandTicker } from './interhandTicker';
 import { CareerHero } from './CareerHero';
+import { CareerHighlightsCard } from './CareerHighlightsCard';
 import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { IntelHub } from './IntelHub';
@@ -50,8 +60,11 @@ import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
   BankrollPoint,
+  IntakeBackstory,
   LobbyEvent,
   LobbyTable,
+  MentorIntro,
+  MentorStake,
   ReputationData,
   StakableAiCandidate,
   StakeLabel,
@@ -59,10 +72,14 @@ import type {
   WorldPace,
 } from './types';
 import { STAKES } from './types';
+import { avatarUrlForName } from './avatarUrl';
+import type { ChatMessage } from '../../types/chat';
+import { SalFloater } from '../mobile/SalFloater';
 import { rememberAdminOrigin } from '../admin/adminOrigin';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import { publishWidgetData } from '../../utils/widgetData';
+import { setTournamentOrigin } from '../../utils/tournamentOrigin';
 import { CharacterDetailCard, type CharacterDossierData } from '../character';
 import './CashMode.css';
 
@@ -225,6 +242,57 @@ export function Lobby() {
   } | null>(null);
   const [dossier, setDossier] = useState<AiSeatClick | null>(null);
   const [netWorthOpen, setNetWorthOpen] = useState(false);
+  // Lucky Stack intake (cold open) — gates the lobby for a brand-new career
+  // player. Sticky: set true once, only cleared by completing intake (which
+  // sits us down). NOT re-derived from every lobby poll — otherwise the poll
+  // that lands right after `submitIntake` flips it false and unmounts the
+  // reveal mid-beat (the "flash").
+  const [showIntake, setShowIntake] = useState(false);
+  // The three authored backgrounds for intake Q2, from the lobby payload (the
+  // server is the single source of truth so there's no client copy to drift).
+  const [intakeBackstories, setIntakeBackstories] = useState<IntakeBackstory[]>([]);
+  // Sal's one-shot post-graduation handoff: his portrait + bubble, spotlighting
+  // the revealed home court. Sticky once captured; cleared when the bubble plays
+  // out (the server already cleared its copy, so it won't replay on next load).
+  const [mentorIntro, setMentorIntro] = useState<MentorIntro | null>(null);
+  const dismissMentorIntro = useCallback(() => setMentorIntro(null), []);
+  // Sal's STANDING mentor-stake offer (persists until taken). When the player
+  // taps the home-court seat, sit via sponsor-and-sit(lender=Sal) directly.
+  const [mentorStake, setMentorStake] = useState<MentorStake | null>(null);
+  const mentorIntroQueue = useMemo<ChatMessage[]>(
+    () =>
+      mentorIntro
+        ? [
+            {
+              id: `mentor-intro-${mentorIntro.table_id}`,
+              sender: mentorIntro.name,
+              message: mentorIntro.line,
+              timestamp: '',
+              type: 'ai',
+            },
+          ]
+        : [],
+    [mentorIntro]
+  );
+  // Emergent vouches (M2): when an AI vouches you into its home room, it pops
+  // into the lobby in person to deliver the invite (reusing the Sal floater),
+  // then the revealed room appears. Socket-driven (world_event), so it's a queue
+  // the floater plays alongside Sal's mentor-intro line.
+  const [voucherInvites, setVoucherInvites] = useState<ChatMessage[]>([]);
+  const floaterQueue = useMemo<ChatMessage[]>(
+    () => [...mentorIntroQueue, ...voucherInvites],
+    [mentorIntroQueue, voucherInvites]
+  );
+  const dismissFloaterMessage = useCallback(
+    (id: string) => {
+      if (id.startsWith('mentor-intro')) {
+        dismissMentorIntro();
+      } else {
+        setVoucherInvites((prev) => prev.filter((m) => m.id !== id));
+      }
+    },
+    [dismissMentorIntro]
+  );
   const [intelHubOpen, setIntelHubOpen] = useState(false);
   const [pendingForgivenessCount, setPendingForgivenessCount] = useState(0);
   /** How fast the background world ticks. Null until the first lobby
@@ -290,6 +358,18 @@ export function Lobby() {
   );
   const tablesByStake = useMemo(() => groupTablesByStake(cardroomTables), [cardroomTables]);
 
+  // Tutorial state: the keyring filters a brand-new player down to the single
+  // pinned Scene-0 (scripted) table and no casino floor yet. Hide the venue tabs
+  // then, so they land on ONE inviting table rather than a "Casino (0)" tab that
+  // undercuts the "there's just the one room" feel.
+  const inTutorial = useMemo(
+    () =>
+      casinoTables.length === 0 &&
+      cardroomTables.length === 1 &&
+      cardroomTables[0]?.table_type === 'scripted',
+    [casinoTables, cardroomTables]
+  );
+
   // One-shot once tables first load: auto-expand the highest tier the
   // player can self-afford (their "current" tier) rather than just the
   // cheapest. Mobile only — desktop renders all tiers expanded.
@@ -309,6 +389,36 @@ export function Lobby() {
     }
     setCollapsedTiers(new Set<StakeLabel>(STAKES.filter((s) => s !== target)));
   }, [cardroomTables]);
+
+  // Post-graduation: when Sal points the player at their new home court (the
+  // mentor handoff — the one-shot intro, or the standing mentor stake), bring it
+  // into view rather than leaving it in a collapsed tier below the fold. Switch
+  // to the cardroom venue, expand its tier, and scroll to it. One-shot per table
+  // id so a poll refresh (or the intro clearing once the floater plays) doesn't
+  // keep yanking the scroll. The guard is only armed once the table is actually
+  // in the snapshot, so a first load that beats the table row still scrolls next.
+  const homeCourtTableId = mentorIntro?.table_id ?? mentorStake?.table_id ?? null;
+  const scrolledHomeCourtRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!homeCourtTableId || scrolledHomeCourtRef.current === homeCourtTableId) return;
+    const table = tables.find((t) => t.table_id === homeCourtTableId);
+    if (!table) return;
+    scrolledHomeCourtRef.current = homeCourtTableId;
+    if (table.table_type !== 'casino') setActiveVenue('cardroom');
+    setCollapsedTiers((prev) => {
+      if (!prev.has(table.stake_label)) return prev;
+      const next = new Set(prev);
+      next.delete(table.stake_label);
+      return next;
+    });
+    // Wait for the expand + venue switch to paint before scrolling.
+    const t = setTimeout(() => {
+      document
+        .getElementById(`cash-tier-${table.stake_label}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [homeCourtTableId, tables]);
 
   // Mutable ref so the drawer's `onPayoff` callback can re-fetch the
   // lobby without re-rendering on every interval tick. The interval
@@ -344,6 +454,14 @@ export function Lobby() {
           history: lobby.bankroll_history ?? [],
           reputation: lobby.reputation ?? null,
         });
+        if (lobby.intake_needed) setShowIntake(true); // sticky — never auto-cleared here
+        if (lobby.intake_backstories?.length) setIntakeBackstories(lobby.intake_backstories);
+        // One-shot Sal handoff: capture the first time it arrives (the server
+        // clears its copy on serve), then let the floater play it out.
+        if (lobby.mentor_intro) setMentorIntro(lobby.mentor_intro);
+        // Standing mentor stake: reflect server truth each load (it clears once
+        // taken / no longer eligible), so a stale offer can't linger client-side.
+        setMentorStake(lobby.mentor_stake ?? null);
         setTables(lobby.tables);
         setSeatedTableId(lobby.seated_table_id ?? null);
         setHasActiveSession(lobby.has_active_session ?? false);
@@ -466,6 +584,32 @@ export function Lobby() {
       // server truth. Shared merge de-dupes on the natural key so a
       // tick-refetch landing right after doesn't double-show.
       setEvents((prev) => mergeEvents(prev, [event]));
+      // v124 — a vouch opens a new door: refetch now so the revealed cardroom
+      // appears immediately rather than on the next debounced tick.
+      if (event.type === 'vouch') {
+        void reloadLobbyRef.current();
+        // The voucher pops into the lobby to deliver the invite in person
+        // (reusing the Sal floater) before/while the revealed room appears.
+        if (event.name) {
+          const first = event.name.split(' ')[0] || event.name;
+          const inviteId = `vouch-${event.table_id ?? event.created_at}`;
+          setVoucherInvites((prev) =>
+            prev.some((m) => m.id === inviteId)
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    id: inviteId,
+                    sender: event.name,
+                    message: `You're in — come find me at my game. Tell 'em ${first} sent ya.`,
+                    avatar_url: avatarUrlForName(event.name) ?? undefined,
+                    timestamp: '',
+                    type: 'ai',
+                  },
+                ]
+          );
+        }
+      }
       // Future: curated "signal" toasts (whale arrived / on a heater /
       // on tilt) hang off this same channel — see CASH_MODE_REALTIME_TICKER.md.
     };
@@ -504,6 +648,21 @@ export function Lobby() {
       // press registers, rather than waiting on the /sit round-trip.
       setSittingDown({ submessage: table.table_name ?? `${table.stake_label} table` });
       try {
+        // The Circuit's mentor stake: at the home court, the broke graduate's
+        // seat is backed by Sal directly. Route straight to sponsor-and-sit with
+        // Sal as the lender — the generic /sit → SponsorModal path would only
+        // offer lenders drawn from the table's own AIs, never non-circulating
+        // Sal. The server re-validates the career gate, so a stale offer 400s
+        // (caught below) rather than mis-seating.
+        if (mentorStake && mentorStake.table_id === table.table_id) {
+          const staked = await sponsorAndSit(
+            mentorStake.stake_label,
+            { lender_id: mentorStake.lender_id },
+            { table_id: table.table_id, seat_index: seatIndex }
+          );
+          navigate(`/game/${staked.game_id}`);
+          return;
+        }
         const result = await sitAtTable(table.table_id, seatIndex);
         if ('kind' in result) {
           // Sponsor flow takes over the screen — drop the transition so the
@@ -553,8 +712,37 @@ export function Lobby() {
         setBusy(false);
       }
     },
-    [busy, navigate]
+    [busy, navigate, mentorStake]
   );
+
+  /** Intake done → seat the player straight at the pinned Scene-0 table (the
+   *  tutorial felt), rather than dropping them in the lobby to tap a seat. The
+   *  keyring has already filtered a brand-new player's lobby down to that single
+   *  scripted table (populated with Sal + the fish), so we find it + its open
+   *  seat and sit via the normal path (`handleSeatTap` also handles the
+   *  already-active 409 and any sponsor fallback). If for any reason the scripted
+   *  table/seat isn't there, fall back to landing in the lobby. */
+  const handleIntakeDone = useCallback(() => {
+    setShowIntake(false);
+    void (async () => {
+      try {
+        const lobby = await getLobby();
+        const scene = lobby.tables.find((t) => t.table_type === 'scripted');
+        const openSeat = scene?.seats.find((s) => s.kind === 'open');
+        if (scene && openSeat) {
+          await handleSeatTap(scene, openSeat.index);
+          return;
+        }
+        logger.warn('Intake done but no open scripted-table seat — landing in lobby');
+      } catch (e) {
+        logger.error(
+          'Auto-sit after intake failed — landing in lobby:',
+          e instanceof Error ? e.message : String(e)
+        );
+      }
+      void reloadLobbyRef.current();
+    })();
+  }, [handleSeatTap]);
 
   /** Dismiss the SponsorModal, releasing the seat-hold the /sit 402
    *  placed so an AI can't be cut out of taking it (and so the player
@@ -646,6 +834,8 @@ export function Lobby() {
    *  it through the normal game UI (back-nav returns to /tournament). */
   const handleEnterTournament = useCallback(
     (gameId: string) => {
+      // Entered from the cash lobby — the standings hub backs out to /cash.
+      setTournamentOrigin('/cash');
       setSittingDown({ submessage: 'Main Event' });
       navigate(`/game/${gameId}`);
     },
@@ -663,6 +853,8 @@ export function Lobby() {
    *  returns the existing game when one's already built) and navigate in. */
   const handleResumeTournament = useCallback(async () => {
     if (!activeTournamentId) return;
+    // Resumed from the cash lobby — the standings hub backs out to /cash.
+    setTournamentOrigin('/cash');
     setSittingDown({ submessage: 'Main Event' });
     try {
       const { game_id } = await sitTournament(activeTournamentId);
@@ -727,6 +919,8 @@ export function Lobby() {
               onOpenNetWorth={() => setNetWorthOpen(true)}
             />
           )}
+
+          {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
 
           {reputation && <ReputationPanel reputation={reputation} />}
 
@@ -793,37 +987,39 @@ export function Lobby() {
           )}
 
           <div className="cash-entry__venues">
-            <div className="cash-entry__tabs" role="tablist" aria-label="Table venues">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeVenue === 'cardroom'}
-                className={`cash-entry__tab${activeVenue === 'cardroom' ? ' is-active' : ''}`}
-                onClick={() => setActiveVenue('cardroom')}
-              >
-                <Spade size={15} aria-hidden="true" />
-                Cardroom
-                <span className="cash-entry__tab-count">{cardroomTables.length}</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeVenue === 'casino'}
-                className={`cash-entry__tab${activeVenue === 'casino' ? ' is-active' : ''}`}
-                onClick={() => setActiveVenue('casino')}
-              >
-                <Dices size={15} aria-hidden="true" />
-                Casino
-                <span className="cash-entry__tab-count">{casinoTables.length}</span>
-                {casinoClosingCount > 0 && (
-                  <Clock
-                    size={13}
-                    className="cash-entry__tab-closing"
-                    aria-label={`${casinoClosingCount} table${casinoClosingCount === 1 ? '' : 's'} closing`}
-                  />
-                )}
-              </button>
-            </div>
+            {!inTutorial && (
+              <div className="cash-entry__tabs" role="tablist" aria-label="Table venues">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeVenue === 'cardroom'}
+                  className={`cash-entry__tab${activeVenue === 'cardroom' ? ' is-active' : ''}`}
+                  onClick={() => setActiveVenue('cardroom')}
+                >
+                  <Spade size={15} aria-hidden="true" />
+                  Cardroom
+                  <span className="cash-entry__tab-count">{cardroomTables.length}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeVenue === 'casino'}
+                  className={`cash-entry__tab${activeVenue === 'casino' ? ' is-active' : ''}`}
+                  onClick={() => setActiveVenue('casino')}
+                >
+                  <Dices size={15} aria-hidden="true" />
+                  Casino
+                  <span className="cash-entry__tab-count">{casinoTables.length}</span>
+                  {casinoClosingCount > 0 && (
+                    <Clock
+                      size={13}
+                      className="cash-entry__tab-closing"
+                      aria-label={`${casinoClosingCount} table${casinoClosingCount === 1 ? '' : 's'} closing`}
+                    />
+                  )}
+                </button>
+              </div>
+            )}
 
             {activeVenue === 'cardroom' ? (
               <section className="cash-entry__stakes">
@@ -839,6 +1035,7 @@ export function Lobby() {
                     return (
                       <div
                         key={stake}
+                        id={`cash-tier-${stake}`}
                         className={`cash-entry__tier cash-entry__tier--${meta.access}${isCollapsed ? ' cash-entry__tier--collapsed' : ''}`}
                       >
                         <button
@@ -897,6 +1094,7 @@ export function Lobby() {
                                 onAiSeatClick={setDossier}
                                 isSeated={seatedTableId === t.table_id}
                                 onResume={handleResume}
+                                spotlight={mentorIntro?.table_id === t.table_id}
                               />
                             ))}
                           </div>
@@ -928,6 +1126,7 @@ export function Lobby() {
                         onAiSeatClick={setDossier}
                         isSeated={seatedTableId === t.table_id}
                         onResume={handleResume}
+                        spotlight={mentorIntro?.table_id === t.table_id}
                       />
                     ))}
                   </div>
@@ -993,6 +1192,12 @@ export function Lobby() {
             });
           }}
         />
+        {showIntake && (
+          <LuckyStackIntake backstories={intakeBackstories} onDone={handleIntakeDone} />
+        )}
+        {/* Sal's post-graduation handoff: his portrait + bubble walk the player
+            to the spotlighted home court. Same floater used at the table. */}
+        <SalFloater queue={floaterQueue} onShown={dismissFloaterMessage} />
         <StakeOfferModal
           target={stakeTarget}
           bankroll={bankroll ?? 0}

@@ -2,15 +2,16 @@
 purpose: Compute/cost model for the backend and a staged, cheapest-first scaling blueprint that preserves the casual 1:1-sandbox-per-owner design
 type: architecture
 created: 2026-06-06
-last_updated: 2026-06-06
+last_updated: 2026-06-09
 ---
 
 # Scaling My Poker Face
 
 How the backend consumes compute, what binds first as concurrent users grow, and
 a staged path to scale — **without** compromising the casual "you are brought
-into your own lived-in world" design. Grounded in the code as of schema v151
-(launch, 2026-06-05). Update the stages as they land.
+into your own lived-in world" design. Grounded in the code as of schema v157
+(`schema_manager.py:351`, re-verified 2026-06-09; launch was v151, 2026-06-05).
+Update the stages as they land.
 
 ## The product constraint (do not violate)
 
@@ -36,7 +37,7 @@ on `owner_id`; see Stage 4).
 - **State:** in-memory resident caches (`flask_app/services/game_state_service.py`:
   `games`, `*_locks`, `game_last_access`, 2 h idle eviction). Persistence =
   **SQLite single-writer + WAL** (`poker/repositories/base_repository.py`),
-  saved after each action. All subsystems share one DB (`schema_manager.py`, v151).
+  saved after each action. All subsystems share one DB (`schema_manager.py`, v157).
 - **Per-process RAM baseline ≈ 550 MB** (measured steady-state RSS, flat over
   35 min — not a leak). It's the Python process + eval7 + imports; **the strategy
   lookup tables are lazy-loaded (~20–50 MB parsed), not the baseline.** Paid *per
@@ -71,19 +72,28 @@ registered users.
 
 ### Foreground (a live hand)
 
-- Equity Monte Carlo (`poker/decision_analyzer.py`, `DECISION_ANALYSIS_ITERATIONS=500`):
-  **~5 ms CPU per AI decision**, synchronous, does **not** yield under gevent.
+- Per-AI-decision equity Monte Carlo (`poker/decision_analyzer.py`): synchronous,
+  does **not** yield under gevent. ⚠️ **The "~5 ms per decision" earlier estimate was
+  wrong — see the 2026-06-09 load test below.** Measured, it's **hundreds of ms per
+  decision**, dominated by opponent-range *combo enumeration* (`poker/hand_ranges.py`
+  `_get_all_combos_for_hand` / `sample_hand_for_opponent`), which is **uncached** and
+  rebuilt every decision. And a single human action pumps the hand to showdown across
+  all AIs synchronously, so one action POST blocks for **many** such analyses
+  (~2.5 s even at 1 user). `DECISION_ANALYSIS_ITERATIONS` is a **weak** lever (250→50
+  barely moved latency — the cost is the combo build, not the sample loop).
 - LLM expression/commentary (if enabled): 1–3 s latency, **yields** cooperatively
   (non-blocking). Default `sharp` decisions are LLM-free.
 - SQLite save after each action: ~2–5 ms.
 
 ### What binds first (in order)
-*Ordering is code-grounded; the user-count numbers below are estimates, not load-tested.*
+*Ordering is code-grounded. The user counts below were estimates; **the 2026-06-09 load
+test (see Capacity checkpoints) measured #1 far lower than estimated.***
 
-1. **Single-worker cooperative CPU** — the ticker + foreground equity-MC bursts +
-   SQLite writes all share one gevent core; the ~5 ms MC bursts don't yield.
-   Degradation (lobby-tick lag, sluggish hands) appears around **~15–25
-   concurrent active users**.
+1. **Single-worker cooperative CPU** — the foreground per-decision equity-MC analytics
+   dominate (they don't yield); the ticker + SQLite writes share the same gevent core.
+   ⚠️ **Measured: CPU pegs ~99% from just ~3 concurrent active cash players** on a
+   prod-identical cpx11 — not the 15–25 first estimated. The bind is the synchronous
+   decision-analysis combo enumeration, not the ticker or RAM.
 2. **SQLite single-writer** — WAL allows concurrent reads; the bind is ticker
    lobby-writes contending with foreground game saves. `retry_on_lock` absorbs
    brief contention. Painful around **~30+** concurrent active users.
@@ -203,16 +213,112 @@ concurrent.
 
 ### Stage 5 — SQLite → Postgres
 For true concurrent writes / multi-box. Per-`sandbox_id` Postgres schemas express
-the per-owner isolation cleanly. Migration surface is large: 151 SQLite-specific
-migrations in `schema_manager.py`, the `sqlite3` usage in `base_repository.py`.
-**Defer until Stage 3 is exhausted** — SQLite+WAL+`retry_on_lock` is robust well
-past current traffic.
+the per-owner isolation cleanly. Migration surface is still real even after the
+v157 chain was squashed to a generated baseline (PR #241): the baseline DDL +
+remaining `_migrate_vN_*` steps in `schema_manager.py`, and the SQLite-specific
+`sqlite3` usage in `base_repository.py`. **Defer until Stage 3 is exhausted** —
+SQLite+WAL+`retry_on_lock` is robust well past current traffic.
 
-## Capacity checkpoints (estimates — not load-tested)
+**Triggers — migrate when any of these hold:** ~50–100 concurrent writers (SQLite
+is single-writer); DB file ~10–50 GB (large-file degradation); a genuine multi-box
+deployment (SQLite is file-based, can't share across servers); or write-heavy
+analytics runs (experiments hammer `api_usage` / `prompt_captures` /
+`decision_analysis`).
 
-⚠️ Order-of-magnitude **from the code, not measured.** The biggest unknown is
-per-process throughput; one real load test at ~50 would re-calibrate the whole
-model. Validate before relying on any tier.
+**Early warning signs:** `SQLITE_BUSY` in logs, rising write latency, lock
+timeouts during experiments, slow queries on the big tables.
+
+**Migration shape:** stand up Postgres → add `psycopg2`/`asyncpg` → Alembic
+migration env → port the baseline schema → data-migration script → update
+`BaseRepository` connection handling → test hard (hand eval + experiments) →
+blue-green cutover with a rollback plan.
+
+## Measured under load (2026-06-09, prod-identical cpx11)
+
+First real load test. **Target:** isolate the single `-w 1` gevent worker's
+throughput ceiling for **cash mode**. **Rig:** a throwaway Hetzner **cpx11
+(2 vCPU/2 GB, Ashburn) — identical to prod** — running the prod worker command
+(`gunicorn -w 1 -k GeventWebSocketWorker`, `mem_limit 1200m`), fresh DB,
+`DECISION_ANALYSIS_ITERATIONS=250` (prod value). Driver: N guest sessions, each a
+real socket (presence→ticker) + a poll→fold loop that pumps full 5-AI hands.
+**Decisions ran LLM-free** (the prod `sharp` default; expression/commentary/avatars
+disabled — those *yield*, so they don't change the CPU ceiling, only add latency).
+
+| Active cash players | action p50 / p95 | state-GET p50 / p95 | backend CPU (avg) | RSS |
+|---|---|---|---|---|
+| 1  | 2.5 s / 3.6 s   | 20 ms / 26 ms    | 58 %  | 265 MiB |
+| 3  | 4.6 s / 9.2 s   | 162 ms / 1.4 s   | **99 %** | 270 MiB |
+| 5  | 6.9 s / 12.7 s  | 351 ms / 2.5 s   | 95 %  | 288 MiB |
+| 8  | 6.7 s / 15.9 s  | 711 ms / 2.9 s   | 99 %  | 304 MiB |
+| 12 | 12.0 s / 21.9 s | 1.4 s / 5.3 s    | 99 %  | 336 MiB |
+| 16 | 17.3 s / 37.6 s | 2.4 s / 6.3 s    | 98 %  | 367 MiB |
+| 20 | 20.6 s / 36.1 s | 2.9 s / 9.3 s    | 98 %  | 403 MiB |
+
+**What the data says:**
+- **The single gevent core saturates (~99 %) at just ~3 concurrent active cash
+  players.** Throughput plateaus at ~0.5 hands/s regardless of user count — classic
+  CPU-bound saturation: more users buy only more per-user latency, not more work done.
+- **The whole cost is synchronous per-decision equity-MC *analytics*** — `py-spy`
+  put ~70 % of worker CPU in `poker/hand_ranges.py` (`_get_all_combos_for_hand` /
+  `sample_hand_for_opponent`) via `decision_analyzer.py`. This is *analytics*, **not
+  the bot's decision** — yet it blocks the action response. Even a single user's
+  action is ~2.5 s because one fold pumps a full 5-AI hand (+ the next hand's pre-human
+  AIs) and each AI decision triggers a fresh, uncached opponent-range combo build.
+- **`DECISION_ANALYSIS_ITERATIONS` is a weak lever** (250→50 ≈ no change). The doc's
+  Stage 0 headline ("lower iterations") barely helps because the cost is combo
+  *construction*, not the MC sample loop.
+- **RAM is a non-issue** (265→403 MiB across the whole ramp, vs the 1200 MB cap) —
+  confirms RAM binds last. Note baseline RSS here (~265 MiB) is well under the ~550 MB
+  cited above; that figure may be stale or include more subsystems.
+
+### Fixes shipped + their measured effect (2026-06-09, same rig)
+
+Four changes, in order, each re-measured on the same cpx11. Headline = throughput at
+16 concurrent active players (the saturation metric) and the "playable" ceiling
+(action p50 < ~3 s):
+
+| Step | Change | 16-player throughput | Playable ceiling |
+|---|---|---|---|
+| baseline | (the table above) | ~1.18 h/s | ~3 players |
+| 1 | **`@lru_cache` `_get_all_combos_for_hand`** (169 fixed inputs, was rebuilt every call) | ~1.18 → still ~1.18*; **action p50 halved** | ~3 → ~5 |
+| 2 | **Coach honors `DECISION_ANALYSIS_ITERATIONS`** — `coach_engine.py` had it hardcoded at **2000** (~6× the in-game 250), so prod's lowered setting never reached the coach; it was the single biggest equity consumer | 1.18 → **1.98** (+68%) | ~5 → ~8 |
+| 3 | **`DECISION_ANALYSIS_ITERATIONS` 250 → 100** — the cache made it a *linear* lever (it was a flat fixed cost before, dominated by the combo build); ~1 pp equity error, immaterial for the coarse correct/incorrect/marginal verdicts (50 was too noisy, ~8 pp) | 1.98 → **2.98** | ~8 |
+| 4 | **Offload the per-decision analyzer to an out-of-band worker** on the box's idle 2nd vCPU (Redis queue, fire-and-forget; nothing live reads its output) | **3.45–3.6 h/s**, polls stay sub-500 ms | **~12–16 players** |
+
+\* The combo-build cost was a fixed per-call overhead, so caching it cut latency but
+not the iteration-bound throughput — its real payoff was **unlocking step 3** (iterations
+only became a linear lever once the fixed cost was gone).
+
+**Net: ~3 → ~12–16 concurrent active cash players per box (~5× throughput)** from four
+small changes, no new hardware. Key reframe: **the gameplay core's heavy CPU was almost
+entirely analytics/coaching — the bot's *actual* decision is only ~3%.** So the box was
+never equity-bound by *poker*; it was bound by *measuring* poker.
+
+**On the offload specifically (step 4):** it frees the gameplay core by putting the
+otherwise-**idle 2nd vCPU** to work (the worker is a separate process because `-w 1` +
+Flask-SocketIO can't multi-worker). It does **not** create CPU from nothing — it's bounded
+by the box's **2 cores**. Same-box needs **no Postgres** (worker shares the SQLite via WAL
++ retry; validated, `depth=0` under load). A *multi-box* eval fleet would need the
+analytics tables on Postgres (SQLite is file-based). The **coach stays inline** (now ~6%
+after step 2; its training-mode feedback is consumed synchronously). Rollout/ops:
+`docs/guides/OPS_RUNBOOK.md` §9.
+
+**Next bottleneck past ~16/box:** not equity — the **synchronous hand-pump orchestration**
+(one human action pumps ~15 AI decisions, each with a state-save + socket emit). That's
+why action p50 still climbs while polls stay fast.
+
+*Caveats:* driver folds every hand (each action pumps a full hand — representative of
+AI-decision volume; a *playing* human spreads the same work across more actions, so
+per-action p50 may be lower but worker-seconds/throughput are unchanged). Measured the
+HTTP action POST, which calls `progress_game` synchronously (`game_routes.py:2208`);
+the socket path pumps on the worker the same way. LLM flavor latency (yielding) is
+*additive* on top of these numbers in real prod.
+
+## Capacity checkpoints (older estimates — see measured data above)
+
+⚠️ Order-of-magnitude **from the code.** The 2026-06-09 load test above measured the
+single-worker cash ceiling **far lower** than the per-process estimates here; treat the
+tiers below as rough shape, not validated capacity, and prefer the measured section.
 
 **Per-unit assumptions:**
 - 1 concurrent *active* user = 1 sandbox (~74 AIs) ticked every ~2 s (~5–20 ms
@@ -248,7 +354,15 @@ model. Validate before relying on any tier.
    at 5000+. Trim it (lazy-load/mmap the strategy tables, slim the image) before ~500.
 3. **LLM $ (not compute) is the dominant *variable* cost at 1000+** and a
    provider-rate-limit constraint; the budget caps + LLM-free `sharp` default need
-   deliberate tuning, not the launch defaults.
+   deliberate tuning, not the launch defaults. *Rate-limit headroom:* OpenAI's
+   ~10k RPM ceiling is comfortable for in-game play (~6 decisions/active-player/min
+   ≈ 600 RPM at 100 players) — **experiment bulk runs**, not gameplay, are what
+   spike toward the limit, so keep those throttled (they already pause/resume).
+4. **Full-state WebSocket fan-out** — every action emits the whole `game_state`
+   (~10–50 KB) to all room members (`game_handler.py:715`). Fine at casual table
+   sizes; bites with large spectator counts or rapid run-it-out deals on slow/mobile
+   links. **Deferred fix:** delta updates (emit only changed fields) — needs
+   frontend state reconciliation, so not worth it until spectating is a real load.
 
 **Journey shape:** ≤100 vertical-ish (one big box → extract ticker → Postgres);
 100→1000 horizontal app fleet + owner-sharded ticker (the 1:1 design *is* the shard
@@ -256,19 +370,27 @@ key — worlds never share state); 1000→10000 owner-sharded Postgres + autosca
 the ticker-write-coalescing fix. The casual "your own world" model shards cleanly the
 whole way; it just multiplies the write/RAM baseline you'll want to trim first.
 
-## Near-term recommendation (the 20-user target)
+## Near-term recommendation (revised after the 2026-06-09 load test)
 
+The load test changed the priority order. The single-worker bind for **cash mode**
+is **per-decision analytics CPU**, hit at **~3 concurrent active players** — not the
+~20 previously assumed. So the cheapest, highest-leverage work is **application-level**,
+not infra:
+
+- **(NEW, do first) Get decision-analysis off the synchronous action path** — it's
+  analytics, not the bot's move (`decision_analyzer.py`), yet it blocks every action
+  for the full multi-AI hand pump. Sample it (1-in-N), background it, or gate it off in
+  prod. **+ memoize `poker/hand_ranges.py:_get_all_combos_for_hand`** (169 fixed keys,
+  uncached today). These two together should multiply the per-worker ceiling — far more
+  than any infra tier. *(Lowering `DECISION_ANALYSIS_ITERATIONS` — the old Stage 0
+  headline — is a **weak** lever: 250→50 barely moved latency.)*
 - **Stage 1A** ✅ done.
-- **Stage 0 tuning is the cheapest first path to ~20 users** — keep `-w 1`: lower
-  `DECISION_ANALYSIS_ITERATIONS` (~250) + validate `SOCKETIO_ASYNC_MODE=gevent` (env,
-  reversible), then ease ticker pacing + templated off-screen narration (small code
-  changes). Then **load-test ~20 concurrent sessions** to confirm — the number is an
-  estimate until then.
-- **Stage 3** (4 GB box) if tuning leaves it tight — buys RAM + co-tenant contention
-  relief, *not* foreground parallelism under `-w 1`.
-- **1B / 2 are likely not needed for ~20 users** and carry real correctness work (the
-  1B prerequisites above + the no-`-w 2` constraint). Defer until a *tuned,
-  load-tested* `-w 1` box is genuinely exhausted.
+- **Stage 3** (4 GB box) does **not** help here — the bind is the single gevent core,
+  not RAM (RSS stayed <410 MiB through 20 users). Skip it for the cash-CPU problem.
+- **Stage 1B / 2 (horizontal: more single-worker *containers*)** matter **much sooner**
+  than the old estimate implied — they're the only way to add foreground CPU once the
+  app-level fix is exhausted. But do the app-level fix first; it's cheaper and a fleet
+  of containers each saturating at ~3 players is an expensive way to buy headroom.
 - The `RedisPresenceStore` + Socket.IO MQ foundations can be built behind off-flags
   any time (zero prod risk), but they don't add capacity until 1B/2 land.
 
@@ -289,6 +411,16 @@ whole way; it just multiplies the write/RAM baseline you'll want to trim first.
 - **Don't deploy from a dev box** — manual `./deploy.sh` from a laptop has bitten
   prod (local DB sidecars clobbering prod's WAL, file-mode/perm drift). Use the CI
   pipeline (clean checkout + `chown` + `data/`-excluded rsync).
+
+## Observability — what to watch
+
+Tier the monitoring to the stage you're in; each row adds to the previous.
+
+| Phase (concurrent active) | Watch |
+|---|---|
+| **Now (≤20)** | SQLite write latency in logs; `api_usage` LLM spend; process RSS (~550 MB baseline — flag drift up); active count in `game_state_service.games`; ticker cycle time vs the 250 ms `CYCLE_BUDGET_MS`. |
+| **Growth (20–50)** | Add proper APM; **alert on `SQLITE_BUSY`**; alert on memory >80%; track p95 hand-response time; watch lobby-tick lag (the first single-worker symptom). |
+| **Scale (50+)** | Redis metrics (connections, pub/sub lag) once the MQ lands; per-container metrics; **per-tick DB write rate** (the real wall — see "What bites" #1); LLM provider rate-limit proximity. |
 
 ## Key files
 

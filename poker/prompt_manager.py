@@ -70,8 +70,8 @@ TONE_MODIFIERS = {
 # This block intentionally avoids `{...}` literals so it is safe to
 # inject via either `str.replace` or `str.format` callers.
 DRAMATIC_SEQUENCE_GUIDANCE = """\
-ACTIONS: lowercase gestures wrapped in *asterisks*, third-person.
-SPEECH: plain text dialogue addressed to the table. Audible to all.
+ACTIONS: lowercase gestures wrapped in *asterisks*, third-person. 8 words max — a quick physical beat, not a sentence.
+SPEECH: plain text dialogue addressed to the table. Audible to all. ONE short sentence, ~12 words max — punchy table talk, not a monologue.
 Each beat is EITHER an action OR speech, never both.
 
 MATCH THE GESTURE TO YOUR ACTION. Physical beats should reflect what
@@ -115,7 +115,9 @@ BAD — do NOT do this:
   ["Alice: 'Your move.'"]                     ← don't prefix anyone's name on speech (yours or theirs)
   ["*fold*"], ["*calls*"], ["*raises*"]       ← bare action label; add physical color instead
   ["*pushes chips forward*"] on a fold        ← chips don't move on a fold; muck the cards
-  ["*tosses cards*"] on a raise               ← cards don't move on a raise; push chips"""
+  ["*tosses cards*"] on a raise               ← cards don't move on a raise; push chips
+  ["*slowly fans the chips across the felt while studying his opponent*"]  ← action too long; ≤8 words
+  ["Easy game. You never had a chance, pal."]  ← two sentences in one speech beat; one sentence only"""
 
 
 def _validate_format_placeholders(text: str) -> Set[str]:

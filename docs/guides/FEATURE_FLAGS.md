@@ -2,7 +2,7 @@
 purpose: How to declare, read, resolve, and retire feature flags via the central registry
 type: guide
 created: 2026-06-07
-last_updated: 2026-06-07
+last_updated: 2026-06-08
 ---
 
 # Feature Flags
@@ -81,6 +81,37 @@ If the flag is an EXPERIMENTAL **economy** flag, also add it to
 `tests/conftest.py::RESET_ECONOMY_FLAGS` (the drift guard
 `test_economy_flag_defaults.py` enforces this), so a developer's armed `.env`
 can't pollute the test baseline.
+
+## Exposing a flag to the client (Sentry context)
+
+By default flags are **backend-only**. A flag can opt into being published to the
+browser by setting `client_exposed=True`:
+
+```python
+register(FeatureFlag(
+    "TOURNAMENT_DRAW_ENABLED", Stage.STABLE,
+    "AIs leave cash tables for tournaments, pulled by a draw score.",
+    owner="cash_mode.economy", dev=True, prod=True,
+    client_exposed=True,  # player-observable
+))
+```
+
+What that wires up:
+
+- `feature_flags.client_snapshot()` returns `{name: value}` for **only** the
+  `client_exposed` flags.
+- The `GET /api/feature-flags` route (`flask_app/routes/sentry_relay_routes.py`)
+  serves that snapshot to the browser.
+- The frontend Sentry init (`react/.../sentry.ts`) fetches it once and attaches
+  it as the `feature_flags` scope context, so **errors, session replays, and bug
+  reports** show which player-facing flags were live. Backend errors get the
+  *full* snapshot via the SDK `before_send` hook (`_attach_feature_flags`).
+
+Keep `client_exposed` to **player-facing** toggles — the endpoint is readable by
+any client (including guests), so it publishes those flag names + states. Do not
+mark internal economy/sim flags. Current set: `TOURNAMENT_DRAW_ENABLED`,
+`TOURNAMENT_CIRCUIT_ENABLED`, `REPUTATION_DEMEANOR_ENABLED`,
+`DOSSIER_SCOUTING_GATE_ENABLED`.
 
 ## Seeing what's on (the board)
 

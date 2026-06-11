@@ -50,8 +50,8 @@ interface PokerTableProps {
   gameId?: string | null;
   playerName?: string;
   onGameCreated?: (gameId: string) => void;
-  /** Parent's back handler. Falls back to `window.location.href = '/'`
-   *  if omitted, matching the legacy desktop behavior. */
+  /** Parent's back handler. Falls back to `window.location.href = '/menu'`
+   *  if omitted (full reload back to the menu, resetting game state). */
   onBack?: () => void;
   /** Fired when the backend reports the game is gone (HTTP 404). Page
    *  level decides where to redirect — cash sessions go to /cash,
@@ -119,6 +119,7 @@ export function PokerTable({
     revealedCards,
     heroCommitted,
     heroRetreating,
+    isPlaying,
     tournamentResult,
     socketRef,
     isConnected,
@@ -307,8 +308,8 @@ export function PokerTable({
       }
     }
     clearTournamentResult();
-    // Navigate back to menu by reloading
-    window.location.href = '/';
+    // Navigate back to menu by reloading (full reload resets game state).
+    window.location.href = '/menu';
   }, [gameId, clearTournamentResult]);
 
   // Stadium view helpers
@@ -436,8 +437,12 @@ export function PokerTable({
         variant="interhand"
       />
 
-      {/* Tournament Complete */}
-      {!winnerInfo?.is_final_hand && (
+      {/* Tournament Complete — held until the hand presentation is fully done:
+          the run-out sequencer has drained (`!isPlaying`) AND the winner overlay
+          has been dismissed (`!winnerInfo`). Otherwise the backend's synchronous
+          `tournament_complete` (emitted at the hand boundary) would flash the
+          results over a still-animating final hand. */}
+      {!winnerInfo && !isPlaying && (
         <TournamentComplete result={tournamentResult} onComplete={handleTournamentComplete} />
       )}
     </>
@@ -492,7 +497,7 @@ export function PokerTable({
             onBackClick={
               onBack ??
               (() => {
-                window.location.href = '/';
+                window.location.href = '/menu';
               })
             }
             onCoachToggle={isGuest ? undefined : handleCoachToggle}

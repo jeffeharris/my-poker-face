@@ -16,7 +16,9 @@ export type AdminTab =
   | 'chip-ledger'
   | 'whereabouts'
   | 'range-explorer'
-  | 'coach-metrics';
+  | 'archetype-review'
+  | 'coach-metrics'
+  | 'cost-analytics';
 
 export interface SidebarItem {
   id: AdminTab;

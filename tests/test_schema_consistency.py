@@ -1,23 +1,13 @@
-"""Schema consistency guard for the eventual migration squash.
+"""Schema consistency guard (post-v157 squash).
 
-Connected to TRIAGE T3-17 (no migration framework) / T3-44 (schema_manager.py
-monolith) and docs/plans/SCHEMA_BASELINE_PLAN.md.
+After the baseline squash (docs/plans/SCHEMA_BASELINE_PLAN.md), fresh installs build
+the head schema directly from the GENERATED baseline (``schema_baseline.py`` via
+``SchemaManager._init_db``) and are stamped at the baseline version, so the archived
+legacy v1..v157 integer chain (``legacy_migrations.py``) runs only for a restored
+pre-baseline backup.
 
-A fresh database is built two ways that MUST agree:
-
-  A. ``_init_db()`` alone — the canonical head DDL.
-  B. ``_init_db()`` + the full v1..vN migration chain — what every fresh install
-     actually runs *today*. A brand-new DB has schema version 0, so
-     ``_run_migrations()`` replays the whole chain over the just-built schema.
-     The migrations are guarded no-ops (e.g. ``if 'owner_id' not in columns``),
-     so they normally change nothing — but if any migration adds a column/table/
-     index that ``_init_db`` does NOT also create, the fresh install gets it from
-     the chain, masking the omission in ``_init_db``.
-
-When the chain is squashed/baselined, fresh installs will run ``_init_db()``
-ALONE. Anything path B adds beyond path A would then silently disappear from new
-installs. This test makes that gap a hard failure: A and B must be identical
-before the chain can be safely deleted. A green result is the squash precondition.
+These tests guard that the baseline stays faithful to that archived chain: if the two
+ever diverge, fresh installs would get a different schema than an upgraded old DB.
 """
 
 from __future__ import annotations
@@ -25,88 +15,108 @@ from __future__ import annotations
 import re
 import sqlite3
 
-import pytest
-
+from poker.repositories.legacy_migrations import LegacyMigrations
 from poker.repositories.schema_manager import SCHEMA_VERSION, SchemaManager
 
 
 def _schema_objects(db_path: str) -> dict[str, str]:
-    """{'<type>:<name>': normalized_sql} for every user schema object.
+    """``{'<type>:<name>': normalized_sql}`` for every user schema object.
 
-    Both paths share the same ``_init_db()`` CREATE TABLE statements as their
-    base, so logically-equal tables have byte-identical ``sql`` here — column
-    *ordering* can't cause a false positive. A diff therefore means the chain
-    genuinely creates an object (or column, via a fired ALTER) that ``_init_db``
-    does not.
+    Normalization collapses whitespace and erases two cosmetic differences that
+    carry no schema meaning: the ``IF NOT EXISTS`` clause (the baseline adds it for
+    idempotent replay; the chain's CREATEs mostly omit it) and identifier quoting (a
+    historical table REBUILD left ``CREATE TABLE "opponent_models"`` quoted, while the
+    baseline emits it bare). Column definitions and ordering are preserved, so a real
+    divergence still fails.
     """
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(
             "SELECT type, name, sql FROM sqlite_master "
             "WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL"
         ).fetchall()
-    return {f"{typ}:{name}": re.sub(r"\s+", " ", sql).strip() for typ, name, sql in rows}
+    out: dict[str, str] = {}
+    for typ, name, sql in rows:
+        s = re.sub(r"\s+", " ", sql).strip()
+        s = re.sub(r"(?i)\bIF NOT EXISTS ", "", s)
+        s = s.replace('"', "").replace("`", "")
+        out[f"{typ}:{name}"] = s
+    return out
 
 
-def _init_only(path: str) -> None:
-    SchemaManager(path)._init_db()
-
-
-def _init_plus_migrations(path: str) -> None:
-    sm = SchemaManager(path)
+def test_init_db_builds_and_stamps_baseline(tmp_path):
+    """A fresh ``_init_db`` lands at the baseline version, stamped once, idempotently."""
+    db = str(tmp_path / "t.db")
+    sm = SchemaManager(db)
     sm._init_db()
-    sm._run_migrations()
-
-
-def test_fresh_install_replays_chain_to_head(tmp_path):
-    """Sanity: init + chain lands a fresh DB at SCHEMA_VERSION."""
-    db = str(tmp_path / "full.db")
-    _init_plus_migrations(db)
+    first = _schema_objects(db)
     with sqlite3.connect(db) as conn:
         (version,) = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+        (rows,) = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()
     assert version == SCHEMA_VERSION
+    assert rows == 1, "baseline must stamp exactly one version row"
+
+    # Idempotent: a second build changes nothing and does not re-stamp.
+    sm._init_db()
+    assert _schema_objects(db) == first
+    with sqlite3.connect(db) as conn:
+        (rows,) = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()
+    assert rows == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Known drift: _init_db() is a partial skeleton — ~19 tables, ~41 indexes, "
-        "and 12 table shapes are supplied only by the migration chain (cash/ledger/"
-        "presence/stakes/prestige/coach/avatars were wired migration-only). This is "
-        "the squash precondition (T3-44 / docs/plans/SCHEMA_BASELINE_PLAN.md). When "
-        "_init_db is reconciled this test XPASSES and strict=True fails the run — "
-        "that is the signal to delete this marker and keep it as a permanent guard."
-    ),
-)
-def test_init_db_matches_full_migration_chain(tmp_path):
-    """``_init_db()`` alone must equal ``_init_db()`` + the full chain.
+def test_baseline_equals_legacy_chain_head(tmp_path):
+    """The generated baseline MUST equal the archived chain's head schema.
 
-    Squash precondition (T3-44 / docs/plans/SCHEMA_BASELINE_PLAN.md): once the
-    chain is deleted, new installs run ``_init_db()`` only, so the two paths must
-    already be identical. Any object listed below is something the migration chain
-    adds that ``_init_db`` is missing — back-port it into ``_init_db`` before
-    squashing.
+    Build the head via the baseline, then force a full replay of the v1..vN chain
+    over it. Every guarded migration must no-op (the schema is already at head), so
+    the schema is unchanged. If the baseline and chain ever diverge — the chain is
+    edited, or ``schema_baseline.py`` is regenerated incorrectly — a migration fires
+    and this fails. Permanent successor to the pre-squash drift gate.
     """
-    init_only = str(tmp_path / "init_only.db")
-    full = str(tmp_path / "full.db")
-    _init_only(init_only)
-    _init_plus_migrations(full)
+    db = str(tmp_path / "t.db")
+    sm = SchemaManager(db)
+    sm._init_db()
+    before = _schema_objects(db)
 
-    a = _schema_objects(init_only)
-    b = _schema_objects(full)
+    # Clear the stamped versions so the chain replays in full without PK conflicts;
+    # this drops rows only — the schema (sqlite_master) is untouched.
+    with sqlite3.connect(db) as conn:
+        conn.execute("DELETE FROM schema_version")
+    LegacyMigrations().run(sm._get_connection, 0, SCHEMA_VERSION)
+    after = _schema_objects(db)
 
-    missing_from_init = sorted(b.keys() - a.keys())  # chain creates, _init_db lacks
-    extra_in_init = sorted(a.keys() - b.keys())  # _init_db has, full path lacks
-    differing = sorted(k for k in a.keys() & b.keys() if a[k] != b[k])
-
+    missing = sorted(before.keys() - after.keys())
+    added = sorted(after.keys() - before.keys())
+    differing = sorted(k for k in before.keys() & after.keys() if before[k] != after[k])
     problems = []
-    if missing_from_init:
-        problems.append(f"chain adds but _init_db lacks: {missing_from_init}")
-    if extra_in_init:
-        problems.append(f"in _init_db but absent after full chain: {extra_in_init}")
+    if missing:
+        problems.append(f"chain replay dropped vs baseline: {missing}")
+    if added:
+        problems.append(f"chain replay added beyond the baseline: {added}")
     if differing:
-        problems.append(f"DDL differs between the two build paths: {differing}")
-
+        problems.append(f"chain replay changed DDL vs baseline: {differing}")
     assert not problems, (
-        "_init_db() and the migration chain disagree on the head schema; "
-        "the chain cannot be squashed until these are reconciled:\n  " + "\n  ".join(problems)
+        "the legacy chain and the generated baseline have diverged — regenerate "
+        "schema_baseline.py via scripts/_gen_schema_baseline.py:\n  " + "\n  ".join(problems)
     )
+
+
+def test_unversioned_nonempty_db_migrates_via_chain(tmp_path):
+    """A populated DB whose version stamp is gone (an ancient pre-versioning DB, or a
+    wiped schema_version) must be brought up via the legacy chain — NOT silently
+    stamped at the baseline and frozen, which would leave old table shapes unmigrated.
+
+    Regression guard for the post-cutover routing: version-0 + non-empty -> chain.
+    """
+    db = str(tmp_path / "t.db")
+    sm = SchemaManager(db)
+    sm.ensure_schema()  # build to head
+    with sqlite3.connect(db) as conn:
+        conn.execute("DELETE FROM schema_version")  # drop the stamp; tables remain
+
+    sm.ensure_schema()  # must route through _init_db(no stamp/seed) + the chain
+
+    with sqlite3.connect(db) as conn:
+        (version,) = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert version == SCHEMA_VERSION, "an unversioned populated DB must reach head via the chain"
+    assert {"games", "groups"} <= tables
