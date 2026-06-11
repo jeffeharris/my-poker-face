@@ -85,13 +85,19 @@ actually decides; the equity-based veto wins. Functionally fine (pot-odds ≈ th
 Nash caller range), but the JSON caller tables are effectively dead weight given
 the veto. Decide in v2 whether to keep them.
 
-**Vocab hardening shipped alongside.** The caller path returned the abstract
-`'call'`; on a call-off (engine offers only `all_in`) raw `'call'` would fall
-back to **fold** (folding a hand the chart said to call). Now routed through
-`abstract_call_token` (emits `'jam'` for a call-off), mirroring the veto's
-call/jam split. The veto shadows this in normal flow, but the push/fold path is
-now independently correct for the veto-bails edge. (`AbstractAction.JAM` →
-engine `all_in`; there is no abstract `all_in` — see `action_vocab.py`.)
+**Vocab hardening shipped alongside (then centralized).** The caller path
+returned the abstract `'call'`; on a call-off (engine offers only `all_in`) raw
+`'call'` would fall back to **fold** (folding a hand the chart said to call).
+The first fix translated at the push/fold route; it was then **centralized** at
+the abstract→engine boundary — `resolve_preflop_sizing` / `resolve_postflop_sizing`
+now take `valid_actions` and resolve a call-off `'call'` to `('all_in', stack)`
+via `abstract_call_token`, the same place `JAM` is mapped. That removed the
+scattered call-off handling (the push/fold pre-translate + the veto's inline
+call/jam branch); the veto now just emits `'call'`. `value_override` keeps its
+own `abstract_call_token` — it's a shared producer also consumed by `replay.py`,
+which doesn't go through these resolvers. (`AbstractAction.JAM` → engine
+`all_in`; there is no abstract `all_in` — see `action_vocab.py`. Don't collapse
+the two vocabularies; the split prevents a known `action_mapper` crash.)
 
 ## TL;DR
 
