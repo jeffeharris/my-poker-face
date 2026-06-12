@@ -4566,13 +4566,10 @@ class TieredBotController(AIPlayerController):
         t = getattr(model, 'tendencies', None)
         if t is None:
             return False
-        # Mirror _select_exploitation_stats' field mapping for the fields the
-        # gate's classifiers read (vpip_per_voluntary_opportunity, AF, all-in).
+        # Only the fields reshove_fold_equity_ok actually reads: hands_observed,
+        # vpip_per_voluntary_opportunity, all_in_frequency (the rest default).
         stats = AggregatedOpponentStats(
             hands_observed=t.hands_observed,
-            vpip=t.vpip,
-            pfr=t.pfr,
-            aggression_factor=t.aggression_factor,
             all_in_frequency=t.all_in_frequency,
             vpip_per_voluntary_opportunity=getattr(t, 'vpip_per_voluntary_opportunity', 0.5),
         )

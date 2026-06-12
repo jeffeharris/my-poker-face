@@ -484,7 +484,9 @@ def build_clone_strategy(profile: CloneProfile, oracle_punish_overbets: bool = F
                     if 'call' in valid:
                         return _call()
                     if 'all_in' in valid:  # calling caps at our stack = a call-off
-                        return {'action': 'all_in', 'raise_to': max_raise or 0}
+                        # raise_to is unused for all_in (the engine derives the
+                        # amount from stack); keep it 0 to match every other path.
+                        return {'action': 'all_in', 'raise_to': 0}
                 return _fold()
             # Open / facing a single raise: gate on hand tier only.
             if canonical in pfr_tier and 'raise' in valid:
