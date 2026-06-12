@@ -84,17 +84,18 @@ Full narrative: `docs/captains-log/archetype-shaping/2026-06-11-*.md` +
 
 ## What's left (priority order)
 
-**Cheap hygiene:**
-- **Flaky test** `tests/test_psychology_v2.py::test_apply_zone_effects_tilted_player`
-  — needs "thoughts" on `>10` of 20 probabilistic trials, lands on exactly 10. Seed
-  it or widen the margin; it intermittently reds *any* PR (cost 2 CI reruns this
-  session).
-- **`_chart_gen.py` hoist** — `_playability` / `_norm` / bluff pools are duplicated
-  across `build_vs_open` / `build_vs3bet_defense` / `build_vs4bet_defense`
-  (rule-of-three). Pure refactor.
-- **Archive `PREFLOP_REGEN_HANDOFF.md`** to `docs/archive/` — its open items
-  (squeeze, "vs_3bet drift" = the vs_open ratchet, bluff-aware taper, nit/rock
-  tighten) all shipped this session.
+**Cheap hygiene (all DONE 2026-06-12):**
+- ~~**Flaky test** `test_apply_zone_effects_tilted_player`~~ — fixed: 40 trials,
+  strict-majority threshold (was 20 trials / `>10`, ~2.5σ out → landed on 10).
+- ~~**`_chart_gen.py` hoist**~~ — `_is_pair`/`_is_suited`/`_playability`/`_norm`/
+  `_open_range` now live in `poker/strategy/data/_chart_gen.py`; the three
+  `build_vs_*` generators import them. Verified behaviour-preserving: a full regen
+  cascade produces zero chart diff. (Bluff pools left per-file — they're policy,
+  not shared primitives.)
+- ~~**Archive `PREFLOP_REGEN_HANDOFF.md`**~~ — moved to
+  `docs/archive/PREFLOP_REGEN_HANDOFF.md` with an archived banner; all its open
+  items shipped (squeeze #294, vs_open ratchet #295, bluff-aware taper #299/#311,
+  nit/rock tighten #306/#308).
 
 **Tech debt (lower urgency):**
 - **`DEPTH_INTENT_TAG_TECHDEBT.md`** — migrate to an explicit `intent: value|bluff`

@@ -52,6 +52,12 @@ import os
 from typing import Dict, List, Tuple
 
 from poker.strategy import lints
+from poker.strategy.data._chart_gen import (
+    _is_suited,
+    _norm,
+    _open_range,
+    _playability,
+)
 from poker.strategy.data.generate_push_fold_nash import (
     CANONICAL_HANDS,
     COMBO_COUNT,
@@ -62,7 +68,6 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _BASE = os.path.join(_HERE, "preflop_100bb_6max.json")
 _MATRIX = os.path.join(_HERE, "push_fold_equity_matrix.json")
 
-RANKS = "AKQJT98765432"
 TOTAL_COMBOS = float(sum(COMBO_COUNT[h] for h in CANONICAL_HANDS))  # 1326
 
 # Value/bluff 3-bet weights straddle the 0.50 cliff generate_depth_charts uses
@@ -139,45 +144,6 @@ NONBB_THREEBET_BY_OPENER: Dict[str, float] = {
     "UTG": 0.045, "HJ": 0.05, "CO": 0.07, "BTN": 0.10,
 }
 NONBB_TARGETS: Dict[str, Tuple[float, float]] = {}  # only used if PRESERVE_NONBB_WIDTH is False
-
-
-def _is_pair(h: str) -> bool:
-    return len(h) == 2
-
-
-def _is_suited(h: str) -> bool:
-    return len(h) == 3 and h[2] == "s"
-
-
-def _playability(h: str) -> float:
-    """Cheap suitedness + connectedness + high-card score in ~[0,1].
-
-    Only orders the *call* range within the equity-cleared set, so precision
-    doesn't matter much — flatting realizes through playability (suited,
-    connected), which pure all-in-equity ordering under-weights (§2 note).
-    """
-    hi, lo = RANKS.index(h[0]), RANKS.index(h[1])
-    high_card = (12 - hi) / 12 * 0.4               # A-high ~0.4 … 2-high ~0
-    if _is_pair(h):
-        conn = 0.2
-    else:
-        conn = max(0, 4 - abs(hi - lo)) / 4 * 0.3  # connected/small-gap bonus
-    suit = 0.3 if _is_suited(h) else 0.0
-    return high_card + conn + suit
-
-
-def _open_range(rfi_node: Dict[str, Dict[str, float]]) -> Dict[str, float]:
-    """Villain's open range as {hand: open_weight} from an rfi node."""
-    return {
-        h: d.get("raise_2.5bb", 0.0)
-        for h, d in rfi_node.items()
-        if d.get("raise_2.5bb", 0.0) > 0
-    }
-
-
-def _norm(d: Dict[str, float]) -> Dict[str, float]:
-    s = sum(d.values())
-    return {k: round(v / s, 4) for k, v in d.items() if v > 0} if s > 0 else {"fold": 1.0}
 
 
 def _current_masses(node: Dict[str, Dict[str, float]]) -> Tuple[float, float]:

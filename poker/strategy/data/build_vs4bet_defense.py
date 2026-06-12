@@ -41,6 +41,7 @@ import os
 from typing import Dict, List
 
 from poker.strategy import lints
+from poker.strategy.data._chart_gen import _norm
 from poker.strategy.data.generate_push_fold_nash import (
     CANONICAL_HANDS,
     COMBO_COUNT,
@@ -50,8 +51,6 @@ from poker.strategy.data.generate_push_fold_nash import (
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BASE = os.path.join(_HERE, "preflop_100bb_6max.json")
 _MATRIX = os.path.join(_HERE, "push_fold_equity_matrix.json")
-
-RANKS = "AKQJT98765432"
 
 MDF_BUFFER = 0.02              # continue a touch above the MDF minimum
 VILLAIN_CONTINUE_CLIFF = 0.50  # villain 4-bets with raise_2.2x ≥ this continue vs a 5-bet
@@ -67,15 +66,6 @@ DIST_BLUFF_JAM = {"jam": 0.40, "fold": 0.60}
 
 # Suited-Ax 5-bet bluff-jams (block AA/AK). These are hero's own 3-bet bluffs.
 BLUFF_JAM_POOL: List[str] = ["A5s", "A4s", "A3s", "A2s"]
-
-# NOTE: _playability/_norm duplicate the other generators'; hoist to a shared
-# poker/strategy/data/_chart_gen.py (rule of three — build_vs_open/3bet/4bet).
-
-
-def _norm(d: Dict[str, float]) -> Dict[str, float]:
-    s = sum(d.values())
-    return {k: round(v / s, 4) for k, v in d.items() if v > 0} if s > 0 else {"fold": 1.0}
-
 
 def build_node(hero: str, villain: str, vs_open: Dict, vs_3bet: Dict, matrix: Dict) -> Dict[str, Dict[str, float]]:
     """Generate one vs_4bet node (hero = 3-bettor facing villain's 4-bet)."""
