@@ -207,6 +207,86 @@ class GameRepository(BaseRepository):
                 'owner_name': row['owner_name'],
             }
 
+    # --- Async-friends turn state (denormalized read cache + notify trigger) ---
+    #
+    # The authoritative turn is always derivable from game_state_json (the
+    # current player's seat_id + awaiting_action); these columns mirror it so
+    # the lobby badge and the "should I push a notification" decision are a
+    # cheap indexed read instead of a JSON parse per game. They are written by
+    # the progression layer at a human-turn break, never by save_game (which
+    # runs for every incidental save and must not move the turn clock).
+
+    @retry_on_lock()
+    def set_async_flag(self, game_id: str, is_async: bool = True) -> None:
+        """Mark a game as async (advances via background orbit + notifications)."""
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE games SET is_async = ? WHERE game_id = ?",
+                (1 if is_async else 0, game_id),
+            )
+
+    @retry_on_lock()
+    def set_turn_state(
+        self, game_id: str, current_turn_user_id: Optional[str], *, advance_turn_clock: bool
+    ) -> None:
+        """Record whose turn it is.
+
+        Args:
+            current_turn_user_id: the human whose turn it is, or None when no
+                human is on the clock (AI/transition/hand-over).
+            advance_turn_clock: True only when the turn has just moved to a NEW
+                actor — resets ``turn_started_at`` and clears the notify
+                dedupe stamp so the new turn gets exactly one push. False for a
+                refresh that must not move the deadline or re-arm notifications.
+        """
+        with self._get_connection() as conn:
+            if advance_turn_clock:
+                conn.execute(
+                    """
+                    UPDATE games SET
+                        current_turn_user_id = ?,
+                        turn_started_at = CURRENT_TIMESTAMP,
+                        last_notified_turn_at = NULL
+                    WHERE game_id = ?
+                    """,
+                    (current_turn_user_id, game_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE games SET current_turn_user_id = ? WHERE game_id = ?",
+                    (current_turn_user_id, game_id),
+                )
+
+    @retry_on_lock()
+    def mark_turn_notified(self, game_id: str) -> None:
+        """Stamp that the current turn's push has been sent (dedupe guard)."""
+        with self._get_connection() as conn:
+            conn.execute(
+                "UPDATE games SET last_notified_turn_at = CURRENT_TIMESTAMP WHERE game_id = ?",
+                (game_id,),
+            )
+
+    def get_async_meta(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Return the async/turn columns for a game, or None if it doesn't exist."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT is_async, current_turn_user_id, turn_started_at,
+                       turn_deadline, last_notified_turn_at
+                FROM games WHERE game_id = ?
+                """,
+                (game_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                'is_async': bool(row['is_async']),
+                'current_turn_user_id': row['current_turn_user_id'],
+                'turn_started_at': row['turn_started_at'],
+                'turn_deadline': row['turn_deadline'],
+                'last_notified_turn_at': row['last_notified_turn_at'],
+            }
+
     def list_games(
         self, owner_id: Optional[str] = None, limit: int = 20, offset: int = 0
     ) -> List[SavedGame]:
