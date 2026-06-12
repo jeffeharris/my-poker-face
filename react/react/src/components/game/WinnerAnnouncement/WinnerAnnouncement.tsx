@@ -4,6 +4,7 @@ import { Card } from '../../cards';
 import { config } from '../../../config';
 import { INTERHAND_TIMING } from '../../../constants/interhandTiming';
 import { gameAPI } from '../../../utils/api';
+import { prewarmOnDevice } from '../../../utils/onDeviceLLM';
 import { logger } from '../../../utils/logger';
 import { getOrdinal, type BackendCard } from '../../../types/tournament';
 import type { PostRoundTone, PostRoundSuggestion, ChatIntensity } from '../../../types/chat';
@@ -135,6 +136,12 @@ export const WinnerAnnouncement = memo(function WinnerAnnouncement({
   // the absence of a sarcastic register. Shared behavior with the mobile overlay.
   const [selectedTone, setSelectedTone] = useState<PostRoundTone | null>(null);
   const [sarcastic, setSarcastic] = useState(false);
+
+  // Warm the on-device model when the post-round options appear, so the first
+  // reaction suggestion isn't paying cold model-load latency. No-op off-device.
+  useEffect(() => {
+    void prewarmOnDevice();
+  }, []);
 
   // Situational read of the hand, shared with the mobile overlay, so the tone
   // set fits what happened (no "vow revenge" over a hand you folded, etc.).

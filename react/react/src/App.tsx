@@ -90,7 +90,6 @@ const WinnerLayoutSandbox = lazy(() =>
 const RunoutCommitSandbox = lazy(() =>
   import('./components/dev/RunoutCommitSandbox').then((m) => ({ default: m.RunoutCommitSandbox }))
 );
-const FMTest = lazy(() => import('./components/debug/FMTest').then((m) => ({ default: m.FMTest })));
 
 // Fallback game limit values when usageStats hasn't loaded yet
 const MAX_GAMES_GUEST = 1;
@@ -586,7 +585,6 @@ function App() {
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/dev/winner-layout" element={<WinnerLayoutSandbox />} />
             <Route path="/dev/runout-commit" element={<RunoutCommitSandbox />} />
-            <Route path="/dev/fmtest" element={<FMTest />} />
 
             {/* Protected routes */}
             <Route

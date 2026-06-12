@@ -20,6 +20,7 @@ interface FoundationModelsPlugin {
   suggestChat(options: { prompt: string; system?: string; tones?: string[] }): Promise<{
     suggestions: Array<{ text: string; tone: string }>;
   }>;
+  prewarm(): Promise<{ warmed: boolean }>;
 }
 
 const FoundationModels = registerPlugin<FoundationModelsPlugin>('FoundationModels');
@@ -41,27 +42,6 @@ function isKillSwitched(): boolean {
     return localStorage.getItem(FLAG_KEY) === '0';
   } catch {
     return false;
-  }
-}
-
-/**
- * Raw availability probe — bypasses the opt-in flag, for diagnostics/test UIs.
- * Returns the native reason string when unavailable (e.g. Apple Intelligence
- * disabled, device ineligible, model still downloading).
- */
-export async function rawAvailability(): Promise<{
-  native: boolean;
-  available: boolean;
-  reason?: string;
-}> {
-  if (!isNativePlatform()) {
-    return { native: false, available: false, reason: 'not a native platform' };
-  }
-  try {
-    const res = await FoundationModels.availability();
-    return { native: true, available: res.available, reason: res.reason };
-  } catch (e) {
-    return { native: true, available: false, reason: `bridge error: ${String(e)}` };
   }
 }
 
@@ -107,4 +87,19 @@ export async function suggestChatOnDevice(opts: {
     throw new Error('on-device model returned no suggestions');
   }
   return typeof count === 'number' ? suggestions.slice(0, count) : suggestions;
+}
+
+/**
+ * Load the on-device model ahead of a request — call when the chat options are
+ * presented so the first suggestion doesn't pay cold model-load latency. The model
+ * then stays resident, so subsequent generations that session are warm. Best-effort,
+ * gated like generation, and cheap to call repeatedly.
+ */
+export async function prewarmOnDevice(): Promise<void> {
+  if (!(await isOnDeviceLLMAvailable())) return;
+  try {
+    await FoundationModels.prewarm();
+  } catch {
+    // best-effort — generation will still work, just colder
+  }
 }
