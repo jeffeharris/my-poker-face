@@ -360,8 +360,10 @@ class TestHandleSendMessageAuth:
         mock_auth.get_current_user.return_value = {'id': 'admin-1'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
+        # Admin override now resolves through membership_service (the single
+        # auth chokepoint), so patch the authorization source it consults.
         with patch(
-            'flask_app.routes.game_routes.get_authorization_service',
+            'flask_app.services.membership_service.get_authorization_service',
             return_value=_mock_admin_authz(True),
         ):
             handlers = _register_and_get_handlers()
@@ -420,8 +422,10 @@ class TestProgressGameSocketAuth:
         mock_auth.get_current_user.return_value = {'id': 'admin-1'}
         mock_gss.get_game.return_value = _make_game_data(owner_id='owner-123')
 
+        # Admin override now resolves through membership_service (the single
+        # auth chokepoint), so patch the authorization source it consults.
         with patch(
-            'flask_app.routes.game_routes.get_authorization_service',
+            'flask_app.services.membership_service.get_authorization_service',
             return_value=_mock_admin_authz(True),
         ):
             handlers = _register_and_get_handlers()

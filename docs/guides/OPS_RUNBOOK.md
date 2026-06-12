@@ -2,7 +2,7 @@
 purpose: Operations runbook for deploying, launching, and running My Poker Face in production — activation checklist, env knobs, deploy/rollback, backups, monitoring, and incident playbooks
 type: guide
 created: 2026-05-29
-last_updated: 2026-06-09
+last_updated: 2026-06-12
 ---
 
 # Ops Runbook
@@ -88,6 +88,8 @@ These are armed in `docker-compose.prod.yml`; override via host env only with re
 | `CSRF_PROTECTION_ENABLED` | _(auto when `FLASK_ENV=production`)_ | Double-submit CSRF on mutating `/api/*` | 36 |
 | `SOCKETIO_ASYNC_MODE` | `threading` | Socket.IO async model (safe under the gevent worker; see §7) | 24 |
 | `IMAGE_PROVIDER` | `openai` | Image gen provider (prefer `openai` — dall-e-2 moderates output) | — |
+| `APNS_KEY_PATH` / `APNS_KEY_ID` / `APNS_TEAM_ID` / `APNS_BUNDLE_ID` | _(empty)_ | APNs token-auth (.p8) credentials for async-friends "it's your turn" iOS pushes. All empty ⇒ notification layer is a safe no-op (gameplay unaffected). | — |
+| `APNS_USE_SANDBOX` | `0` | `1` targets the APNs sandbox host (dev/TestFlight builds; different tokens than prod) | — |
 
 ---
 

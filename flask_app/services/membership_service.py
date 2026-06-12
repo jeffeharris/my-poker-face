@@ -24,15 +24,18 @@ import logging
 from typing import Optional
 
 from flask_app import extensions
+from poker.authorization import get_authorization_service
 
 logger = logging.getLogger(__name__)
 
 
 def _is_admin(user_id: str) -> bool:
-    """Whether the user has the admin-tools permission (mirrors game_routes)."""
-    try:
-        from poker.authorization import get_authorization_service
+    """Whether the user has the admin-tools permission (mirrors game_routes).
 
+    Defensive: a misconfigured/torn-down authorization singleton never blocks a
+    legitimate owner/member, since this is consulted only as a last resort.
+    """
+    try:
         auth_service = get_authorization_service()
         return bool(auth_service and auth_service.has_permission(user_id, 'can_access_admin_tools'))
     except Exception as e:  # pragma: no cover - defensive
@@ -49,19 +52,20 @@ def is_member(
 ) -> bool:
     """Whether ``user_id`` may access ``game_id``.
 
+    Checks owner → membership ledger → admin, in that order. The admin lookup is
+    LAST and lazy so an owner/seated member short-circuits without touching the
+    authorization singleton (which keeps this immune to the global-pollution
+    gotcha and avoids a permission query on the hot path).
+
     Args:
         owner_id: the game's owner if the caller already knows it (saves a DB
             hit). When None and the membership ledger misses, we look it up so a
             legacy single-human game still authorizes its owner.
-        is_admin: pass the caller's already-computed admin flag to short-circuit;
-            when None it is computed here so socket call sites needn't repeat it.
+        is_admin: pass an already-computed admin flag to skip the lookup here.
     """
     if not user_id:
         return False
-    if is_admin is None:
-        is_admin = _is_admin(user_id)
-    if is_admin:
-        return True
+
     if owner_id is not None and user_id == owner_id:
         return True
 
@@ -81,7 +85,10 @@ def is_member(
         if info is not None and info.get('owner_id') == user_id:
             return True
 
-    return False
+    # Admin override, computed last so owners/members never trigger it.
+    if is_admin is None:
+        is_admin = _is_admin(user_id)
+    return bool(is_admin)
 
 
 def resolve_turn_user(game_state) -> Optional[str]:

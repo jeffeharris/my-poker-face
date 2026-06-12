@@ -20,6 +20,7 @@ from flask_app import config, extensions
 from flask_app.game_adapter import StateMachineAdapter
 from flask_app.routes.game_routes import build_and_persist_game
 from flask_app.services import async_game_service, game_state_service, membership_service
+from flask_app.services.turn_notify import refresh_turn_state
 from poker.utils import get_celebrities
 
 logger = logging.getLogger(__name__)
@@ -36,22 +37,6 @@ def _default_llm_config() -> dict:
     from core.llm.settings import get_default_model, get_default_provider
 
     return {'provider': get_default_provider(), 'model': get_default_model()}
-
-
-def refresh_turn_state(game_id: str, game_state, *, previous_turn_user=None) -> str | None:
-    """Mirror the live turn onto the games row for the lobby + notify layer.
-
-    Advances the turn clock (and re-arms notifications) only when the actor has
-    actually changed, so an incidental refresh doesn't move the deadline. Returns
-    the resolved turn user (or None when no human is on the clock).
-    """
-    turn_user = membership_service.resolve_turn_user(game_state)
-    advanced = turn_user is not None and turn_user != previous_turn_user
-    try:
-        extensions.game_repo.set_turn_state(game_id, turn_user, advance_turn_clock=advanced)
-    except Exception as e:  # pragma: no cover - defensive, never block play on a write
-        logger.debug("[ASYNC] turn-state refresh failed for %s: %s", game_id, e)
-    return turn_user
 
 
 @async_game_bp.route('/api/async-game/new', methods=['POST'])

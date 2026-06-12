@@ -4591,6 +4591,13 @@ def progress_game(game_id: str) -> None:
                     current_game_data['fast_forward'] = False
                     game_state_service.set_game(game_id, current_game_data)
                 handle_human_turn(game_id, current_game_data, game_state)
+                # Async-friends: mirror the turn onto the games row and, if the
+                # player whose turn it is isn't connected, push "it's your turn".
+                # Best-effort and isolated — a no-op for non-async games.
+                if current_game_data.get('is_async'):
+                    from flask_app.services import turn_notify
+
+                    turn_notify.notify_turn_if_offline(game_id, game_state)
                 break
     finally:
         lock.release()

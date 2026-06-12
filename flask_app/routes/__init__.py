@@ -11,6 +11,7 @@ from .chip_ledger_routes import chip_ledger_bp
 from .coach_routes import coach_bp
 from .cost_analytics_routes import cost_analytics_bp
 from .debug_routes import debug_bp
+from .device_routes import device_bp
 from .experiment_routes import experiment_bp
 from .game_routes import game_bp, register_socket_events
 from .image_routes import image_bp
@@ -29,6 +30,7 @@ from .user_routes import user_bp
 __all__ = [
     'game_bp',
     'async_game_bp',
+    'device_bp',
     'debug_bp',
     'personality_bp',
     'image_bp',

@@ -5,6 +5,12 @@ created: 2026-06-12
 last_updated: 2026-06-12
 ---
 
+> **Status (2026-06-12):** P1–P4 backend implemented and tested
+> (`tests/test_repositories/test_async_friends_repos.py`,
+> `tests/test_membership_service.py`, `tests/test_async_game_routes.py`,
+> `tests/test_turn_notify.py`, `tests/test_device_routes.py`). P5 (frontend +
+> iOS push registration) and the manual on-device APNs check remain.
+
 # Async Poker With Friends — PoC Plan
 
 Companion to the architecture in `docs/design/ASYNC_FRIENDS_DESIGN.md`. This is
@@ -47,17 +53,24 @@ Must work:
       columns); `MembershipRepository`; `DeviceRepository`; `GameRepository`
       async-meta methods (`set_async_flag`, `set_turn_state`, `mark_turn_notified`,
       `get_async_meta`).
-- [ ] **P2 — Membership-aware auth.** `flask_app/services/membership_service.py`;
-      swap `owner_id` checks at `game_routes.py:97`, `on_join`, `player_action`
-      (socket + REST). Keep owner/admin for config/delete.
-- [ ] **P3 — Async lifecycle + AI-fill.** `flask_app/routes/async_game_routes.py`
-      (`new`, `invite`, `join`, `mine`); extract `build_new_game(...)` from
-      `api_new_game`; AI-placeholder→`HumanSeat` swap on claim.
-- [ ] **P4 — Background progression + notifications.**
-      `start_background_task(progress_game)` for async games; notify hook at the
-      human-turn break; `flask_app/services/notifications/*`;
-      `flask_app/routes/device_routes.py`; APNs env knobs in `config.py`,
-      `.env.example`, `OPS_RUNBOOK.md`.
+- [x] **P2 — Membership-aware auth.** `flask_app/services/membership_service.py`
+      (`is_member` with owner fallback, `is_users_turn`/`resolve_turn_user`);
+      swapped `owner_id` checks at `game_routes.py` `_authorize_game_access`,
+      `on_join`, `player_action` (socket + REST, with per-turn gate),
+      `send_message`, `progress_game`. Owner/admin retained for config/delete.
+- [x] **P3 — Async lifecycle + AI-fill.** `flask_app/routes/async_game_routes.py`
+      (`new`, `invite`, `join`, `mine`); extracted `build_and_persist_game(...)`
+      from `api_new_game`; AI→`HumanSeat` swap on claim
+      (`async_game_service.claim_open_seat`).
+- [x] **P4 — Background progression + notifications.** Notify hook at the
+      human-turn break in `progress_game` (`turn_notify.notify_turn_if_offline`,
+      presence-gated, one push per turn); `flask_app/services/notifications/*`
+      (channel ABC + APNs channel + dispatcher); `flask_app/routes/device_routes.py`;
+      APNs env knobs in `.env.example` + `OPS_RUNBOOK.md`. **Note:** async games
+      already advance correctly because `progress_game` runs inline in the action
+      request and stops at the next human's turn regardless of who's connected;
+      moving it to `socketio.start_background_task` is a deferred responsiveness
+      optimization (so the actor's request returns before AI turns resolve).
 - [ ] **P5 — Frontend.** Disable action UI when `current_turn_user_id !== me`;
       render multiple human seats; async lobby badge from `/api/async-game/mine`;
       join-by-link; `@capacitor/push-notifications` → `/api/devices/register`;
