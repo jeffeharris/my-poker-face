@@ -168,3 +168,54 @@ decides whether exploitation needs a lower-threshold tier or is simply a fish-on
 Batches still pending (next box session, proper probes written first): relationship
 modifier (ON, never measured), multistreet H1 barrel + overbet (vs the folding field),
 math_floor call-off, push_fold_6max unopened/caller bb/100.
+
+---
+
+## Follow-up — why exploitation flips 0% vs the clones (2026-06-12, 4-agent probe)
+
+Investigated the Batch-1 open question. Reconciled against the **live-measured**
+data (one agent instrumented a real TAG-vs-clone sim; treat that as authoritative
+over agents that reasoned from the nominal profiles). The 0% is a **combination of
+detection gaps + a magnitude throttle — NOT "clones are unexploitable."**
+
+**Live-measured detection (TAG hero, ~1500 hands):**
+- Punisher_clone: vpip/vol ~0.17 → fires `tight_nit` only — the WRONG tool (it widens
+  hero's *opens*; does nothing about Punisher's postflop play). Its authored
+  `fold_to_cbet=0.70` does **not** appear live (observed ~0.06–0.13, cbet_faced ~17) →
+  `high_fold_to_cbet` never fires.
+- Jeff_clone: fires **nothing** — vpip/vol ~0.35 sits in the dead zone between nit
+  (<0.30) and station (>0.70); his real leak is *postflop* (AF_postflop ~0.30, wtsd
+  0.59) which the station gate can't see.
+- all-in ~0 for both → no aggression detector.
+
+**Magnitude throttle (link 3):** even where a pattern fires (tight_nit), the offset =
+`base × adaptation_bias × confidence × intensity` shrinks to a ~0.05–0.12 logit shift
+→ flips only ~5–9% of hands at reg bias 0.5 (≤18% even at an unreachable bias 1.0),
+rounding to ~0 on the CRN-paired measure. The L1 clamp/budgets are **slack** (never
+binding); the multiplier is the ceiling. Detection ≠ behavioral change.
+
+**Two code-certain detector gaps** (real, but see caveats):
+1. `high_fold_to_cbet` is HU-gated (`active_opponent_count==1`, exploitation.py:1632)
+   → can't fire in a multiway field even if detected.
+2. `_is_hyper_passive` gates on **global** `aggression_factor` (L681), not
+   `aggression_factor_postflop` → masks postflop calling-stations like Jeff.
+
+**⚠ Verification catch:** the agent synthesis proposed "Fix A: wire a multiway c-bet
+trigger to `high_fold_to_cbet` to close Punisher" — but that's premised on Punisher
+being *detected* as a high-fold-to-cbet, which the **live data refutes** (observed
+0.06, not 0.70). The authored clone stat ≠ its actual play vs this hero (a clone-
+fidelity gap) + the hero rarely c-bets it (~17 samples). So Fix A would not fire
+without first fixing the upstream stat. Likewise Fix B (postflop-AF gate) won't catch
+Jeff alone: his live vpip/vol ~0.35 is still below the 0.70 hyper_passive cutoff.
+
+**Verdict / decision needed:**
+- It's a real gap (the clones DO have leaks), but the proposed quick fixes are each
+  premised on detection that doesn't currently fire live — don't apply blindly.
+- The deeper finding: **the magnitude throttle makes exploitation a *light nudge*,
+  not a behavioral swing**, even with perfect detection. Before tuning, make the
+  design call explicitly: is exploitation meant to be a light edge on a strong base
+  (then A/B detection-reachability is the scope), or a real exploit engine (then it
+  needs a hard-override path like the value/all-in-veto layers, + lower thresholds)?
+- New side-finding: the **punisher clone's authored `fold_to_cbet` doesn't manifest
+  in play** — the clone isn't a clean test bed for c-bet exploitation; revisit clone
+  fidelity (same theme as the fold-to-3bet fix) before trusting clone-based c-bet A/Bs.
