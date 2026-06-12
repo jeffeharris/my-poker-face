@@ -989,9 +989,10 @@ def run_hand(
         except Exception as e:
             logger.warning(f"Phase A sim equity recording failed: {e}")
 
-    # Showdown feed — parity with prod's MemoryManager.complete_hand →
-    # observe_showdown, which run_hand bypasses. Without it `_showdowns` stays 0
-    # and WTSD reads 0 for every opponent in every sim (the bug that motivated
+    # Showdown feed — a sim-side APPROXIMATION of prod's
+    # MemoryManager.complete_hand → observe_showdown, which run_hand bypasses.
+    # Without it `_showdowns` stays 0 and WTSD reads 0 for every opponent in
+    # every sim (the bug that motivated
     # docs/technical/OPPONENT_STAT_SOURCE_OF_TRUTH.md). NOT gated on action_log:
     # an all-in-preflop showdown has no postflop action yet is a showdown — the
     # live model's wtsd clamps to 1.0 for exactly that case. The showdown set is
@@ -1007,8 +1008,11 @@ def run_hand(
             for p in revealed:
                 if p.name == hero_name:
                     continue
-                # `won` is best-effort from net stack change (ignores side-pot
-                # nuance). Only showdown_win_rate reads it; WTSD needs the count.
+                # `won` is best-effort from net chip change this hand. It
+                # UNDERCOUNTS chopped pots (in a split both players can end
+                # net-down → both read `won=False`), so showdown_win_rate is an
+                # approximation — the only field that reads `won`. WTSD reads
+                # only the showdown COUNT, which is exact.
                 won = p.stack > start_stacks.get(p.name, p.stack)
                 try:
                     opponent_manager.get_model(hero_name, p.name).observe_showdown(won=won)

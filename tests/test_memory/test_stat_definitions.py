@@ -204,19 +204,46 @@ def test_live_model_agrees_with_reducer_on_same_event_stream():
         elif action == "call":
             call_ct += 1
 
+    # Feed showdowns too so the WTSD / W$SD path is exercised (the event stream
+    # alone produces no showdown). 2 reached, 1 won.
+    t.update_showdown(won=True)
+    t.update_showdown(won=False)
+    showdowns, showdowns_won = 2, 1
+
     denom = t.hands_dealt if t.hands_dealt > 0 else t.hands_observed
     cap = CONFIG.signal_thresholds.medium_af_postflop
 
+    # Raw counters land where the canonical predicates say they should.
     assert t._saw_flop == saw_flop
     assert t._vpip_count == vpip_count
     assert t._pfr_count == pfr_count
     assert t._bet_raise_count == bet_raise
     assert t._call_count == call_ct
-    # Derived stats agree through the shared formulas.
+    assert t._showdowns == showdowns
+    assert t._showdowns_won == showdowns_won
+
+    # Every derived field equals the shared formula applied to the live counters —
+    # i.e. the live reducer can't compute a stat any way but the canonical one.
     assert t.vpip == pytest.approx(sd.vpip(vpip_count, denom))
     assert t.pfr == pytest.approx(sd.pfr(pfr_count, denom))
     assert t.aggression_factor == pytest.approx(
         sd.aggression_factor(bet_raise, call_ct, zero_call_cap=cap)
+    )
+    assert t.wtsd == pytest.approx(sd.wtsd(showdowns, saw_flop))
+    assert t.showdown_win_rate == pytest.approx(sd.showdown_win_rate(showdowns_won, showdowns))
+    assert t.aggression_factor_postflop == pytest.approx(
+        sd.aggression_factor(t._postflop_bet_raise_count, t._postflop_call_count, zero_call_cap=cap)
+    )
+    assert t.call_rate_facing_bet == pytest.approx(
+        sd.call_rate_facing_bet(t._postflop_call_count, t._facing_bet_opportunities)
+    )
+    assert t.vpip_per_voluntary_opportunity == pytest.approx(
+        sd.vpip_per_voluntary_opportunity(
+            t._preflop_voluntary_action_count, t._preflop_voluntary_opportunities
+        )
+    )
+    assert t.pfr_per_open_opportunity == pytest.approx(
+        sd.pfr_per_open_opportunity(t._preflop_open_raise_count, t._preflop_open_opportunities)
     )
 
 

@@ -44,6 +44,7 @@ from cash_mode.psychology_persistence import (
     flush_persona_psychology as _flush_psychology,
     hydrate_persona_psychology as _hydrate_psychology,
 )
+from poker.memory import stat_definitions as sd
 from poker.poker_game import (
     Player,
     PokerGameState,
@@ -1343,7 +1344,7 @@ def _run_hand(
             # aggressor's first-in flop bet (no prior flop bet this hand) — this
             # distinguishes it from a donk-bet or a raise-vs-donk. Everyone else
             # facing that c-bet drives the fold-to-c-bet stat.
-            is_aggr = action in ("raise", "all_in")
+            is_aggr = sd.is_pfr_action(action)
             is_cbet_opportunity = (
                 decision_phase == "FLOP" and actor_name == last_pf_raiser_name and not flop_bet_made
             )
