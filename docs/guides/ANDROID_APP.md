@@ -213,6 +213,22 @@ with a ~30 min framework fallback cadence (`updatePeriodMillis`).
 To tweak the look, edit the layout/colors and `NetWorthWidgetProvider.drawSparkline`;
 these are plain Android resources/code, unaffected by `cap copy`/`cap sync`.
 
+## On-device chat suggestions (Gemini Nano)
+
+Quick-chat suggestions can be generated **on-device** via Gemini Nano (ML Kit GenAI
+**Prompt API**) — the Android counterpart to the iOS Foundation Models path. Same bridge
+contract: `OnDeviceLLMPlugin.kt` registers under the `FoundationModels` jsName, so the
+shared `src/utils/onDeviceLLM.ts` + the `api.ts` server-composes-parity routing drive iOS
+and Android identically, with the server route as transparent fallback.
+
+- **Dep + floor:** `com.google.mlkit:genai-prompt` requires **minSdk 26** and Kotlin (the
+  artifact ships Kotlin 2.2 metadata → the app module applies the Kotlin 2.2 Gradle plugin).
+- **Where it runs:** real generation needs **AICore + Gemini Nano** (Pixel 9/10-class). On
+  anything else (incl. the standard emulator) `availability()` reports false and suggestions
+  come from the server — verified: the plugin registers and the app runs clean on a
+  non-AICore emulator.
+- **Design rationale + the full CallType analysis:** `docs/technical/ON_DEVICE_LLM_FEASIBILITY.md`.
+
 ## Native gotchas & guardrails
 
 - **JDK / SDK required to build.** `assembleDebug` / `bundleRelease` need a JDK 17+

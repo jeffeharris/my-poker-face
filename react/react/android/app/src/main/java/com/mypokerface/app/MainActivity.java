@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         // auto-registers only npm-package plugins). iOS does the equivalent in
         // WidgetBridgePlugin.swift's capacitorDidLoad().
         registerPlugin(WidgetBridgePlugin.class);
+        registerPlugin(OnDeviceLLMPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

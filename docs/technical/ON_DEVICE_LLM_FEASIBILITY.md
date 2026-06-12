@@ -1,16 +1,21 @@
 ---
-purpose: Feasibility analysis of using Apple's on-device Foundation Models (WWDC 2025/2026) for the game's smaller LLM tasks
+purpose: Feasibility analysis of using on-device LLMs (Apple Foundation Models / Android Gemini Nano) for the game's smaller LLM tasks
 type: design
 created: 2026-06-12
 last_updated: 2026-06-12
 ---
 
-# On-Device LLM Feasibility — Apple Foundation Models
+# On-Device LLM Feasibility — Apple Foundation Models & Android Gemini Nano
 
 Can My Poker Face offload some of its **smaller** LLM tasks (chat suggestions, flavor
 narration, categorization, beat cleanup) to Apple's on-device model? Short answer: **yes,
-but narrowly** — only the **chat-suggestion** family, only on the **iOS app**, with the
-server path as fallback for everyone else. This doc records the research and the reasoning.
+but narrowly** — only the **chat-suggestion** family, on the **native apps** (iOS *and*
+now Android), with the server path as fallback for everyone else. This doc records the
+research and the reasoning.
+
+> **Update 2026-06-12:** Android is no longer a non-goal. ML Kit's GenAI **Prompt API**
+> (Gemini Nano) is the Android equivalent of Apple Foundation Models, and the same
+> chat-suggestion path now runs on it. See [Android — Gemini Nano](#android--gemini-nano-ml-kit-genai) below.
 
 ## What Apple shipped
 
@@ -103,7 +108,7 @@ The one genuinely client-local family is **chat suggestions**. Their fixed
 - Multimodal / AFM3 Core Advanced (image input) — no current need.
 - Private Cloud Compute integration and a Mac-mini inference node — disproportionate infra
   for tasks already served near-free by Groq/xAI.
-- Android (no equivalent first-party on-device framework here).
+- ~~Android (no equivalent first-party on-device framework here).~~ **Done** — see below.
 
 ## Proof of concept
 
@@ -113,3 +118,33 @@ bridge (`src/utils/onDeviceLLM.ts`) mirrors the existing `widgetData.ts` pattern
 suggestion fetches in `src/utils/api.ts` try on-device first, falling back to the server on
 any unavailability or error. See the plugin's header comment for the Xcode build steps (the
 Swift target can't be built from the Linux CI container).
+
+## Android — Gemini Nano (ML Kit GenAI)
+
+The same path runs on Android via **Gemini Nano**, reached through ML Kit's GenAI
+**Prompt API** (`com.google.mlkit:genai-prompt`). Crucially, **no JS changed**: the
+Android plugin registers under the *same* `FoundationModels` jsName, so
+`onDeviceLLM.ts` and the `api.ts` server-composes-parity routing drive both platforms
+identically. Apple Foundation Models on iOS, Gemini Nano on Android, one bridge contract.
+
+- **Plugin:** `react/react/android/app/src/main/java/com/mypokerface/app/OnDeviceLLMPlugin.kt`
+  (Kotlin) — `availability()` (`GenerativeModel.checkStatus()` → `FeatureStatus`),
+  `suggestChat()` (`generateContent(prompt)` → parse a JSON `[{text,tone}]` array), and
+  `prewarm()` (`warmup()` when ready, else kick off `download()`). Registered in `MainActivity`.
+- **No `@Generable`:** unlike Apple's guided generation, Nano emits free text, so the
+  plugin instructs the model to return a JSON array and parses it (tolerating fences/prose),
+  rejecting on any miss so the JS falls back to the server — same contract as iOS.
+- **Cost of entry:** the lib forces **minSdk 26** (Android 8.0) and pulls in Kotlin
+  (built with Kotlin 2.2 metadata → the app module uses the Kotlin 2.2 plugin). APK grows ~1.6 MB.
+- **Device gating:** real generation needs **AICore + Gemini Nano** (Pixel 9/10-class and
+  a growing set of flagships). Elsewhere — including the standard emulator — `checkStatus()`
+  reports `UNAVAILABLE` (or the model is merely `DOWNLOADABLE`), `availability()` returns
+  false, and every request transparently uses the server route. Verified on a non-AICore
+  emulator: plugin registers, app runs clean, falls back silently.
+- **Same caveats as iOS:** quality unproven vs the Fast tier (needs an A/B eyeball on real
+  hardware); no on-device usage tracking; the chat-suggestion family is still the only
+  client-local CallType (the Nano-*tier* server CallTypes stay server-authoritative — and
+  note "Gemini **Nano**" ≠ our "**Nano** tier", which is Groq Llama).
+
+Build note: unlike the iOS Swift target, this **does** build from the standard Android
+toolchain (AGP 8.7.3 / JDK 21) — but the ML Kit artifact only runs Nano on capable hardware.

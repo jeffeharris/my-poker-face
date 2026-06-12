@@ -1,4 +1,6 @@
 apply plugin: 'com.android.application'
+// Kotlin support — OnDeviceLLMPlugin.kt uses the coroutine-first ML Kit GenAI API.
+apply plugin: 'org.jetbrains.kotlin.android'
 
 // Release signing is driven by an (untracked) android/key.properties — see
 // docs/guides/ANDROID_APP.md. When it's absent (every dev checkout, CI, debug
@@ -51,6 +53,9 @@ android {
             }
         }
     }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }
 
 repositories {
@@ -69,6 +74,13 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+
+    // On-device LLM: Gemini Nano via ML Kit GenAI Prompt API (OnDeviceLLMPlugin.kt).
+    // Requires minSdk 26 (see variables.gradle). Real generation needs AICore /
+    // Gemini Nano (Pixel 9/10-class); elsewhere checkStatus() reports UNAVAILABLE
+    // and the JS bridge falls back to the server route.
+    implementation "com.google.mlkit:genai-prompt:1.0.0-beta2"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
 }
 
 apply from: 'capacitor.build.gradle'
