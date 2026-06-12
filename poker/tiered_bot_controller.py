@@ -341,6 +341,21 @@ VS3BET_EXPLOIT_SCALE = 0.6  # maps (ref − β)·knob to a per-hand call→fold 
 VS3BET_VALUE_CLIFF = 0.50  # villain raise_3x ≥ this = value (mirrors build_vs3bet_defense)
 
 
+def _resolve_vs3bet_exploit(pcfg, skill) -> float:
+    """Resolve a persona's vs3bet_exploit knob. Precedence: an explicit
+    ``vs3bet_exploit`` in the personality config wins; else the persona's skill
+    tier grades it (shark 0.85 … rec 0.0 — it's an exploitation behaviour); else
+    VS3BET_EXPLOIT_DEFAULT for an un-tiered persona."""
+    if isinstance(pcfg, dict) and 'vs3bet_exploit' in pcfg:
+        return float(pcfg['vs3bet_exploit'])
+    if skill:
+        from poker.strategy.skill_tiers import SKILL_TIERS
+
+        if skill in SKILL_TIERS:
+            return SKILL_TIERS[skill].vs3bet_exploit
+    return VS3BET_EXPLOIT_DEFAULT
+
+
 def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
     """β = bluff combos / total combos of the villain's 3-bet range, read from
     ``vs_open[villain_vs_hero].raise_3x`` (a hand is a bluff when its 3-bet weight
@@ -671,18 +686,17 @@ class TieredBotController(AIPlayerController):
             isinstance(_pcfg, dict) and _pcfg.get('push_fold_nash')
         )
 
-        # Per-personality bluff-aware vs_3bet exploit knob (0=off/GTO, ~0.5=moderate
-        # default, 1.0=strong). The base vs_3bet chart is the GTO/MDF baseline; this
-        # runtime layer (see _apply_vs3bet_bluff_exploit) is the per-player dial that
-        # folds more of the marginal continue vs a value-heavy 3-bettor. Default
-        # MODERATE for the whole field; a persona sets "vs3bet_exploit": <0..1> in
-        # personalities.json to deviate. Sims/tests bypass __init__ (build via
-        # __new__); the live path reads getattr(..., 0.0) so they no-op unless set.
-        self.vs3bet_exploit: float = (
-            float(_pcfg['vs3bet_exploit'])
-            if isinstance(_pcfg, dict) and 'vs3bet_exploit' in _pcfg
-            else VS3BET_EXPLOIT_DEFAULT
-        )
+        # Per-player bluff-aware vs_3bet exploit knob (0=off/sticky, 1.0=strong/
+        # disciplined): over-fold the marginal continue vs a value-heavy 3-bettor
+        # (_apply_vs3bet_bluff_exploit). It's an EXPLOITATION behaviour, so it GRADES
+        # with the persona's skill tier (shark folds disciplined 0.85 … rec stays
+        # sticky 0.0) — auto-differentiating the whole field, unlike push_fold_nash
+        # (a binary elite weapon curated per-persona). Precedence: an explicit
+        # "vs3bet_exploit" in config wins; else the skill-tier default; else 0.5 for
+        # an un-tiered persona (gate-safe — the probe's archetypes bypass __init__,
+        # so they stay off and this can't move the bands). Sims/tests bypass __init__;
+        # the live path reads getattr(..., 0.0) so they no-op unless set.
+        self.vs3bet_exploit: float = _resolve_vs3bet_exploit(_pcfg, _skill)
         self._vs3bet_beta_cache: Dict = {}
 
         # Sim-mode performance flag. When True, decision_analyzer
