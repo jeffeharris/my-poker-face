@@ -57,6 +57,21 @@ def archetype_label_from_anchors(looseness: float, aggression: float) -> str:
 #
 # VPIP (Voluntarily Put $ In Pot): fraction of hands player enters
 # AF (Aggression Factor): (bets + raises) / calls
+#
+# REGISTRY NOTE — two stat spaces, one index. These constants are the RAW
+# (hands-normalized VPIP, global AF) quadrant boundaries used by
+# `play_style_label`. The EXPLOITATION DETECTOR (poker/strategy/exploitation.py)
+# classifies in a different, player-count-stable space (per-opportunity VPIP,
+# postflop AF) and keeps its own boundary constants there. The two are related
+# but not interchangeable:
+#   - The loose/tight VPIP cut is INTENDED to be the same value across both
+#     spaces: `exploitation.TIGHT_NIT_VPIP_PER_VOL_THRESHOLD` imports `VPIP_TIGHT`
+#     from here, so this is the single home for that 0.30 boundary.
+#   - The AF passivity cut intentionally DIFFERS (the detector uses a looser 0.80
+#     on postflop AF vs `AF_PASSIVE` 0.50 on global AF) — see exploitation.py.
+# Unifying the two spaces into one taxonomy is a separate, measured decision
+# (it would change classifications) — tracked in
+# docs/technical/OPPONENT_STAT_SOURCE_OF_TRUTH.md.
 VPIP_TIGHT = 0.30  # VPIP below this = tight player
 VPIP_LOOSE = 0.50  # VPIP above this = loose player
 VPIP_VERY_SELECTIVE = 0.20  # VPIP below this = very selective (nit territory)

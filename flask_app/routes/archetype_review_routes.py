@@ -65,6 +65,7 @@ from poker.archetype_targets import (
     score_stat,
 )
 from poker.authorization import require_permission
+from poker.memory import stat_definitions as sd
 
 from .. import extensions
 
@@ -74,9 +75,6 @@ archetype_review_bp = Blueprint('archetype_review', __name__)
 
 _admin_required = require_permission('can_access_admin_tools')
 
-_VOLUNTARY = {'call', 'raise', 'all_in'}
-_AGGRESSIVE = {'raise', 'all_in'}
-_POSTFLOP_PHASES = {'FLOP', 'TURN', 'RIVER'}
 
 _SUMMARY_CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL = 60.0
@@ -251,9 +249,9 @@ def _aggregate(conn: sqlite3.Connection, mode: str, window: str = 'all') -> dict
     # attribution; with no in-process state we reconstruct it from the rows.)
     last_pf_raiser: dict[tuple, str] = {}
     for game_id, player, hand, phase, action, node_key, _board, _arch in rows:
-        if phase == 'PRE_FLOP' and action in _AGGRESSIVE and node_key.split('|', 1)[0] == 'rfi':
+        if phase == 'PRE_FLOP' and sd.is_pfr_action(action) and node_key.split('|', 1)[0] == 'rfi':
             rfi_raisers.add((game_id, player, hand))
-        if phase == 'PRE_FLOP' and action in _AGGRESSIVE:
+        if phase == 'PRE_FLOP' and sd.is_pfr_action(action):
             last_pf_raiser[(game_id, hand)] = player
 
     # Hand-level OUTCOMES (showdown reached + winners) are NOT in
@@ -276,26 +274,26 @@ def _aggregate(conn: sqlite3.Connection, mode: str, window: str = 'all') -> dict
 
         if phase == 'PRE_FLOP':
             a['pf_hands'].add(hand_key)
-            if action in _VOLUNTARY:
+            if sd.is_voluntary_preflop(action):
                 a['vpip_hands'].add(hand_key)
-            if action in _AGGRESSIVE:
+            if sd.is_pfr_action(action):
                 a['pfr_hands'].add(hand_key)
             node = node_key.split('|', 1)[0]
             if node == 'vs_open':
                 a['vs_open'] += 1
-                if action in _AGGRESSIVE:
+                if sd.is_pfr_action(action):
                     a['vs_open_agg'] += 1
             elif node == 'vs_3bet' and (game_id, player, hand) in rfi_raisers:
                 a['vs_3bet'] += 1
-                if action in _AGGRESSIVE:
+                if sd.is_pfr_action(action):
                     a['vs_3bet_agg'] += 1
                 elif action == 'fold':
                     a['vs_3bet_fold'] += 1
-        elif phase in _POSTFLOP_PHASES:
+        elif sd.is_postflop_phase(phase):
             # Saw the flop → WTSD denominator (joined to outcomes below).
             a['saw_flop_hands'].add(hand_key)
             street = phase.lower()  # flop / turn / river
-            if action in _AGGRESSIVE:
+            if sd.is_aggressive_action(action):
                 a['pf_agg'] += 1
                 a[f'{street}_agg'] += 1
             elif action == 'call':
@@ -345,7 +343,7 @@ def _aggregate(conn: sqlite3.Connection, mode: str, window: str = 'all') -> dict
         st = flop_state.setdefault(key, {'bet_made': False, 'cbet_made': False})
         aggressor = last_pf_raiser.get(key)
         arch = archetype or 'unknown'
-        is_aggr = action in _AGGRESSIVE
+        is_aggr = sd.is_aggressive_action(action)
         if aggressor is not None and player == aggressor and not st['bet_made']:
             # The preflop aggressor is first-in on an un-bet flop → a c-bet chance.
             acc[arch]['cbet_opportunity'] += 1

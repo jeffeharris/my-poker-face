@@ -37,6 +37,7 @@ Limitations (V1):
 from __future__ import annotations
 
 import json
+import math
 import random
 import sqlite3
 from dataclasses import asdict, dataclass, fields
@@ -55,6 +56,7 @@ from .hand_tiers import (
     TOP_85_HANDS,
     TOP_95_HANDS,
 )
+from .memory import stat_definitions as sd
 
 
 @dataclass(frozen=True)
@@ -165,7 +167,11 @@ def _mine_hand_history(db_path: str, player_name: str) -> Dict[str, Optional[flo
             elif a['action'] == 'raise':
                 preflop_seen_raise_before_us = True
 
-        # Street-specific AF counters
+        # Street-specific AF counters. NOTE: this clone's offline aggression
+        # definition counts only literal 'raise' (not all_in/bet) — narrower
+        # than the canonical AGGRESSIVE_ACTIONS the live model uses. Reconciling
+        # it is a separate measured decision (it would change derived clone
+        # profiles); see docs/technical/OPPONENT_STAT_SOURCE_OF_TRUTH.md.
         for a in player_actions:
             phase = a['phase']
             if phase not in street_raises:
@@ -180,13 +186,12 @@ def _mine_hand_history(db_path: str, player_name: str) -> Dict[str, Optional[flo
         passive = street_passive[street]
         if raises + passive < 5:  # too few samples to trust the ratio
             return None
-        # AF = raises / passive (matches global AF formula)
-        if passive == 0:
-            return float(raises)  # all aggression, no passive — cap at the count
-        return raises / passive
+        # Shared AF formula; cap=inf reproduces the clone's "all aggression, no
+        # passive → cap at the raw count" (float(raises)) behaviour.
+        return sd.aggression_factor(raises, passive, zero_call_cap=math.inf)
 
     return {
-        'wtsd': (saw_river / saw_flop) if saw_flop >= 5 else None,
+        'wtsd': sd.wtsd(saw_river, saw_flop, clamp=False) if saw_flop >= 5 else None,
         'threebet_rate': (threebet_takes / threebet_opps) if threebet_opps >= 5 else None,
         'flop_af': _af('FLOP'),
         'turn_af': _af('TURN'),

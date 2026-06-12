@@ -814,6 +814,10 @@ def run_hand(
     """
     controller_map = {c.player_name: c for c in controllers}
 
+    # Hand-start stacks, snapshotted for the showdown feed's best-effort `won`
+    # signal (net chip change this hand). Captured before drive_hand mutates them.
+    start_stacks = {p.name: p.stack for p in sm.game_state.players}
+
     # Phase 6.6/6.7a: reset of sim-path aggressor state on hero's controller
     # is handled by drive_hand (production paths get it via
     # MemoryManager.on_hand_start; the sim bypasses MM).
@@ -984,6 +988,27 @@ def run_hand(
             )
         except Exception as e:
             logger.warning(f"Phase A sim equity recording failed: {e}")
+
+    # Showdown feed — parity with prod's MemoryManager.complete_hand →
+    # observe_showdown, which run_hand bypasses. Without it `_showdowns` stays 0
+    # and WTSD reads 0 for every opponent in every sim (the bug that motivated
+    # docs/technical/OPPONENT_STAT_SOURCE_OF_TRUTH.md). NOT gated on action_log:
+    # an all-in-preflop showdown has no postflop action yet is a showdown — the
+    # live model's wtsd clamps to 1.0 for exactly that case. The showdown set is
+    # the non-folded players still in at hand end (≥2 = a real showdown).
+    if opponent_manager is not None and hero_name is not None:
+        revealed = [p for p in sm.game_state.players if not getattr(p, 'is_folded', False)]
+        if len(revealed) >= 2:
+            for p in revealed:
+                if p.name == hero_name:
+                    continue
+                # `won` is best-effort from net stack change (ignores side-pot
+                # nuance). Only showdown_win_rate reads it; WTSD needs the count.
+                won = p.stack > start_stacks.get(p.name, p.stack)
+                try:
+                    opponent_manager.get_model(hero_name, p.name).observe_showdown(won=won)
+                except Exception as e:
+                    logger.warning(f"sim showdown feed failed for {p.name}: {e}")
 
     return {p.name: p.stack for p in sm.game_state.players}
 
