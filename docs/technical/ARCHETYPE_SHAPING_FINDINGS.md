@@ -2,7 +2,7 @@
 purpose: Data-grounded diagnosis of AI over-aggression, the committed-fold exploit, and the aggression-nudge calibration, plus the design for a per-archetype target-range review tool
 type: design
 created: 2026-06-08
-last_updated: 2026-06-10
+last_updated: 2026-06-12
 ---
 
 # Archetype Shaping — Findings & Plan
@@ -486,3 +486,49 @@ the avatar must *telegraph* the spike so it's earned and readable.
 
 Actionable items land in the handoff backlog (`docs/plans/ARCHETYPE_SHAPING_HANDOFF.md`
 #9–#12).
+
+## nit/rock band calibration — preflop + postflop (2026-06-12, PRs #303/#306/#308)
+
+Drove nit/rock to their `ARCHETYPE_TARGETS` bands **on the sim**, gated, not by feel.
+
+**The committed gate (#303).** `scripts/archetype_mixedfield_probe.py` is now a band
+gate: `make validate-archetype-bands` (deterministic seed 4242, 9000 hands, the
+7-archetype mixed field the bands are calibrated for). Exits non-zero on a hard fail.
+Two scoping rules keep it from reddening on noise:
+- `WARN_ONLY_ARCHETYPES = {nit, rock}` — calibration-in-progress, reported not gating.
+- `HARD_FAIL_STATS = {vpip, pfr, threebet, all_in}` — only high-n (~7000+),
+  low-variance frequency stats can hard-fail. Low-n (fourbet/fold_to_3bet ~100-160)
+  and narrow-band showdown stats (AF/AFq/WTSD/W$SD/cbet/fold_to_cbet) are WARN-only,
+  so a within-sampling-error wobble (tag W$SD 49.8 vs 52-56 at n=434, CI ±~4.7pp)
+  can't fail a deterministic gate.
+
+**Preflop into band (#306).** The tight tiers inherited the base's (correct, wider)
+BB/cold-defense → too loose facing aggression. Fix: a symmetric `_tighten_facing` in
+`build_archetype_charts` (inverse of `_invent_call`), per-scenario keep pools, base
+chart untouched, only `tight_rfi.json` regenerates:
+
+| lever | frac | keep | nit | rock |
+|---|---|---|---|---|
+| vs_open (VPIP) | 0.42 | premiums + strong suited bdwy + AK/AQ/KQo | 20.1→14.8 | 18.1→13.6 |
+| vs_3bet (f3b) | 0.80 | **QQ+/AK only** | 56→71.9 | 55→73.5 |
+
+The fold-to-3bet finding is a **"band-not-bug" inverse**: the bands *intend* nit/rock
+to **over-fold** to 3-bets (the scared-tight leak — fold above MDF), and the chart was
+defending too GTO (~MDF). It wouldn't move with a shared keep because a nit's *opening*
+range is mostly premiums the keep protected; the tighter vs_3bet keep folds the
+**medium opens** (JJ-99/AJ/KQ), continues QQ+/AK. Villain-conditioning ("defend more vs
+a maniac than a TAG") is already emergent from the `vs3bet_exploit` runtime layer
+(#299), which no-ops vs polarized 3-bettors and trims vs value-heavy ones.
+
+**Postflop differentiation (#308).** nit/rock were differentiated on *betting*
+(`auto_cbet` vs `passive_postflop` → c-bet 52.6 vs 34.4) but identical on *call-down* —
+both too sticky (WTSD ~34, fold-to-cbet ~53 under band). A tight-AGGRESSIVE nit is
+bet-or-**fold**, but its profile had no fold lever. Add nit `fit_or_fold` 0.55 +
+`give_up_turn` 0.45 (strong); rock `fit_or_fold` 0.25 (mild — stays stickier). Result:
+nit fold-to-cbet 52.7→57.5 (band), rock 53.4→58.0, nit AF 1.48→1.51 (band).
+
+**Left as a structural WARN: WTSD ~33** (band 22-28/22-30). NOT a missing fold — a
+VPIP-15 nit folds its weak hands *preflop*, so its flop range is strong and
+legitimately shows down (and wins: W$SD in band). Cap-limited (`max_per_action_shift`
+0.30) and not jointly satisfiable with the tight VPIP band without folding strong
+hands to river bets (absurd). Warn-only.
