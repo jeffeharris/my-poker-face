@@ -27,6 +27,7 @@ from .strategy.deviation_profiles import DeviationProfile, select_deviation_prof
 from .strategy.exploitation import (
     DEFAULT_MAX_TOTAL_SHIFT,
     GATING_FLOOR,
+    MIN_HANDS_DEFAULT,
     AggregatedOpponentStats,
     DecisionContext,
     OpponentSpot,
@@ -366,6 +367,38 @@ def _resolve_vs3bet_exploit(pcfg, skill) -> float:
         if skill in SKILL_TIERS:
             return SKILL_TIERS[skill].vs3bet_exploit
     return VS3BET_EXPLOIT_DEFAULT
+
+
+# Punish-limpers exploit (LIMP_EXPLOIT.md): iso-raise wider vs a weak limper.
+LIMP_EXPLOIT_DEFAULT = 0.5  # field default for an un-tiered persona
+LIMP_GAP_MIN = 0.20  # min (vpip_per_vol − pfr_per_open) to read a habitual limper
+LIMP_EXPLOIT_SCALE = 0.35  # maps knob·foldiness to a per-hand fold→open shift (capped)
+LIMP_EXPLOIT_MAX_SHIFT = 0.5  # never convert more than this much of a hand's fold mass
+
+
+def _resolve_limp_exploit(pcfg, skill) -> float:
+    """Resolve a persona's limp_exploit knob. Precedence: explicit
+    ``limp_exploit`` in config wins; else the skill tier grades it (shark 0.85 …
+    rec 0.0); else LIMP_EXPLOIT_DEFAULT for an un-tiered persona."""
+    if isinstance(pcfg, dict) and 'limp_exploit' in pcfg:
+        return float(pcfg['limp_exploit'])
+    if skill:
+        from poker.strategy.skill_tiers import SKILL_TIERS
+
+        if skill in SKILL_TIERS:
+            return SKILL_TIERS[skill].limp_exploit
+    return LIMP_EXPLOIT_DEFAULT
+
+
+def _limp_exploit_enabled() -> bool:
+    """Live read of LIMP_EXPLOIT_ENABLED; False if the registry is unavailable so
+    the off-path is byte-identical (no widening)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('LIMP_EXPLOIT_ENABLED')
+    except Exception:
+        return False
 
 
 def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
@@ -710,6 +743,13 @@ class TieredBotController(AIPlayerController):
         # the live path reads getattr(..., 0.0) so they no-op unless set.
         self.vs3bet_exploit: float = _resolve_vs3bet_exploit(_pcfg, _skill)
         self._vs3bet_beta_cache: Dict = {}
+
+        # Per-player punish-limpers knob (0=off … 1.0=hammer): iso-raise wider over
+        # a weak limper to attack its dead money + capped range (_apply_limp_exploit,
+        # LIMP_EXPLOIT.md). EXPLOITATION behaviour → grades with skill (shark 0.85 …
+        # rec 0.0), like vs3bet_exploit. Gated behind LIMP_EXPLOIT_ENABLED. Live path
+        # only (sims/tests bypass __init__ → getattr default 0.0 → no-op unless set).
+        self.limp_exploit: float = _resolve_limp_exploit(_pcfg, _skill)
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1169,6 +1209,7 @@ class TieredBotController(AIPlayerController):
                 'chart_fallback' if chart_lookup_source in ('miss', 'masked_out') else 'chart_hit'
             )
             base_strategy = self._apply_vs3bet_bluff_exploit(base_strategy, node, preflop_table)
+            base_strategy = self._apply_limp_exploit(base_strategy, node, game_state, player_idx)
 
         if self.debug_logging:
             logger.info(
@@ -4377,6 +4418,101 @@ class TieredBotController(AIPlayerController):
                 'beta': round(beta, 4),
                 'knob': knob,
                 'call_to_fold_shift': round(moved, 4),
+            }
+        return StrategyProfile(action_probabilities=probs)
+
+    def _foldy_limper_read(self, game_state, player_idx) -> float:
+        """Foldiness ∈ [0,1] of a SINGLE weak limper in front, else 0.0 (no-op).
+
+        Limper = a non-blind, non-all-in opponent who matched the BB without raising
+        (raises_this_round == 0). Returns 0 unless there is exactly ONE, with a
+        sufficient read, that is a habitual limper (vpip−pfr gap ≥ LIMP_GAP_MIN) and
+        NOT a station/jammer — those call the iso, so no fold equity (LIMP_EXPLOIT.md).
+        Foldiness = the limp gap (more passive entry → more fold equity to attack).
+        """
+        if getattr(game_state, 'raises_this_round', 0) != 0:
+            return 0.0
+        big_blind = getattr(game_state, 'current_ante', 0) or 0
+        if big_blind <= 0:
+            return 0.0
+        limpers = [
+            i
+            for i, p in enumerate(game_state.players)
+            if i != player_idx
+            and not getattr(p, 'is_folded', False)
+            and get_6max_position(game_state, i) != 'BB'
+            and getattr(p, 'bet', 0) >= big_blind
+            and getattr(p, 'stack', 1) > 0
+        ]
+        if len(limpers) != 1:
+            return 0.0  # v1 models a single limper
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return 0.0
+        try:
+            limper_name = game_state.players[limpers[0]].name
+        except (AttributeError, IndexError):
+            return 0.0
+        model = manager.get_model(self.player_name, limper_name)
+        t = getattr(model, 'tendencies', None)
+        if t is None or getattr(t, 'hands_observed', 0) < MIN_HANDS_DEFAULT:
+            return 0.0
+        stats = AggregatedOpponentStats(
+            hands_observed=t.hands_observed,
+            all_in_frequency=getattr(t, 'all_in_frequency', 0.0),
+            vpip_per_voluntary_opportunity=getattr(t, 'vpip_per_voluntary_opportunity', 0.5),
+            pfr_per_open_opportunity=getattr(t, 'pfr_per_open_opportunity', 0.5),
+            aggression_factor=getattr(t, 'aggression_factor', 1.0),
+        )
+        if classify_opponent_archetype(stats) in ('pure_station', 'sticky_jammer'):
+            return 0.0  # calls the iso → no fold equity → value-only (v1 no-op)
+        gap = stats.vpip_per_voluntary_opportunity - stats.pfr_per_open_opportunity
+        if gap < LIMP_GAP_MIN:
+            return 0.0  # not a habitual limper
+        return max(0.0, min(1.0, gap))
+
+    def _apply_limp_exploit(self, strategy, node, game_state, player_idx):
+        """Punish-limpers: iso-raise wider vs a single weak foldy limper.
+
+        No-op unless: flag on, knob>0, scenario rfi (entering), the hand is a
+        playable speculative type (suited or a pair — NEVER opens offsuit junk), and
+        `_foldy_limper_read` finds one foldy habitual limper. Shifts a capped slice
+        of `fold` mass into the open (`raise_*`), scaled by knob·foldiness — widening
+        the bottom of the opening range to attack the limp's dead money. vs a sticky
+        limper the read gate no-ops (value-only is correct there). Base chart stays
+        the baseline. See LIMP_EXPLOIT.md."""
+        knob = getattr(self, 'limp_exploit', 0.0)
+        if knob <= 0 or getattr(node, 'scenario', '') != 'rfi':
+            return strategy
+        if not _limp_exploit_enabled():
+            return strategy
+        hand = getattr(node, 'hand', '')
+        is_playable = len(hand) == 2 or (len(hand) == 3 and hand.endswith('s'))
+        if not is_playable:
+            return strategy  # offsuit non-pair → never iso junk
+        raise_key = next(
+            (a for a in strategy.action_probabilities if a.startswith('raise') or a == 'jam'),
+            None,
+        )
+        if raise_key is None:
+            return strategy
+        foldiness = self._foldy_limper_read(game_state, player_idx)
+        if foldiness <= 0:
+            return strategy
+        probs = dict(strategy.action_probabilities)
+        fold = probs.get('fold', 0.0)
+        s = min(LIMP_EXPLOIT_MAX_SHIFT, knob * LIMP_EXPLOIT_SCALE * foldiness)
+        moved = fold * s
+        if moved <= 0:
+            return strategy
+        probs['fold'] = fold - moved
+        probs[raise_key] = probs.get(raise_key, 0.0) + moved
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if isinstance(snap, dict):
+            snap['limp_exploit'] = {
+                'knob': knob,
+                'foldiness': round(foldiness, 3),
+                'fold_to_open_shift': round(moved, 4),
             }
         return StrategyProfile(action_probabilities=probs)
 

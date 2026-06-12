@@ -621,6 +621,25 @@ register(
 )
 register(
     FeatureFlag(
+        "LIMP_EXPLOIT_ENABLED",
+        # EXPERIMENTAL / off everywhere: the "punish limpers" detect/exploit pair
+        # (LIMP_EXPLOIT.md). When on, a tiered hero with a read on a single FOLDY
+        # habitual limper iso-raises WIDER (shifts fold→open for playable speculative
+        # hands), graded by the per-persona limp_exploit knob (skill-tier default).
+        # Detect gate no-ops vs a station/jammer (no fold equity) and with no read.
+        # OFF until a bb/100 sim validates the upside (the LIMP_FOLD foldy-limper vs
+        # the LIMPS_EVERY_HAND sticky control). The exploitation layer, not push/fold
+        # — works at standard stacks, unlike PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED.
+        Stage.EXPERIMENTAL,
+        "Punish-limpers exploit: a tiered hero iso-raises wider vs a single foldy habitual limper (read-gated, skill-graded limp_exploit knob). Off => the limped-pot rfi strategy is byte-identical (no widening).",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
         "EMOTIONAL_REBALANCE_ENABLED",
         Stage.EXPERIMENTAL,
         "Emotional-system rebalance (EMOTIONAL_SYSTEM_BALANCE.md §3/§6.1): decouple conviction (confidence) from chip-winning — re-derive baseline_confidence from self_belief+ego (drop aggression/risk) and cut the UP event-pumps while concentrating DOWNs on epistemic events, so the fear pole (shaken) becomes reachable. Changes psychology axes; off => current baseline + event table (byte-identical).",
