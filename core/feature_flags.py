@@ -622,19 +622,20 @@ register(
 register(
     FeatureFlag(
         "LIMP_EXPLOIT_ENABLED",
-        # EXPERIMENTAL / off everywhere: the "punish limpers" detect/exploit pair
-        # (LIMP_EXPLOIT.md). When on, a tiered hero with a read on a single FOLDY
-        # habitual limper iso-raises WIDER (shifts fold→open for playable speculative
-        # hands), graded by the per-persona limp_exploit knob (skill-tier default).
-        # Detect gate no-ops vs a station/jammer (no fold equity) and with no read.
-        # OFF until a bb/100 sim validates the upside (the LIMP_FOLD foldy-limper vs
-        # the LIMPS_EVERY_HAND sticky control). The exploitation layer, not push/fold
-        # — works at standard stacks, unlike PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED.
-        Stage.EXPERIMENTAL,
-        "Punish-limpers exploit: a tiered hero iso-raises wider vs a single foldy habitual limper (read-gated, skill-graded limp_exploit knob). Off => the limped-pot rfi strategy is byte-identical (no widening).",
+        # ON 2026-06-12 after validation (LIMP_EXPLOIT.md). The "punish limpers"
+        # detect/exploit pair: a tiered hero with a read on a single FOLDY habitual
+        # limper ISO-RAISES it (converts the BB's check / an opener's fold → a
+        # 2.5bb raise), graded by the per-persona limp_exploit knob (shark 0.85 …
+        # rec 0.0). The MEASURED spot is the BB facing a lone limp (143/143). The
+        # LIMP_FOLD foldy-limper folds 88% to the iso → +1.1 bb/fire (worst case);
+        # vs a LIMPS_EVERY_HAND station the detect gate excludes it → 0 fires, no
+        # spew. Small/situational (~1% of hands), reversible via DB. Sims/tests
+        # bypass __init__ → knob 0.0 → no-op, so this can't move the bands.
+        Stage.STABLE,
+        "Punish-limpers exploit: a tiered hero iso-raises a single foldy habitual limper (read-gated, skill-graded limp_exploit knob). Off => the limped-pot rfi strategy is byte-identical.",
         owner=_STRAT,
-        dev=False,
-        prod=False,
+        dev=True,
+        prod=True,
         db_overridable=True,
     )
 )
