@@ -1085,10 +1085,14 @@ def commit_leave_vice(
         )
 
     amount = compute_vice_amount(current, excess, rng, field_median=cast_median)
-    # Apply the reserve gate so leave-path vice tapers with bank depth, matching
-    # the idle path.
+    # Apply the reserve gate so leave-path vice tapers with bank depth. (The idle
+    # path tapers PROBABILITY; the leave roll already happened, so here we taper
+    # the AMOUNT instead.) Because this scales the amount AFTER compute_vice_amount
+    # enforced its field-relative trivia floor, re-apply that floor: a small
+    # vice_mult can drag a just-above-floor amount below it, which would fire the
+    # exact ticker noise the floor exists to prevent. `> 0` alone is insufficient.
     amount = int(amount * vice_mult)
-    if amount <= 0:
+    if amount < max(1, int(cast_median * MIN_VICE_MEDIAN_FRACTION)):
         return None
 
     duration_bucket = pick_duration_bucket(pressure, rng)
