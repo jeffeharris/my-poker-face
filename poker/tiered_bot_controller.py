@@ -328,6 +328,18 @@ def _reshove_6max_enabled() -> bool:
         return False
 
 
+def _iso_over_limper_enabled() -> bool:
+    """Live read of PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED; False if the registry
+    is unavailable so the off-path falls through (the limped pot keeps going to the
+    deep-stack / short_stack.py path, byte-identical to before)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED')
+    except Exception:
+        return False
+
+
 # ── Bluff-aware vs_3bet exploit (per-persona `vs3bet_exploit` knob) ─────────────
 # Facing a 3-bet, defending to MDF (the base chart) is unexploitable but leaves EV
 # on the table vs a villain whose 3-bet range is value-heavy. This runtime layer
@@ -4543,12 +4555,29 @@ class TieredBotController(AIPlayerController):
                     ),
                 )
             return None
-        for i, p in active_opps:
-            # The BB is the only opponent legitimately in for the big blind when
-            # first-in; any OTHER opponent who has matched/exceeded it without
-            # raising is a limper (no all-in here — those took the jam branch).
-            if get_6max_position(game_state, i) != 'BB' and getattr(p, 'bet', 0) >= big_blind:
-                return None  # a limper sits in front → not first-in
+        # Limpers: non-blind opponents who matched the BB without raising. The BB
+        # is legitimately in for its blind; any OTHER such opponent is a limper
+        # (no all-in here — those took the jam branch).
+        limpers = [
+            i
+            for i, p in active_opps
+            if get_6max_position(game_state, i) != 'BB' and getattr(p, 'bet', 0) >= big_blind
+        ]
+        if limpers:
+            # Not truly first-in. With exactly ONE limper (and the flag on) this is
+            # a short-stack ISO jam: route to the over-limper range (the unopened
+            # jam range in v1 — a conservative, low-spew proxy, far better than the
+            # deep-stack chart this spot falls to today). 2+ limpers is a multiway
+            # limped field the v1 range doesn't model → fall through.
+            if len(limpers) == 1 and _iso_over_limper_enabled():
+                return lookup_push_fold_action_6max(
+                    hand=canonical_hand,
+                    position=position,
+                    effective_stack_bb=eff_bb,
+                    num_players=num_seated,
+                    over_limper=True,
+                )
+            return None  # multi-limper, or the flag is off → deep-stack path
 
         return lookup_push_fold_action_6max(
             hand=canonical_hand,

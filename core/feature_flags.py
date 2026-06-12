@@ -603,6 +603,24 @@ register(
 )
 register(
     FeatureFlag(
+        "PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED",
+        # EXPERIMENTAL / off everywhere: closes the census's #1 short-stack gap — a
+        # ≤15bb hero first-in-to-raise with a single LIMPER in front currently bails
+        # to the (wrong) deep-stack chart. On, that spot routes to a short-stack ISO
+        # jam (the unopened jam range in v1 — tight, low-spew, a strict improvement).
+        # OFF until a bb/100 sim validates it (cf. the reshove story: short-stack jams
+        # into a call-happy field can be badly -EV without fold equity — a fold-equity
+        # gate may be needed before turn-on). Multi-limper spots still fall through.
+        Stage.EXPERIMENTAL,
+        "6-max short-stack ISO jam over a single limper (first-in-to-raise, a limper in front, ≤15bb) via the push_fold_6max over-limper range. Off => the limped pot falls through to the deep-stack / short_stack.py path (byte-identical to before).",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
         "EMOTIONAL_REBALANCE_ENABLED",
         Stage.EXPERIMENTAL,
         "Emotional-system rebalance (EMOTIONAL_SYSTEM_BALANCE.md §3/§6.1): decouple conviction (confidence) from chip-winning — re-derive baseline_confidence from self_belief+ego (drop aggression/risk) and cut the UP event-pumps while concentrating DOWNs on epistemic events, so the fear pole (shaken) becomes reachable. Changes psychology axes; off => current baseline + event table (byte-identical).",

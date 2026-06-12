@@ -192,6 +192,7 @@ def lookup_push_fold_action_6max(
     facing_jam: bool = False,
     opener_position: Optional[str] = None,
     facing_open: bool = False,
+    over_limper: bool = False,
 ) -> Optional[str]:
     """Look up the multi-way (6-max) Nash push/fold action for a short-stack
     spot, using `data/push_fold_6max.json` (chip-EV, ICM off).
@@ -217,6 +218,14 @@ def lookup_push_fold_action_6max(
             deciding whether to reshove (jam-or-fold). Uses the depth-keyed
             `reshove` table (opener-position-agnostic in v1). Mutually
             exclusive with facing_jam; takes precedence if both are set.
+        over_limper: True when hero is first-in-to-RAISE but a single limper
+            sits in front (raises this street == 0, no all-in). A short-stack
+            ISO-jam-or-fold spot. v1 has no dedicated `iso_over_limper` chart
+            section, so it resolves to the `unopened` jam range as a conservative
+            proxy (those ranges are tight at 10-15bb → low spew, a strict
+            improvement over the deep-stack fallback the spot gets today). A
+            future sim-tuned `iso_over_limper` section takes precedence and drops
+            in with no caller change. Mutually exclusive with facing_jam/open.
 
     Returns:
         'jam'/'fold' for an unopened (first-in) spot OR a reshove, 'call'/'fold'
@@ -241,7 +250,14 @@ def lookup_push_fold_action_6max(
     if effective_stack_bb > (max(buckets) if buckets else PUSH_FOLD_THRESHOLD_BB):
         return None
 
-    if facing_open:
+    if over_limper:
+        # First-in to raise, but a single limper sits in front: a short-stack
+        # ISO jam. Resolves to the unopened range (v1 proxy) or a dedicated
+        # iso_over_limper section if one has been added.
+        scenario, depth_data = _resolve_6max_over_limper_scenario(
+            chart, position, effective_stack_bb, buckets
+        )
+    elif facing_open:
         # Reshove (jam-or-fold over a single non-all-in open). Depth-keyed only
         # (opener-position-agnostic in v1); any hero position is in scope, incl.
         # BB (a BB reshove over an open is standard — unlike the unopened chart,
@@ -292,6 +308,33 @@ def _resolve_6max_unopened_scenario(chart, position, effective_stack_bb, buckets
     bucket = _nearest_bucket_in(buckets, effective_stack_bb)
     if bucket is None:
         return None, None
+    pos_data = chart.get("unopened", {}).get(position, {})
+    scenario = pos_data.get(str(bucket))
+    if not scenario:
+        return None, None
+    return scenario, (position, bucket)
+
+
+def _resolve_6max_over_limper_scenario(chart, position, effective_stack_bb, buckets):
+    """Return (scenario_map, (conf_key, bucket)) for a short-stack ISO jam over a
+    single limper, or (None, None) when out of scope (BB, unknown position, no
+    bucket).
+
+    A dedicated `iso_over_limper` section (per position × depth) takes precedence
+    if present. v1 ships without one, so this falls back to the `unopened` jam
+    range — a deliberately conservative proxy: those ranges are tight at 10-15bb,
+    so jamming them over a limper is low-spew and a strict improvement over the
+    deep-stack chart the spot falls to today. The dead-money-aware widening is the
+    sim-tuned follow-up.
+    """
+    if position not in _6MAX_UNOPENED_POSITIONS:
+        return None, None  # BB never open-shoves; unknown positions skip.
+    bucket = _nearest_bucket_in(buckets, effective_stack_bb)
+    if bucket is None:
+        return None, None
+    iso = chart.get("iso_over_limper", {}).get(position, {}).get(str(bucket))
+    if iso:
+        return iso, (position + "_iso", bucket)
     pos_data = chart.get("unopened", {}).get(position, {})
     scenario = pos_data.get(str(bucket))
     if not scenario:
