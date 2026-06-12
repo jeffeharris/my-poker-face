@@ -426,6 +426,53 @@ def _limp_exploit_enabled() -> bool:
         return False
 
 
+# Blind squeeze-defense (VS_SQUEEZE_DEFENSE_HANDOFF): the blinds have no vs_squeeze
+# chart node, so a sharp hero folds its whole range — incl. AA — to an open+3-bet.
+# vs_squeeze_ev_probe measured the over-fold: ~0 leak vs a tight squeeze (folding is
+# correct OOP), 3.8–5.3 bb/100 vs a wide/maniac squeeze. The fix is a value-continue
+# FLOOR that WIDENS into a tiered defend range as the squeezer reads wider.
+#
+# SQUEEZE_DEFENSE_TIERS: ordered strongest-first; each tuple is the INCREMENT added
+# as the read widens. Tier 0 (the floor) continues vs ANY squeeze; deeper tiers
+# unlock with the squeezer's VPIP. Cumulative widths ≈ 2.6% / 4.7% / 7.8% / 10.9% —
+# tracking the probe's measured +EV-defend depth (≈1/3/9/12% at the r=0.7 OOP
+# haircut). Flat-call continues (OOP realization is poor; the probe priced CALL, not
+# a 4-bet — 4-betting the top is a future enhancement). Value & high-card-blocker
+# hands that flop top pair / dominate a wide squeeze; no wide speculative suited.
+SQUEEZE_DEFENSE_TIERS = (
+    ('AA', 'KK', 'QQ', 'AKs', 'AKo'),  # tier 0: value floor
+    ('JJ', 'TT', 'AQs', 'AQo'),  # tier 1: vs a normal squeezer
+    ('99', 'AJs', 'KQs', 'ATs', 'AJo', 'KQo'),  # tier 2: vs a wide squeezer
+    ('88', '77', 'KJs', 'QJs', 'JTs', 'ATo', 'A5s'),  # tier 3: vs a maniac
+)
+# Squeezer VPIP read → base tier depth (how wide its range is). Tighter squeeze →
+# floor only; a wide/loose squeezer → deeper widen. Knob scales this depth down for
+# weaker tiers, but the floor (tier 0) always applies when knob>0.
+# Cutoffs sit on observed VPIP-per-voluntary (vs_squeeze_defense_validate): the
+# field's loosest squeezers read ~0.40, tight rocks ~0.15. Deliberately stays
+# CONSERVATIVE — flat-calling OOP realizes equity poorly, so over-widening vs a
+# not-actually-wide squeezer is −EV; deep widening (tier 3) is reserved for the
+# genuinely wide villains (read ≥ 0.50) more common in live play than in this field.
+_SQUEEZE_WIDTH_BANDS = ((0.50, 3), (0.38, 2), (0.28, 1))  # (vpip_cutoff, base_tier)
+VS_SQUEEZE_DEFENSE_DEFAULT = 0.5  # field default for an un-tiered persona
+
+
+def _resolve_vs_squeeze_defense(pcfg, skill) -> float:
+    """Resolve a persona's vs_squeeze_defense knob. Precedence: explicit
+    ``vs_squeeze_defense`` in config wins; else the skill tier grades it (shark
+    0.85 … rec 0.0); else VS_SQUEEZE_DEFENSE_DEFAULT for an un-tiered persona.
+    No feature flag — gated only by knob>0, like vs3bet_exploit (a graded read,
+    not a dormant boolean): sharps defend, recs don't, sims/tests no-op at knob 0."""
+    if isinstance(pcfg, dict) and 'vs_squeeze_defense' in pcfg:
+        return float(pcfg['vs_squeeze_defense'])
+    if skill:
+        from poker.strategy.skill_tiers import SKILL_TIERS
+
+        if skill in SKILL_TIERS:
+            return SKILL_TIERS[skill].vs_squeeze_defense
+    return VS_SQUEEZE_DEFENSE_DEFAULT
+
+
 def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
     """β = bluff combos / total combos of the villain's 3-bet range, read from
     ``vs_open[villain_vs_hero].raise_3x`` (a hand is a bluff when its 3-bet weight
@@ -775,6 +822,16 @@ class TieredBotController(AIPlayerController):
         # rec 0.0), like vs3bet_exploit. Gated behind LIMP_EXPLOIT_ENABLED. Live path
         # only (sims/tests bypass __init__ → getattr default 0.0 → no-op unless set).
         self.limp_exploit: float = _resolve_limp_exploit(_pcfg, _skill)
+
+        # Per-player blind squeeze-defense knob (0=fold everything … 1.0=read the
+        # squeezer's width and defend graded): continue a value-floor (AA/KK/QQ/AK)
+        # that widens into a tiered defend range vs a read-wide squeezer instead of
+        # folding the whole blind range to an open+3-bet (_apply_vs_squeeze_defense,
+        # VS_SQUEEZE_DEFENSE_HANDOFF). EXPLOITATION behaviour → grades with skill
+        # (shark 0.85 … rec 0.0), like vs3bet_exploit. NO feature flag — gated only by
+        # knob>0, so it's live for the tiered field (a graded read, not a dormant
+        # boolean). Live path only (sims/tests bypass __init__ → default 0.0 → no-op).
+        self.vs_squeeze_defense: float = _resolve_vs_squeeze_defense(_pcfg, _skill)
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1235,6 +1292,9 @@ class TieredBotController(AIPlayerController):
             )
             base_strategy = self._apply_vs3bet_bluff_exploit(base_strategy, node, preflop_table)
             base_strategy = self._apply_limp_exploit(base_strategy, node, game_state, player_idx)
+            base_strategy = self._apply_vs_squeeze_defense(
+                base_strategy, node, game_state, player_idx, chart_lookup_source
+            )
 
         if self.debug_logging:
             logger.info(
@@ -4615,6 +4675,92 @@ class TieredBotController(AIPlayerController):
                 'raise_action': raise_key,
             }
         return StrategyProfile(action_probabilities=probs)
+
+    def _squeezer_width_read(self, game_state, player_idx) -> "Optional[float]":
+        """The squeezer's range-width signal ∈ [0,1] (its VPIP), or None if there's
+        no confident read. The squeezer is the last raiser — the non-folded opponent
+        with the largest current bet (the 3-bettor). VPIP is the best live proxy for
+        squeeze width: there is no squeeze-frequency stat, and a wide-VPIP villain
+        squeezes wide (the maniac). Insufficient hands → None (defend the FLOOR only,
+        which is unconditionally correct)."""
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return None
+        opponents = [
+            (i, p)
+            for i, p in enumerate(game_state.players)
+            if i != player_idx and not getattr(p, 'is_folded', False)
+        ]
+        if not opponents:
+            return None
+        # Last raiser = the largest live bet (the squeeze put in the most chips).
+        squeezer_idx, squeezer = max(opponents, key=lambda ip: getattr(ip[1], 'bet', 0))
+        if getattr(squeezer, 'bet', 0) <= 0:
+            return None
+        try:
+            model = manager.get_model(self.player_name, squeezer.name)
+        except (AttributeError, TypeError):
+            return None
+        t = getattr(model, 'tendencies', None)
+        if t is None or getattr(t, 'hands_observed', 0) < MIN_HANDS_DEFAULT:
+            return None
+        vpip = getattr(t, 'vpip_per_voluntary_opportunity', None)
+        if vpip is None:
+            return None
+        return max(0.0, min(1.0, float(vpip)))
+
+    def _apply_vs_squeeze_defense(
+        self, strategy, node, game_state, player_idx, chart_lookup_source
+    ):
+        """Blind squeeze-defense: continue a value-floor that widens vs a read-wide
+        squeezer instead of folding the whole blind range to an open+3-bet.
+
+        No-op unless: knob>0 (the only gate — skill-graded, no feature flag, like
+        vs3bet_exploit; sims/tests bypass __init__ → knob 0 → no-op), scenario
+        vs_squeeze, hero in the blinds (BB/SB), and the chart MISSED (conservative-fold
+        — `chart_lookup_source` in miss/masked_out; never overrides a real squeeze
+        node). Continue depth = a value FLOOR (tier 0: AA/KK/QQ/AK) that widens through
+        SQUEEZE_DEFENSE_TIERS as the squeezer's VPIP reads wider, scaled by the knob. A
+        qualifying hand flat-calls; everything else keeps folding. knob 0 / no-read =>
+        the conservative-fold is byte-identical. See VS_SQUEEZE_DEFENSE_HANDOFF."""
+        knob = getattr(self, 'vs_squeeze_defense', 0.0)
+        if knob <= 0 or getattr(node, 'scenario', '') != 'vs_squeeze':
+            return strategy
+        if getattr(node, 'position', '') not in ('BB', 'SB'):
+            return strategy
+        if chart_lookup_source not in ('miss', 'masked_out'):
+            return strategy  # a real squeeze node exists — don't stomp the solver
+        # Only convert a conservative-FOLD (the over-fold we're fixing). If the base
+        # somehow isn't a pure fold, leave it (defensive — gate already implies fold).
+        probs = dict(strategy.action_probabilities)
+        if probs.get('fold', 0.0) < 1.0:
+            return strategy
+        # Read the squeezer's width → base tier depth; scale by knob. No read → floor.
+        vpip = self._squeezer_width_read(game_state, player_idx)
+        base_tier = 0
+        if vpip is not None:
+            base_tier = next((d for cut, d in _SQUEEZE_WIDTH_BANDS if vpip >= cut), 0)
+        max_tier = int(round(base_tier * knob))  # knob shrinks the widen, not the floor
+        continue_hands = {h for tier in SQUEEZE_DEFENSE_TIERS[: max_tier + 1] for h in tier}
+        hand = getattr(node, 'hand', '')
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if hand not in continue_hands:
+            if isinstance(snap, dict):
+                snap['vs_squeeze_defense'] = {
+                    'knob': knob,
+                    'squeezer_vpip': round(vpip, 3) if vpip is not None else None,
+                    'max_tier': max_tier,
+                    'continued': False,
+                }
+            return strategy
+        if isinstance(snap, dict):
+            snap['vs_squeeze_defense'] = {
+                'knob': knob,
+                'squeezer_vpip': round(vpip, 3) if vpip is not None else None,
+                'max_tier': max_tier,
+                'continued': True,
+            }
+        return StrategyProfile(action_probabilities={'call': 1.0})
 
     def _try_push_fold_lookup(
         self,

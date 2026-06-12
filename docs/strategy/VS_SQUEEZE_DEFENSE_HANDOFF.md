@@ -1,5 +1,5 @@
 ---
-purpose: Handoff for the vs_squeeze over-fold gap — the measured diagnosis and the data-grounded initial plan (measure the EV before building a defense range)
+purpose: vs_squeeze over-fold — measured diagnosis, step-1 per-player EV (real but small, opponent-dependent leak), and the BUILT + SHIPPED-LIVE floor + read-gated widen (skill-graded, no flag)
 type: guide
 created: 2026-06-12
 last_updated: 2026-06-12
@@ -8,10 +8,13 @@ last_updated: 2026-06-12
 # vs_squeeze defense — handoff
 
 The chart-opportunity census's **#2 gap**: the hero "auto-folds to a squeeze,
-concentrated vs maniac fields." This doc is the **measured** diagnosis (done — the
-spot was instrumented before any build, per
-[[feedback_measure_spot_before_building]]) and the initial plan. **Nothing is built
-yet** — the next step is an EV measurement, not a chart.
+concentrated vs maniac fields." Worked end-to-end per
+[[feedback_measure_spot_before_building]]: **measured first** (diagnosis + per-player EV)
+→ **built** the floor + read-gated widen → **shipped LIVE** (skill-graded, no feature
+flag, like `vs3bet_exploit`). The EV turned out **small per player** (≤0.83 bb/100 only
+vs a maniac field), so the value-floor (stop folding AA/KK/QQ to a squeeze) is the real
+win and the widen is opportunistic. Skip to **Step 1** / **Step 2** below for the numbers
+and what shipped.
 
 ## Goal
 
@@ -60,48 +63,129 @@ squeezer isn't the BB or it didn't cold-call) → **miss → conservative-defaul
 The maniac field is not the cause; it just makes squeezes frequent enough to expose
 the blinds' total lack of coverage.
 
-## Initial plan (measure → choose instrument → build → validate)
+## Step 1 — MEASURED (2026-06-12): a real but SMALL, opponent-dependent leak
 
-1. **Measure the EV of the over-fold FIRST.** Is folding the BB's (and SB's) whole
-   range to a squeeze actually leaking bb/100, and how much — especially vs a *wide*
-   maniac squeeze where there's lots of dead money and the squeeze range is weak? A
-   blind facing two raises OOP with a random hand *should* fold a lot (MDF is high),
-   so 89% may be close to correct vs a tight squeeze and a real leak only vs a wide
-   one. Quantify before building. (Per-decision EV / fold-equity is likely the right
-   instrument again, since 3.3% × a few bb is a small aggregate vs bb/100 noise.)
-2. **Then pick the instrument the EV justifies:**
-   - **A blind squeeze-defense range** — either a real `vs_squeeze` node set for
-     BB/SB (extend the generator; note the BB has no cold-call range, so it'd be a
-     blind-defense-vs-two-raises range, not a capped cold-call range), OR a better
-     **degrade** than conservative-fold (e.g. route a blind squeeze-miss to a tight
-     value-continue range) so the blinds defend the top ~20-30% instead of 0%.
-   - **Optional exploitation widen** vs a read-wide squeezer (the same detect/exploit
-     shape as `limp_exploit` / `vs3bet_exploit`): defend the blinds wider when the
-     squeezer's 3-bet frequency reads high (maniac), tighter vs a tight squeezer.
-3. **Gate off, validate, flip on** — the established pattern.
+Done with `experiments/vs_squeeze_ev_probe.py` (the per-decision EV instrument the plan
+called for, not a chart). It records every BB/SB `vs_squeeze` spot the sharp hero
+reaches in the handoff field (`Maniac, Maniac, LAG, Rock, Rock`, 4000 hands, seeds
+7/107) with its actual hole cards + the pot it's folding into, then prices fold (EV 0)
+vs the best **call** line vs a *sweep* of squeezer widths. EV of a call =
+`eq·(pot+cost) − cost` in bb, `eq` = hero all-in equity vs the squeezer's continue
+range (eval7 MC), with an **OOP equity-realization haircut** `r∈{1.0, 0.7}` (the blind
+can't realize raw equity, so the `r=0.7` rows are the trustworthy ones). Leak =
+`Σ max(0, EV_call)` over the hero's spots ÷ hands × 100 → bb/100.
+
+> **Correction (per-player vs per-table):** an earlier pass of this probe wrapped *all
+> six* TieredBot seats (the whole field is tiered) and so summed 6 players' blind spots,
+> reporting a per-TABLE leak (~5.3 bb/100 vs maniac) mislabeled as per-player bb/100.
+> The 6-max harness attaches an opponent-model only to the hero seat, so filtering on
+> that isolates the hero. The corrected **per-player** numbers below are ~6× smaller.
+> (The hero-only frequency — 4.6% of decisions — also lines up with the diagnosis's
+> 3.3%, vs the 41.8% the all-seat pass produced.)
+
+Coverage reproduced exactly: **BB 100% miss, SB 70%, BTN 7%, CO/HJ 0%** (hero-only;
+123 blind spots). Mean pot folded = **12bb**, cost to call ~7bb (35% pot odds).
+
+**Per-player leak by squeezer width** (`r=0.7` = realistic OOP / `r=1.0` = raw equity):
+
+| squeezer width | defend% (r0.7) | **leak bb/100 (r0.7)** | leak bb/100 (r1.0) |
+|---|---|---|---|
+| tight_value ~3% | 1% | **0.01** | 0.34 |
+| standard_3bet ~5% | 3% | **0.06** | 0.69 |
+| wide ~22% | 12% | **0.58** | 3.05 |
+| maniac ~35% | 15% | **0.83** | 4.26 |
+
+**Verdict:** folding ~everything is **correct vs a tight/standard squeezer** (MDF is
+high OOP — the null hypothesis holds, ≤0.06 bb/100; only AA/KK/QQ are clear continues).
+The leak is **real but SMALL even vs a wide/maniac squeeze** (0.58–0.83 bb/100 after the
+OOP haircut; 12–15% of the blind's range becomes a +EV defend). It IS opponent-dependent
+(grows with width), exactly the shape the plan's "optional exploitation widen"
+anticipated — but the per-player magnitude is marginal, so this is a small opportunistic
+edge, NOT a big leak.
+
+Caveats baked into the number: HU-vs-squeezer (multiway makes calling worse, so this is
+an upper bound); call is the floor (a 4-bet/jam could beat it for the very top, so it
+under-states premiums); the printed "defend range" is the subset of *dealt* hands that
+priced +EV (premiums dominate vs tight; marginal stragglers are MC/blocker noise the
+`r=0.7` haircut filters out), not a clean derived range. The sim "maniacs" are tiered
+bots that squeeze tighter than their config (observed VPIP ~0.40, not 0.56), so the
+field never exercises the genuinely-wide squeeze a live maniac would — the eval-instrument
+limitation the handoff flagged (a real read may need a `Jeff_clone`-style squeezer).
+
+**Recommended instrument (the EV's call):**
+- **Cheap correctness FLOOR — a value-continue** so the blinds stop folding **AA/KK/QQ
+  (+AK)** to *any* squeeze (a better degrade than conservative-fold). Tiny bb/100, but
+  folding the nuts to a squeeze is an obvious correctness bug worth closing regardless
+  of opponent. **This is the main justification.**
+- **Read-gated WIDEN vs a wide squeezer** (same detect/exploit shape as `limp_exploit`):
+  widens the defense as the squeezer's VPIP reads wider. Adds the ≤0.83 bb/100 vs wide
+  fields — marginal, opportunistic, and only as good as the read.
+- A wide *static always-on* blind defense is **not** justified — it would only pay off
+  vs wide squeezers, where the read-gated widen captures it without over-defending vs
+  tight ones (where flat-calling OOP realizes poorly = −EV).
+
+## Step 2 — BUILT + SHIPPED LIVE (2026-06-12): the floor + read-gated widen
+
+Implemented as `TieredBotController._apply_vs_squeeze_defense`, a third preflop modifier
+chained after `_apply_limp_exploit` (mirrors that detect/exploit shape exactly). Fires
+ONLY on the conservative-fold case we measured: knob>0, `scenario==vs_squeeze`, hero in
+BB/SB, and `chart_lookup_source ∈ {miss, masked_out}` (never stomps a real squeeze node).
+Behavior:
+- **Value FLOOR (tier 0: AA/KK/QQ/AKs/AKo)** — continues (flat-call) vs *any* squeeze.
+- **Read-gated WIDEN** — `_squeezer_width_read` reads the last raiser's (largest live
+  bet) `vpip_per_voluntary_opportunity` off the hero's opponent model; deeper
+  `SQUEEZE_DEFENSE_TIERS` unlock as VPIP crosses `_SQUEEZE_WIDTH_BANDS` (0.28/0.38/0.50),
+  scaled by the skill-graded `vs_squeeze_defense` knob. No read → floor only.
+
+**No feature flag — gated only by the knob**, exactly like `vs3bet_exploit` (a graded
+read, not a dormant boolean): it's **live for the tiered field**, skill-graded so sharks
+defend (0.85) and recs don't (0.0) — auto-differentiating without a flag to forget to
+flip. Sims/tests bypass `__init__` → knob 0 → no-op (calibration bands unaffected); a
+rec's knob-0 path is byte-identical to the old conservative-fold, so no weak-tier
+regression. Knob on `SkillTier.vs_squeeze_defense` (`skill_tiers.py`) +
+`_resolve_vs_squeeze_defense` + `__init__`; constants/tiers/methods in
+`tiered_bot_controller.py`.
+
+**Validation:**
+- Unit: `tests/test_strategy/test_vs_squeeze_defense.py` (15 tests — floor/widen/knob/
+  position/chart-miss/fold-base gates + the last-raiser read). All green.
+- Behavioral (`experiments/vs_squeeze_defense_validate.py`, knob OFF vs ON, hero-only):
+  OFF blind-squeeze continue **0%** → ON **continues the value floor 100%** (AA/KK/QQ/AK
+  no longer folded). Widen engages only modestly because the sim's tiered "maniacs" read
+  VPIP ~0.40, not the genuinely-wide squeeze the bands' deep tiers target — consistent
+  with the small per-player EV and the eval-instrument caveat above.
+
+**Status: LIVE (skill-graded, no flag).** The per-player EV is small (≤0.83 bb/100 only
+vs a maniac field, ~0 in normal fields) but the floor is a clear correctness win and the
+risk is low (only continues value hands on a blind squeeze-miss); shipping it live beats
+parking it behind a flag that never gets flipped. The widen is the opportunistic part —
+auto-graded by skill, so it scales itself.
 
 ## Gotchas / open questions
 
-- **Is it even a leak?** The blinds folding most of a random range to two raises is
-  not obviously wrong. Step 1 must distinguish "correct tightness" from "exploitable
-  over-fold," ideally split by squeezer width (tight vs wide).
-- **The BB has no cold-call range**, so this isn't "extend the per-opener squeeze
-  chart" — it's a new *blind-defense-vs-squeeze* concept (closer to a vs_3bet defense
-  from the blinds than to the cold-caller squeeze chart).
-- **Classifier vs chart mismatch:** the classifier calls the blind spot `vs_squeeze`,
-  but semantically it's "a blind facing an open + a 3-bet." Decide whether to (a)
-  give `vs_squeeze` BB/SB nodes, or (b) reclassify the blind-didn't-cold-call case.
-- **eval instrument:** rule-bot squeezers (maniacs) squeeze wide — good for exposing
-  the gap. But a believable-field EV read may need a `Jeff_clone`-style squeezer (cf.
-  the reshove "no foldy openers in sim" problem, [[project_push_fold_6max_validation]]).
+- **4-bet the top?** The floor/widen flat-CALLS (matches what the probe priced). Value
+  hands (AA/KK) 4-betting OOP would be higher-EV and more natural — a future enhancement.
+- **The BB has no cold-call range**, so this is a *blind-defense-vs-squeeze* concept
+  (closer to a vs_3bet defense from the blinds than to the cold-caller squeeze chart) —
+  hence the degrade-style modifier rather than extending the per-opener squeeze chart.
+- **eval instrument:** the tiered "maniacs" squeeze tighter than a live maniac (VPIP
+  ~0.40), so the sim under-exercises the widen's deep tiers. A believable-field read may
+  need a `Jeff_clone`-style wide squeezer (cf. the reshove "no foldy openers in sim"
+  problem, [[project_push_fold_6max_validation]]).
 
 ## Reproduction
 
-```python
-# hero preflop scenario mix + vs_squeeze chart hit/miss by position
-docker compose exec -T backend python -c "...wrap TieredBotController._get_ai_decision,
-read _last_pipeline_snapshot['node_key']/'chart_lookup_source'; field =
-['Maniac','Maniac','LAG','Rock','Rock'], 5000 hands, seed 7..."
+Two committed probes (both wrap `TieredBotController._get_ai_decision`, read
+`_last_pipeline_snapshot`, hero-only via the opponent-model filter; ~1s/hand, run
+backgrounded):
+
+```bash
+# Step-1 EV: coverage + per-player leak by squeezer width (the tables above)
+docker compose exec -T -e HANDS=2000 -e SEEDS=7,107 backend \
+    python3 -m experiments.vs_squeeze_ev_probe          # ~67 min
+docker compose exec -T -e QUICK=1 backend python3 -m experiments.vs_squeeze_ev_probe  # fast
+
+# Step-2 behavioral: does the feature FIRE + widen (OFF vs ON, forces flag + shark knob)
+docker compose exec -T backend python3 -m experiments.vs_squeeze_defense_validate     # ~50 min
 ```
-(The full one-liner used for this diagnosis is in the session transcript; re-derive
-from the snapshot keys above.)
+Unit tests: `docker compose exec -T backend python -m pytest tests/test_strategy/test_vs_squeeze_defense.py`.
