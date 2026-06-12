@@ -156,6 +156,12 @@ _orig_decide = TieredBotController._get_ai_decision
 
 def _wrapped_decide(self, message, **context):
     result = _orig_decide(self, message, **context)
+    # HERO-ONLY: every seat in this field is a TieredBot, but run_6max_matchup
+    # attaches an opponent_model_manager only to the hero seat. Recording all seats
+    # would aggregate 6 players' blind spots and report a per-TABLE leak mislabeled
+    # as per-player bb/100 (~6× too large). The manager presence isolates the hero.
+    if getattr(self, "opponent_model_manager", None) is None:
+        return result
     snap = getattr(self, "_last_pipeline_snapshot", {}) or {}
     if snap.get("phase") != "PRE_FLOP":
         return result
