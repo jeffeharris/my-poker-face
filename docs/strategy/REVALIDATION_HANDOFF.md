@@ -50,9 +50,11 @@ marginal vs competent, ~0 vs a realistic field. ⇒ **nudge = flavor; exploit mu
 chart-switch (real range change) or hard override.**
 
 ## Next step (build order)
-1. **Prereq re-keys (cheap):** `hyper_passive` → `aggression_factor_postflop` (not
-   global AF); ungate `high_fold_to_cbet`/the c-bet rule for multiway. (Both are
-   code-certain gaps; see matrix doc.)
+1. **Detection-reachability + stat-fidelity probe FIRST**, then re-key only what's
+   proven to fire live. The obvious re-keys (`hyper_passive`→postflop AF; ungate
+   multiway `high_fold_to_cbet`) are premised on detections that don't currently
+   reach real hands (vpip-0.35 reg < 0.70 cutoff; observed fold-to-cbet ~0.06). See
+   matrix §follow-up. Blind re-keying changes nothing.
 2. **One gear-switch vertical slice:** opponent-read → `_select_preflop_table`
    chooses trunk+counter-tendencies; gate on composed emotional state
    (`_zone_to_tilt_factor`). Validate with `exploit_behavior_probe.py` (play must

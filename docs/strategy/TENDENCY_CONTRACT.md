@@ -49,7 +49,8 @@ Tendency:
   # --- GATES ---
   detectability: "have" | "proxy" | "need_stat"   # vs current AggregatedOpponentStats
   confidence:    "sample-ramp"                     # ramp by min_sample (a wrong read is -EV)
-  psychology:    "composed_only"                   # adaptation suspended on tilt (_zone_to_tilt_factor)
+  psychology:    per mechanism:                    # gear -> composed_only (HARD: no chart-switch unless fully composed)
+                                                    # override/shift -> scaled by _zone_to_tilt_factor (1.0/0.5/0.0)
   tier_scale:    "adaptation_bias"                 # weak heroes adapt less
 ```
 
@@ -94,8 +95,16 @@ Tendency:
 4. `construct` → a build-time (or runtime) trunk transform per tendency → archetype.
 5. Validate EVERY tendency: `exploit_behavior_probe.py` (the play must move vs the matching opponent; must NOT move when tilted) → then bb/100 vs that opponent type (and a non-matching control to catch misfire).
 
-## Prereqs (cheap, unblock measurement)
-- Re-key `hyper_passive` to `aggression_factor_postflop`.
-- Ungate `high_fold_to_cbet`/c-bet rule for multiway.
-- New villain stats to add for `need_stat` rows: `fold_to_3bet`, `fold_to_turn_cbet`,
-  `fold_to_river_bet`, `threebet_rate`, `wtsd`, limp/donk/bet-size.
+## Prereqs (unblock measurement)
+- **Probe detection reachability FIRST**, then re-key only what's proven to fire
+  live. The obvious re-keys (`hyper_passive`→postflop AF; ungate multiway
+  `high_fold_to_cbet`) are premised on detections that don't currently reach real
+  hands (matrix doc §follow-up: vpip-0.35 reg < 0.70 cutoff; observed fold-to-cbet
+  ~0.06). Re-keying blind would change nothing.
+- For `need_stat` rows: `threebet_rate`, `fold_to_3bet`, `wtsd` are already computed
+  in `flask_app/routes/archetype_review_routes.py:391` — **promote them onto
+  `AggregatedOpponentStats` / the runtime aggregate**, don't reinvent. Genuinely new:
+  `fold_to_turn_cbet`, `fold_to_river_bet`, limp/donk/bet-size.
+
+Note: the schema's `construct` field = the `leak_tendency` (build the archetype) and
+`counter` = the `counter_tendency` (exploit it) — related inverses, distinct transforms.

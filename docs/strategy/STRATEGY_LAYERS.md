@@ -25,11 +25,16 @@ defined layer of tendencies/deviations**. Those deviations do triple duty:
 3. **Learnable** — because each leak is a *consistent, defined* tendency (not
    noise), an opponent model accumulates clean evidence and the read matures.
 
-**The symmetry (key insight):** the tendency vocabulary is shared by BOTH directions.
-*Construction:* apply tendency T to the trunk → an archetype that exhibits leak T.
-*Exploitation:* detect leak T in an opponent → apply the counter from the catalog.
-Same catalog, two sides. (This also explains the clone-fidelity gaps — the authored
-leak didn't manifest because it wasn't a clean, consistent tendency layer.)
+**The symmetry (key insight):** one catalog, but each tendency carries TWO explicit,
+related-but-distinct fields — they are not the same transform:
+- `leak_tendency` — how to deviate the trunk to BUILD an archetype with the leak
+  (station: "over-call / under-fold / under-bluff").
+- `counter_tendency` — the hero's EXPLOIT when the leak is detected
+  (vs station: "stop bluffing / value-bet thinner").
+Same leak, two sides (construct vs counter). The opponent model detects the leak;
+construct produces it; counter punishes it. (This also explains the clone-fidelity
+gaps — the authored leak didn't manifest because it wasn't a clean, consistent
+tendency layer.)
 
 Today this is *half*-built: `build_archetype_charts.py` derives the 7 width charts
 from the base 6-max chart via ad-hoc transforms, baked into static files (which the
@@ -83,11 +88,16 @@ scales `exploitation_strength` (composed 1.0 → tilted/overconfident 0.5 →
 shaken/dissociated 0.0); `_layer_tilt_conditioning` and the emotional window-shift
 apply emotion-driven distortions.
 
-**Principle: you can't be on tilt and out-levelling someone.** Adaptation
-(gear-switch + overrides) is gated by emotional state — a composed bot reads and
-adapts; a tilted bot reverts to its base/distorted chart and stops exploiting. The
-tilt gate already exists for layer (3) via `_zone_to_tilt_factor`; **extend the same
-gate to the layer-(1) gear-switch.**
+**Principle: you can't be on tilt and out-levelling someone.** Adaptation is gated
+by emotional state, with two *different* policies by layer (be explicit — they are
+not the same gate):
+- **Layer (1) gear-switch = composed-ONLY (hard binary).** Only a fully composed bot
+  may switch its whole chart; any non-composed state (tilted/overconfident/shaken/
+  dissociated) → no gear-switch, stay on the base/persona chart. Switching an entire
+  range at 0.5 strength is incoherent, so this is binary, not scaled.
+- **Layer (3) overrides = scaled** by the existing `_zone_to_tilt_factor`
+  (`tiered_bot_controller.py` ~L4578: composed 1.0 → tilted/overconfident 0.5 →
+  shaken/dissociated 0.0). Per-spot nudges/overrides degrade gracefully with tilt.
 
 ## Putting it together
 ```
@@ -101,8 +111,13 @@ base chart  →  + persona flavor nudge  →  + situational overrides  →  samp
 ```
 
 ## Build order (smallest → biggest)
-1. **Detection re-keying** (prereq, cheap): `hyper_passive` → postflop AF;
-   ungate `high_fold_to_cbet` for multiway. (matrix doc)
+1. **Detection reachability + stat-fidelity probe FIRST** (not a blind re-key).
+   The matrix (`STRATEGY_REVALIDATION_MATRIX.md` §follow-up) showed the obvious
+   re-keys are premised on detections that *don't fire live*: postflop-AF re-keying
+   won't catch a vpip-0.35 reg (still < the 0.70 hyper_passive cutoff), and the
+   multiway `high_fold_to_cbet` ungate is moot when the observed fold-to-cbet reads
+   ~0.06 (clone-fidelity / sparse-sample). So: probe which detectors actually reach
+   real hands at real thresholds, THEN re-key only the ones proven reachable.
 2. **Layer-(1) gear-switch**: opponent-read → chart selection, gated on composed
    emotional state. Prove with `exploit_behavior_probe.py` (gear actually changes
    play; doesn't fire when tilted) then bb/100. Start with one gear (vs-nit steal).
