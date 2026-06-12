@@ -136,6 +136,7 @@ def test_transfer_reasons_excluded_from_bank_reason_sets():
         "player_cash_out",
         "ai_buy_in",
         "ai_cash_out",
+        "hand_pnl",
         "stake_fund",
         "stake_payoff",
         "tournament_buy_in",

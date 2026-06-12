@@ -134,6 +134,18 @@ LEDGER_REASONS = frozenset(
         # settles here, so the table conserves internally
         # between seat accounts (winners' seats go negative,
         # losers' positive; they sum to ~0 across a table).
+        'hand_pnl',  # seat:<X> → seat:<Y>: per-hand chip redistribution between
+        # two seats at the same table (loser's seat → winner's seat).
+        # Recorded once per hand from the pre-rake stack deltas so that
+        # `balance_of(seat)` tracks the LIVE stack continuously (not just at
+        # buy-in/cash-out). This is what makes the seat a true ledger view:
+        # `balance_of(seat) == live stack` at all times, so the leave-time
+        # settle drains a real, bounded balance (drained to exactly 0) instead
+        # of a game-state guess. Conservation-exact: the per-hand `hand_pnl`
+        # rows sum to 0 across a table (rake is a SEPARATE `table_rake`
+        # destruction off the winner's seat). A pure TRANSFER — invisible to
+        # the creation/destruction drift sums. Seats are raw entity strings
+        # (`ai_seat(sb,pid)` or `seat(game_id)`) so mixed human+AI tables work.
         'stake_fund',  # player:<staker> → seat:ai:<sb>:<borrower>: a HUMAN
         # staker funding a stake at origination — the player's
         # principal (+ pure-stake origination fee) committed to
@@ -209,6 +221,7 @@ TRANSFER_REASONS = frozenset(
         'player_cash_out',
         'ai_buy_in',
         'ai_cash_out',
+        'hand_pnl',
         'stake_fund',
         'stake_payoff',
         'tournament_buy_in',
@@ -779,6 +792,89 @@ def record_ai_cash_out(
         conn=conn,
         sandbox_id=sandbox_id,
     )
+
+
+def record_hand_pnl(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    source: str,
+    sink: str,
+    amount: int,
+    sandbox_id: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None,
+    conn=None,
+) -> Optional[int]:
+    """seat:<loser> → seat:<winner> — one slice of a hand's chip redistribution.
+
+    Recorded once per (loser, winner) pair from the hand's PRE-RAKE stack deltas,
+    so the per-seat ledger balance tracks the live stack continuously. `source`
+    and `sink` are raw canonical seat strings the caller builds (`ai_seat(sb,pid)`
+    for an AI, `seat(game_id)` for a human), so a mixed human+AI table redistributes
+    correctly. A pure transfer (no `central_bank` side) → drift-invisible. The full
+    set of `hand_pnl` rows for one hand sums to 0 (rake is a separate `table_rake`
+    destruction off the winner's seat). No-op when `repo` is None or `amount <= 0`.
+    `conn` shares the caller's transaction.
+    """
+    if repo is None or amount <= 0:
+        return None
+    return record_transfer(
+        repo,
+        source=source,
+        sink=sink,
+        amount=amount,
+        reason='hand_pnl',
+        context=context,
+        sandbox_id=sandbox_id,
+        conn=conn,
+    )
+
+
+def record_hand_pnl_redistribution(
+    repo: Optional[ChipLedgerRepository],
+    *,
+    seat_deltas: Dict[str, int],
+    sandbox_id: Optional[str] = None,
+    context: Optional[Dict[str, Any]] = None,
+    conn=None,
+) -> None:
+    """Record one hand's seat-to-seat redistribution from per-seat net deltas.
+
+    `seat_deltas` maps a canonical seat account string (`ai_seat(sb,pid)` for an
+    AI, `seat(game_id)` for a human) to its net chip change over the hand,
+    computed from PRE-rake stacks so the deltas sum to 0 (rake is a separate
+    `table_rake` destruction off the winner). Greedily drains net-loser seats
+    (delta<0) into net-winner seats (delta>0), emitting ≤(n−1) `hand_pnl`
+    transfers that net to 0. The shared core used by BOTH the headless sim and
+    the live game-handler so the per-hand ledgering is identical on both paths.
+
+    A non-zero sum of deltas is a real conservation bug (the caller fed a hand
+    that didn't conserve); the leftover winner inflow simply goes unrecorded
+    here and the global-conservation assert in the sim test surfaces it — we do
+    NOT invent a synthetic counterparty row to paper over it.
+    """
+    if repo is None:
+        return
+    losers = [[seat, -delta] for seat, delta in seat_deltas.items() if delta < 0]
+    winners = [[seat, delta] for seat, delta in seat_deltas.items() if delta > 0]
+    li = 0
+    for winner in winners:
+        seat_w, need = winner[0], winner[1]
+        while need > 0 and li < len(losers):
+            seat_l = losers[li][0]
+            move = min(need, losers[li][1])
+            record_hand_pnl(
+                repo,
+                source=seat_l,
+                sink=seat_w,
+                amount=move,
+                sandbox_id=sandbox_id,
+                context=context,
+                conn=conn,
+            )
+            need -= move
+            losers[li][1] -= move
+            if losers[li][1] == 0:
+                li += 1
 
 
 def record_stake_fund(

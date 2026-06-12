@@ -172,7 +172,13 @@ class TestCashOutLedger:
         self, bankroll_repo, ledger_repo, db_path, custody_on
     ):
         _insert_personality(db_path, PID, starting=10_000)
-        _seed(bankroll_repo, ledger_repo, chips=7_000)
+        _seed(bankroll_repo, ledger_repo, chips=10_000)
+        # Fund the seat (buy-in) so there are chips to cash out — under the
+        # conservation law the cash-out is bounded by `balance_of(seat)`, so a
+        # cash-out from an unfunded seat would (correctly) record nothing.
+        debit_bankroll_for_seat(
+            bankroll_repo, PID, 4_000, sandbox_id=SB, chip_ledger_repo=ledger_repo, now=NOW
+        )
 
         credit_ai_cash_out(
             bankroll_repo, PID, 4_000, sandbox_id=SB, now=NOW, chip_ledger_repo=ledger_repo
@@ -184,6 +190,8 @@ class TestCashOutLedger:
         assert cash_outs[0]["amount"] == 4_000
         assert cash_outs[0]["source"] == f"seat:ai:{SB}:{PID}"
         assert cash_outs[0]["sink"] == f"ai:{PID}"
+        # Seat drained to exactly 0 — never negative.
+        assert _seat_balance(db_path, PID, SB) == 0
 
     def test_bust_writes_no_cash_out_row(self, bankroll_repo, ledger_repo, db_path, custody_on):
         _insert_personality(db_path, PID, starting=10_000)
@@ -220,16 +228,38 @@ class TestCashOutLedger:
 
 class TestRoundTripConservation:
     def test_sit_play_leave_reconciles(self, bankroll_repo, ledger_repo, db_path, custody_on):
-        """The load-bearing test: after sit (buy 3k) → win 1k → leave (stack 4k),
-        the ledger-derived AI balance equals the stored bankroll int."""
+        """The load-bearing test: sit (buy 3k) → win 1k FROM ANOTHER SEAT
+        (ledgered `hand_pnl`) → leave (stack 4k). Derived == stored, and the
+        winner's seat settles to EXACTLY 0 — never negative. The conservation
+        law: winnings come from other seats, not from minting a negative seat
+        (the old behavior this fix eliminated)."""
+        OTHER = "wellington"
         _insert_personality(db_path, PID, starting=10_000)
+        _insert_personality(db_path, OTHER, starting=10_000)
         _seed(bankroll_repo, ledger_repo, chips=10_000)
+        bankroll_repo.save_ai_bankroll(
+            AIBankrollState(personality_id=OTHER, chips=10_000, last_regen_tick=NOW),
+            sandbox_id=SB,
+            chip_ledger_repo=ledger_repo,
+        )
 
-        # Sit: buy in 3,000.
+        # Both sit (buy in 3,000 each).
         debit_bankroll_for_seat(
             bankroll_repo, PID, 3_000, sandbox_id=SB, chip_ledger_repo=ledger_repo, now=NOW
         )
-        # Leave: cash out a 4,000 stack (won 1,000 at the table).
+        debit_bankroll_for_seat(
+            bankroll_repo, OTHER, 3_000, sandbox_id=SB, chip_ledger_repo=ledger_repo, now=NOW
+        )
+        # PID wins 1,000 off OTHER at the table — ledgered as a seat→seat transfer
+        # so `balance_of(seat:ai:PID)` tracks the live stack (4,000).
+        L.record_hand_pnl(
+            ledger_repo,
+            source=L.ai_seat(SB, OTHER),
+            sink=L.ai_seat(SB, PID),
+            amount=1_000,
+            sandbox_id=SB,
+        )
+        # Leave: cash out the 4,000 stack.
         credit_ai_cash_out(
             bankroll_repo, PID, 4_000, sandbox_id=SB, now=NOW, chip_ledger_repo=ledger_repo
         )
@@ -237,9 +267,10 @@ class TestRoundTripConservation:
         stored = bankroll_repo.load_ai_bankroll(PID, sandbox_id=SB).chips
         assert stored == 11_000
         assert _derived_ai_balance(db_path, PID, SB) == stored
-        # The 1,000 won lands as a negative seat balance (came from other seats);
-        # the seat account is the custody substrate, not audited against a stored.
-        assert _seat_balance(db_path, PID, SB) == -1_000
+        # Winner's seat settles to EXACTLY 0 — never negative. The 1,000 came
+        # from OTHER's seat (now 2,000), not from minting.
+        assert _seat_balance(db_path, PID, SB) == 0
+        assert _seat_balance(db_path, OTHER, SB) == 2_000
 
     def test_full_loss_reconciles(self, bankroll_repo, ledger_repo, db_path, custody_on):
         """Sit 3k → lose it all → bust leave (stack 0). Derived == stored."""

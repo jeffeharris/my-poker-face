@@ -3599,6 +3599,76 @@ def _record_ai_table_hands(game_data: dict, game_state) -> None:
         repo.increment_ai_table_hands(pid, table_id, sandbox_id=sandbox_id, net_delta=net, now=now)
 
 
+def _record_player_table_hand_pnl(game_id: str, game_data: dict, game_state) -> None:
+    """Ledger one hand's seat-to-seat chip redistribution at a HUMAN cash table.
+
+    The live-engine twin of the sim's `_record_hand_pnl_transfers`: it makes each
+    seat's ledger balance (`seat:ai:<sb>:<pid>` for AI, `seat:<game_id>` for the
+    human) track the live stack continuously, so the leave-time settle drains a
+    real balance and the seat-overdraw guard never under-credits a winner.
+
+    MUST be called with `game_state` POST-award but PRE-rake (the rake is a
+    separate `table_rake` destruction off the winner's seat), so the per-seat
+    deltas — `current stack − hand_start stack` — sum to 0. Mixed pots conserve
+    because the human seat participates in the redistribution. Keyed on
+    `hand_start_stacks` (captured per hand) and the `cash_personality_ids` map.
+
+    Best-effort at the call boundary, but a per-seat keying failure is logged
+    (not silently swallowed): a missing `hand_pnl` row drifts the seat from the
+    stack, which the conservation validator catches.
+    """
+    from cash_mode import economy_flags
+
+    if not economy_flags.CHIP_CUSTODY_ENABLED:
+        return
+    sandbox_id = _sandbox_id_for(game_data)
+    if not sandbox_id:
+        return
+    from flask_app.extensions import chip_ledger_repo as _ledger_repo
+
+    if _ledger_repo is None:
+        return
+    from core.economy import ledger as chip_ledger
+
+    hand_start = game_data.get('hand_start_stacks') or {}
+    if not hand_start:
+        return
+    cash_pids: Dict[str, str] = game_data.get('cash_personality_ids', {}) or {}
+
+    seat_deltas: Dict[str, int] = {}
+    for p in game_state.players:
+        delta = int(p.stack) - int(hand_start.get(p.name, p.stack))
+        if delta == 0:
+            continue
+        if getattr(p, 'is_human', False):
+            # The human seat is keyed by game_id alone (`seat:<game_id>`, funded
+            # by `player_buy_in`). owner_id is NOT needed and must NOT gate this:
+            # skipping a human with a non-zero delta would drop their leg of the
+            # redistribution, so the remaining AI deltas wouldn't sum to 0 and the
+            # AI seat ledgers would drift from their stacks (a conservation break).
+            seat_acct = chip_ledger.seat(game_id)
+        else:
+            pid = cash_pids.get(p.name)
+            if not pid:
+                logger.warning(
+                    "[CASH] hand_pnl skipped for unmapped AI seat %r at table %s "
+                    "— seat ledger will drift from stack",
+                    p.name,
+                    game_id,
+                )
+                continue
+            seat_acct = chip_ledger.ai_seat(sandbox_id, pid)
+        seat_deltas[seat_acct] = seat_deltas.get(seat_acct, 0) + delta
+
+    if seat_deltas:
+        chip_ledger.record_hand_pnl_redistribution(
+            _ledger_repo,
+            seat_deltas=seat_deltas,
+            sandbox_id=sandbox_id,
+            context={'site': 'handle_evaluating_hand_phase', 'game_id': game_id},
+        )
+
+
 def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, game_state):
     """Handle the EVALUATING_HAND phase.
 
@@ -3625,6 +3695,22 @@ def handle_evaluating_hand_phase(game_id: str, game_data: dict, state_machine, g
 
     # Award winnings FIRST so chip counts are updated
     game_state = award_pot_winnings(game_state, winner_info)
+
+    # Ledger the seat-to-seat redistribution from the POST-award / PRE-rake
+    # stacks, so each seat's ledger balance tracks the live stack continuously
+    # (the substrate the leave-time settle + seat-overdraw guard rely on). Must
+    # run BEFORE the rake skim below — the pre-rake deltas sum to 0; rake is a
+    # separate `table_rake` destruction off the winner's seat.
+    if game_data.get('cash_mode'):
+        try:
+            _record_player_table_hand_pnl(game_id, game_data, game_state)
+        except Exception:
+            logger.error(
+                "[CASH] hand_pnl ledgering failed at table %s — seat ledger may "
+                "drift from stacks (conservation validator will flag)",
+                game_id,
+                exc_info=True,
+            )
 
     # Cash mode rake — deducts a % of the pot from the headline winner
     # and ledgers the destruction. No-op when cash mode is inactive,
