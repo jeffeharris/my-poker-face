@@ -107,7 +107,14 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         # initiative, restoring the tight-aggressive read without loosening entry.
         # 0.9: at 0.6 the boost (bounded by the 0.30 per-action cap, fighting
         # aggression_scale 0.6) only reached ~45%.
-        spot_tendencies=(('auto_cbet', 0.9),),
+        # Tight-AGGRESSIVE = bet-or-FOLD. auto_cbet pumps the betting side; without
+        # a fold lever the nit just called down its (now stronger, post-preflop-
+        # tighten) range, so WTSD ran high (~34 vs 22-28) and fold-to-cbet low (~53
+        # vs 55-70) — indistinguishable from rock on the call-down axis. fit_or_fold
+        # over-folds the weak/air range to a flop c-bet; give_up_turn folds it on the
+        # turn. Together they give nit the "folds when it doesn't have it" identity
+        # (drops WTSD into band, lifts fold-to-cbet), distinct from rock's stickiness.
+        spot_tendencies=(('auto_cbet', 0.9), ('fit_or_fold', 0.55), ('give_up_turn', 0.45)),
     ),
     # Rock: the classic TIGHT-PASSIVE archetype (backlog #10, Option A) — the
     # tightest entry in the field, plays those few hands PASSIVELY (checks/calls
@@ -152,7 +159,12 @@ DEVIATION_PROFILES: Dict[str, DeviationProfile] = {
         # while letting c-bet recover toward the (lowered) rock band. 0.18: 0.22
         # still left c-bet ~22% (below the lowered band); easing further nudges it
         # up without lifting AF above nit's.
-        spot_tendencies=(('passive_postflop', 0.18),),
+        # Tight-PASSIVE = call-down sticky (passive_postflop), so a HIGHER WTSD is
+        # on-brand and rock's band is wider (22-30). But post preflop-tighten it ran
+        # just over (~34) with fold-to-cbet a touch low. A MILD fit_or_fold (well
+        # below nit's) trims the weakest flop spots into band while keeping rock
+        # stickier than nit — the deliberate nit(bet-or-fold) vs rock(call-down) split.
+        spot_tendencies=(('passive_postflop', 0.18), ('fit_or_fold', 0.25)),
     ),
     # TAG: tight-aggressive — the competent-reg anchor, so it sits at the LOWER
     # edge of the TAG band (~22/19), not over the ceiling. High aggression_scale
