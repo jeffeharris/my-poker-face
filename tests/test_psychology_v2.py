@@ -2626,15 +2626,22 @@ class TestZoneEffectsIntegration:
 
         test_prompt = "What is your move?"
 
-        # Run multiple times to account for probabilistic injection
-        results_with_thoughts = 0
-        for _ in range(20):
-            result = psych.apply_zone_effects(test_prompt)
-            if "[What's running through your mind:" in result:
-                results_with_thoughts += 1
+        # Run multiple times to account for probabilistic injection.
+        # Injection probability at this intensity is >=0.75 (see
+        # zone_effects._should_inject_thoughts), so the expected count is well
+        # above a strict majority. Assert only the majority with a wide margin
+        # so RNG variance can't redden the test (the old 20-trial / >10 form
+        # sat ~2.5 sigma out and landed on exactly 10 intermittently).
+        trials = 40
+        results_with_thoughts = sum(
+            "[What's running through your mind:" in psych.apply_zone_effects(test_prompt)
+            for _ in range(trials)
+        )
 
-        # At high intensity (0.57+), should inject most of the time
-        assert results_with_thoughts > 10, f"Only got thoughts {results_with_thoughts}/20 times"
+        # At high intensity (0.57+), should inject most of the time.
+        assert (
+            results_with_thoughts > trials // 2
+        ), f"Only got thoughts {results_with_thoughts}/{trials} times"
 
     def test_backward_compat_apply_tilt_effects(self):
         """apply_tilt_effects should also work."""
