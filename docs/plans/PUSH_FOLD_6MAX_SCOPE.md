@@ -459,6 +459,31 @@ call-happy (limp-call-wide) field can be badly −EV without fold equity — eva
 fold-equity gate (à la `reshove_fold_equity_ok`) and a dead-money-aware widen before
 turn-on. The dedicated `iso_over_limper` ranges are the sim-tuned follow-up.
 
+### Sim result (`experiments.iso_over_limper_probe`, 2026-06-12)
+
+A/B (flag OFF vs ON), `TAG` hero vs a single-limper field (one `LIMPS_EVERY_HAND`
+fish + four rocks → frequent one-limper spots), 2×2000 hands/arm:
+
+| depth | OFF bb/100 | ON bb/100 | delta | iso fires (jam) |
+|---|---|---|---|---|
+| 10BB | +22.6 | +14.9 | **−7.7** | 6522 (1291) |
+| 12BB | +23.3 | +19.4 | **−3.9** | 7000 (1064) |
+
+- **Coverage is strong** — the path fires thousands of times (unlike the reshove,
+  which barely fired in the rule-bot field). The mechanism reaches the spot.
+- **Naive turn-on LOSES** ~4-8 bb/100, worse at shallower stacks. Cause: the fish
+  **never folds**, so the iso-jam has **zero fold equity** — it gets called by any
+  two and the limper realizes its equity. The textbook no-fold-equity leak.
+- CIs overlap at 4k hands (short-stack bb/100 is noisy), but the sign is consistent
+  across both depths and the quick run. The conclusion is direction + mechanism, not
+  the exact magnitude.
+
+**Verdict:** confirms gate-off. Turn-on REQUIRES a fold-equity gate (suppress the
+iso-jam vs a limper read as sticky — `limp_call_wide`/loose-VPIP, the same signal
+the reshove gate uses). This worst case (a never-folder) bounds the downside; a
+foldy limper is where the iso wins, but there is no limp-FOLD fish leak to measure
+that arm — it needs a `Jeff_clone`-style foldy limper or a synthetic limp-fold leak.
+
 ## Sources
 Published Nash chip-EV (ICM-off) push/fold references: Mathematics of Poker
 (Chen & Ankenman), HoldemResources HUNE tables, gamblingcalc Nash push/fold
