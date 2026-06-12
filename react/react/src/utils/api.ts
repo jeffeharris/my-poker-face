@@ -7,6 +7,7 @@ import type {
   PostRoundTone,
   PostRoundSuggestionsResponse,
 } from '../types/chat';
+import { isOnDeviceLLMAvailable, suggestChatOnDevice } from './onDeviceLLM';
 
 // Common fetch options to ensure credentials are included
 const fetchOptions: RequestInit = {
@@ -144,6 +145,28 @@ export const gameAPI = {
     intensity: ChatIntensity,
     lastAction?: { type: string; player: string; amount?: number }
   ): Promise<TargetedSuggestionsResponse> => {
+    // On-device first (iOS spike, opt-in): generate via Apple Foundation Models.
+    // Any unavailability or error falls through to the server route below.
+    if (await isOnDeviceLLMAvailable()) {
+      try {
+        const action = lastAction
+          ? `${lastAction.player} just ${lastAction.type}${lastAction.amount ? ` ${lastAction.amount}` : ''}.`
+          : '';
+        const target = targetPlayer ? `aimed at ${targetPlayer}` : 'about your own hand';
+        const prompt =
+          `You are ${playerName} at a poker table. Write quick-chat lines ${target}, ` +
+          `tone "${tone}", ${length} length, intensity ${intensity}. ${action}`.trim();
+        const suggestions = await suggestChatOnDevice(prompt, [tone]);
+        return {
+          suggestions: suggestions.map((s) => ({ text: s.text, tone })),
+          targetPlayer,
+          fallback: false,
+        };
+      } catch {
+        // fall through to server
+      }
+    }
+
     const response = await fetch(`${config.API_URL}/api/game/${gameId}/targeted-chat-suggestions`, {
       ...fetchOptions,
       method: 'POST',
@@ -173,6 +196,24 @@ export const gameAPI = {
     tone: PostRoundTone,
     intensity?: ChatIntensity
   ): Promise<PostRoundSuggestionsResponse> => {
+    // On-device first (iOS spike, opt-in): generate via Apple Foundation Models.
+    // Any unavailability or error falls through to the server route below.
+    if (await isOnDeviceLLMAvailable()) {
+      try {
+        const prompt =
+          `You are ${playerName}, reacting right after a poker hand ended. ` +
+          `Write short reactions in tone "${tone}"` +
+          `${intensity ? `, intensity ${intensity}` : ''}. Under 10 words each.`;
+        const suggestions = await suggestChatOnDevice(prompt, [tone]);
+        return {
+          suggestions: suggestions.map((s) => ({ text: s.text, tone })),
+          fallback: false,
+        };
+      } catch {
+        // fall through to server
+      }
+    }
+
     // Backend derives hand context from RecordedHand — we send playerName,
     // tone, and (for the warm tones) the optional sarcastic register.
     const response = await fetch(
