@@ -500,10 +500,37 @@ bb/100 delta goes −7.7 → +0.0** — the leak is closed, the feature is bb/10
 vs a sticky field (exactly the reshove outcome). `FORCE_FE=1` on the probe bypasses
 the gate to reproduce the −7.7 ungated number.
 
-Still gated **off**: neutral-vs-sticky is the *safety* proof; the *upside* (firing
-+EV vs a foldy limper) is unmeasured for want of a limp-fold opponent, and the v1
-range is still the unopened proxy. Turn-on waits on that upside arm + a dedicated
-`iso_over_limper` range.
+### Upside arm (foldy limper) — NO EDGE (2026-06-12)
+
+Built the missing opponent: `FishLeak.LIMP_FOLD` (`Limper-Foldy` archetype) — a
+tight weak-passive limper that limps the top ~45% and **folds the bottom of its
+range to a jam** (real fold equity, unlike `LIMPS_EVERY_HAND`). `LIMPER=foldy` on
+the probe seats it.
+
+Measured the upside **ceiling** — gate bypassed (`FORCE_FE=1`) so the iso fires on
+every single-limper spot, vs a *generous* folder — 2×2000 hands/arm:
+
+| depth | OFF bb/100 | ON bb/100 | delta | iso fires (jam) |
+|---|---|---|---|---|
+| 10BB | +6.8 | +4.0 | **−2.8** | 2441 (451) |
+| 12BB | +3.7 | +2.0 | **−1.7** | 2628 (362) |
+
+**There is no upside.** Even at the ungated ceiling vs a limper that folds a lot,
+the iso is **neutral-to-slightly-negative** (−1.7/−2.8, within noise but negative in
+all four runs). The limp's dead money (~2.5bb) doesn't pay for jamming the wide
+unopened range into a field that wakes up — the limper's top-10 continues, and the
+rocks/BB behind cooler the wide late-position jams. (Two separate misfits: the
+unopened proxy is too wide for the spot, and the VPIP gate *also* over-blocks the
+foldy limper — but since the ceiling itself is negative, neither is worth fixing.)
+
+**Verdict: keep `PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED` off — permanently, barring
+a reason to revisit.** The census's #1 short-stack gap does **not** convert into an
+edge with a push/fold iso range; a dedicated tuned `iso_over_limper` table + a
+fold-to-raise gate might claw back to ~neutral but the spot is small and the ceiling
+says the ceiling is ~0. The shipped code stands as a safe, gated no-op + the
+measurement that retired the idea. Lesson (cf. the strategy-revalidation overfit
+findings): a census-flagged "gap" is a hypothesis, not an edge — measure before
+building the chart.
 
 ## Sources
 Published Nash chip-EV (ICM-off) push/fold references: Mathematics of Poker
