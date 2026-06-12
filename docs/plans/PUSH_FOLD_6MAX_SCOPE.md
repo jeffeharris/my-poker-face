@@ -2,7 +2,7 @@
 purpose: Build plan for a multi-way (6-max) short-stack push/fold lookup table for the tiered bot, plus the short-stack sim harness needed to validate it
 type: design
 created: 2026-05-24
-last_updated: 2026-06-11
+last_updated: 2026-06-12
 ---
 
 # Multi-way Push/Fold Table (`push_fold_6max.json`) — Build Scope
@@ -438,6 +438,26 @@ After it, in priority order:
   chart/sizing tweaks keep chipping; **positive bb/100 likely needs the
   structural fixes** (multi-street layer and/or the solver program). Make an
   explicit go/no-go on those as the next phase.
+
+## Over-a-limper ISO (v1, flag `PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED`, off)
+
+The chart-opportunity census flagged this as the #1 short-stack gap: a ≤15bb hero
+first-in-*to-raise* with a single **limper** in front used to bail (the limped pot
+isn't "unopened", so `_try_push_fold_6max` returned None) and the spot fell to the
+**deep-stack** chart — wrong at 10-15bb.
+
+v1 routes that spot (exactly one limper; multi-limper still falls through) to a new
+`over_limper` lookup path. There is **no dedicated `iso_over_limper` chart section
+yet**, so it resolves to the **`unopened` jam range** as a conservative proxy: those
+ranges are tight at 10-15bb, so jamming them over a limper is low-spew and a strict
+improvement over the deep-stack fallback. `_resolve_6max_over_limper_scenario` reads
+an `iso_over_limper[pos][depth]` section first if one is ever added, so a sim-tuned
+table drops in with no caller change.
+
+Gated **off** pending a bb/100 sim. Heed the reshove lesson: short-stack jams into a
+call-happy (limp-call-wide) field can be badly −EV without fold equity — evaluate a
+fold-equity gate (à la `reshove_fold_equity_ok`) and a dead-money-aware widen before
+turn-on. The dedicated `iso_over_limper` ranges are the sim-tuned follow-up.
 
 ## Sources
 Published Nash chip-EV (ICM-off) push/fold references: Mathematics of Poker
