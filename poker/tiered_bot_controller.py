@@ -1100,6 +1100,18 @@ class TieredBotController(AIPlayerController):
         # Record WHICH base chart fed this decision (e.g. '6max:loose_mid', '50bb',
         # 'HU') so decision analysis can show the chart the line started from.
         self._last_pipeline_snapshot['chart_label'] = chart_label
+        # Chart-opportunity census instrumentation: the exact node served and
+        # whether push/fold is even enabled for this persona (most prod donors
+        # have it off). chart_source is finalized below once we know which layer
+        # produced the line. Record money context (pot/cost/stack/big_blind) up
+        # front so the early-returning veto path also carries it for the census's
+        # bb-at-risk metric — the later call (post-sample) is an idempotent
+        # overwrite with the same values.
+        self._last_pipeline_snapshot['node_key'] = node.key
+        self._last_pipeline_snapshot['push_fold_enabled'] = bool(
+            getattr(self, 'push_fold_nash_enabled', True)
+        )
+        self._snapshot_math_floor_inputs(game_state, player_idx)
 
         if self.debug_logging:
             logger.info(
@@ -1131,9 +1143,19 @@ class TieredBotController(AIPlayerController):
                     f"push_fold={push_fold_action} hand={canonical_hand}"
                 )
             self._last_pipeline_snapshot['push_fold_routed'] = True
+            self._last_pipeline_snapshot['chart_source'] = 'push_fold'
         else:
-            base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
+            base_strategy, chart_lookup_source = preflop_table.lookup_with_fallback_traced(
+                node, valid_actions
+            )
             self._last_pipeline_snapshot['push_fold_routed'] = False
+            # chart_lookup_source ∈ {hit, squeeze_degrade, masked_out, miss}.
+            # masked_out/miss both land on the conservative default = a true
+            # chart fall-through; the census buckets the rest as a chart hit.
+            self._last_pipeline_snapshot['chart_lookup_source'] = chart_lookup_source
+            self._last_pipeline_snapshot['chart_source'] = (
+                'chart_fallback' if chart_lookup_source in ('miss', 'masked_out') else 'chart_hit'
+            )
             base_strategy = self._apply_vs3bet_bluff_exploit(base_strategy, node, preflop_table)
 
         if self.debug_logging:
@@ -1165,6 +1187,7 @@ class TieredBotController(AIPlayerController):
                 veto_profile.action_probabilities
             )
             self._last_pipeline_snapshot['facing_all_in_veto'] = True
+            self._last_pipeline_snapshot['chart_source'] = 'facing_all_in_veto'
             self._last_pipeline_snapshot['veto_equity'] = veto_equity
             self._last_pipeline_snapshot['veto_required_equity'] = veto_required
             self._last_pipeline_snapshot['sampled_abstract_action'] = veto_action

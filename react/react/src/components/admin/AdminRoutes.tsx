@@ -59,6 +59,7 @@ const VALID_TABS: AdminTab[] = [
   'archetype-review',
   'coach-metrics',
   'cost-analytics',
+  'chart-census',
 ];
 
 /**

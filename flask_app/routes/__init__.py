@@ -6,6 +6,7 @@ from .capture_label_routes import capture_label_bp
 from .cash_routes import cash_bp
 from .character_request_routes import character_request_bp
 from .character_routes import character_bp
+from .chart_census_routes import chart_census_bp
 from .chip_ledger_routes import chip_ledger_bp
 from .coach_routes import coach_bp
 from .cost_analytics_routes import cost_analytics_bp
@@ -45,6 +46,7 @@ __all__ = [
     'coach_bp',
     'cost_analytics_bp',
     'cash_bp',
+    'chart_census_bp',
     'chip_ledger_bp',
     'character_bp',
     'character_request_bp',
