@@ -133,3 +133,38 @@ don't-trust-unverified discipline applied to the audit itself). Most did NOT sur
 exactly the failure mode this whole exercise exists to catch. Treat the matrix
 above as a *prioritized hypothesis list*, not ground truth; verify each cell
 before acting. The only blind-safe action was the additive postflop lints.
+
+---
+
+## Re-validation results — Batch 1: exploitation (2026-06-12, Hetzner ccx63)
+
+Re-ran the #1 most-suspect claim — `_apply_exploitation`'s "+22.5 bb/100" — on a
+fresh box with current code, via `exploit_bb100 --change exploitation` (paired
+CRN, 8000 hands × 3 seeds), across three opponent regimes. The folding
+`Punisher_clone` (post-clone-fix) is the realistic-field test the original never had.
+
+| Field | TAG edge (95% CI) | LAG edge | hands flipped |
+|---|---|---|---|
+| **old extreme station** (CallStation/FoldyBot, vpip~1.0) | **+10.3** [+4.5,+16.0] ✅ | **+9.9** [+4.1,+15.8] ✅ | ~1.9% |
+| **competent** (GTO-Lite/ABCBot) | +3.6 [−2.7,+10.0] ➖ | +4.8 [−1.5,+11.2] ➖ | ~1.8% |
+| **realistic folding field** (Punisher_clone×2 + Jeff_clone×2) | −0.1 [−0.2,+0.1] ➖ | +0.0 [0,0] ➖ | **0–1 / 24000 (0.0%)** |
+
+**Verdict — the audit was right; the headline is stale + regime-specific:**
+- The "+22.5" does NOT reproduce. Vs the same extreme-station type it's now **+10.3**
+  (the #295/#299/#300 chart regen roughly halved it). CI-clear positive ONLY there.
+- Vs a competent field it's **marginal** (+3.6/+4.8, CI spans 0).
+- Vs a realistic folding field exploitation **does not even fire** (0% of hands
+  flipped) → contributes ~nothing. Jeff_clone (vpip 0.39) is a mediocre reg, not a
+  vpip-1.0 station, and Punisher folds correctly — neither crosses the exploitation
+  detector's (extreme) thresholds.
+
+**Implication:** `_apply_exploitation`'s measured value is entirely concentrated on
+cartoonish (vpip≈1.0) opponents. Against anything resembling a believable player it
+is inert. For the "hard for a competent human" goal it currently adds ≈0. **Open
+follow-up:** is the 0%-fire-vs-clones *correct* (clones genuinely aren't exploitable)
+or a *gap* (the detector only triggers on extremes and misses moderate leaks)? That
+decides whether exploitation needs a lower-threshold tier or is simply a fish-only tool.
+
+Batches still pending (next box session, proper probes written first): relationship
+modifier (ON, never measured), multistreet H1 barrel + overbet (vs the folding field),
+math_floor call-off, push_fold_6max unopened/caller bb/100.
