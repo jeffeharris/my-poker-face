@@ -83,6 +83,7 @@ class ChipLedgerRepository(BaseRepository):
         account: str,
         *,
         sandbox_id: Optional[str] = None,
+        conn=None,
     ) -> int:
         """Ledger-derived balance for one account: Σ(amount where sink=account)
         − Σ(amount where source=account). This is the D2 substrate — bankroll
@@ -97,6 +98,13 @@ class ChipLedgerRepository(BaseRepository):
             bankroll is shared across their sandboxes by design (D6 — one human
             per sandbox, but the bankroll roams with them).
 
+        `conn` (the seat-settle seam): when given, the aggregate runs on the
+        CALLER's open connection so it sees rows written-but-not-yet-committed in
+        the SAME transaction (e.g. the per-hand `hand_pnl` rows and the settle's
+        own read inside `save_table`'s txn). Opening a fresh connection there
+        would both miss those rows AND risk a SQLite writer-lock. None → open our
+        own connection (the standalone default; every read-path caller).
+
         Single aggregate query so it's cheap enough to call on a read path or in
         a consistency check. Returns 0 for an unknown account.
         """
@@ -107,18 +115,19 @@ class ChipLedgerRepository(BaseRepository):
         if sandbox_id is not None:
             where += " AND sandbox_id = ?"
             params.append(sandbox_id)
-        with self._get_connection() as conn:
-            row = conn.execute(
-                f"""
-                SELECT
-                  COALESCE(SUM(CASE WHEN sink = ? THEN amount ELSE 0 END), 0)
-                  - COALESCE(SUM(CASE WHEN source = ? THEN amount ELSE 0 END), 0)
-                  AS bal
-                FROM chip_ledger_entries
-                WHERE {where}
-                """,
-                params,
-            ).fetchone()
+        sql = f"""
+            SELECT
+              COALESCE(SUM(CASE WHEN sink = ? THEN amount ELSE 0 END), 0)
+              - COALESCE(SUM(CASE WHEN source = ? THEN amount ELSE 0 END), 0)
+              AS bal
+            FROM chip_ledger_entries
+            WHERE {where}
+            """
+        if conn is not None:
+            row = conn.execute(sql, params).fetchone()
+        else:
+            with self._get_connection() as own:
+                row = own.execute(sql, params).fetchone()
         return int(row["bal"] or 0)
 
     def entries_for_stake(

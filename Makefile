@@ -1,4 +1,4 @@
-.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last validate-archetype-bands clean prod testflight
+.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last validate-archetype-bands validate-economy-conservation clean prod testflight
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -64,6 +64,9 @@ test-last: ## Re-run last failures only
 
 validate-archetype-bands: ## Archetype band gate: deterministic 9000-hand mixed-field probe vs ARCHETYPE_TARGETS (nit/rock = WARN). Exit 1 on hard fail. PROBE_HANDS overrides N.
 	docker compose exec -e PROBE_HANDS=$${PROBE_HANDS:-9000} backend python scripts/archetype_mixedfield_probe.py
+
+validate-economy-conservation: ## Chip-conservation gate: churned economy sim, then assert no minted chips (seat>=0, Σseat==Σstacks, derived==stored, global conservation). Exit 1 on any leak. TICKS overrides N.
+	docker compose exec backend python -m scripts.validate_chip_custody --db-path /tmp/economy_conservation.db --ticks $${TICKS:-600} --checkpoints 4 --out /tmp/economy_conservation.json
 
 clean: ## Clean up containers, volumes, and data
 	docker compose down -v

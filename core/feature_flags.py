@@ -434,7 +434,16 @@ register(
     )
 )
 
-# --- Chip-custody machine ---
+# --- Chip-custody machine (the Presence twin) ---
+# Both STABLE and on in dev + prod: the ledger is the authoritative record of
+# every chip — AI at-table chips are ledgered (buy-in / per-hand `hand_pnl` /
+# settle) and bankroll reads derive from it. Conservation (no negative seat,
+# Σseat==Σstacks, global Σ==−central_bank) is enforced by construction at the
+# cash-out chokepoint (`credit_ai_cash_out` bounds the drain to `balance_of(seat)`)
+# and proven by `make validate-economy-conservation`. STABLE (not GRADUATED): the
+# env kill switch is retained as an operational safety valve — the always-taken
+# call-site branches are not yet ripped out (a separate 33-site refactor of the
+# stake/carry paths).
 register(
     FeatureFlag(
         "CHIP_CUSTODY_ENABLED",

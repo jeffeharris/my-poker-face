@@ -326,34 +326,26 @@ DOSSIER_SCOUTING_GATE_ENABLED: bool = _flag("DOSSIER_SCOUTING_GATE_ENABLED")
 PRESENCE_AUTHORITY_ENABLED: bool = _flag("PRESENCE_AUTHORITY_ENABLED")
 
 
-# --- Chip-custody machine cutover (the Presence twin) ---------------------
+# --- Chip-custody machine (the Presence twin) -----------------------------
 
-# Kill switch for the chip-custody ledger transfers — the AI side of what Cut 2
-# did for humans. When True, the two AI bankroll chokepoints
-# (`cash_mode/bankroll.py:debit_bankroll_for_seat` and `credit_ai_cash_out`) ALSO
-# record an `ai ↔ seat` transfer into `chip_ledger_entries` alongside the existing
-# bankroll int move, so an AI's at-table chips become a derivable ledger balance
-# (`seat:ai:<sandbox_id>:<personality_id>`) exactly as a human's are
-# (`seat:<game_id>`). Conservation-neutral: the bankroll int still moves; the
-# transfer just records it, making AI bankroll ledger-derivable (the foundation
-# for D2 / derived bankroll). Stake/carry payoffs (an overloaded second use of
-# `credit_ai_cash_out`) record an `ai → ai` transfer instead — see the
-# `from_seat` discriminator. Default **False** so every custody path is a guarded
-# no-op until an operator opts in (mirror `PRESENCE_AUTHORITY_ENABLED`'s env
-# pattern). See `docs/plans/CASH_MODE_CHIP_CUSTODY_SCOPE.md` +
-# `docs/plans/CASH_MODE_CHIP_CUSTODY_HANDOFF.md`.
+# STABLE, on in dev + prod. The two AI bankroll chokepoints
+# (`cash_mode/bankroll.py:debit_bankroll_for_seat` and `credit_ai_cash_out`), plus
+# per-hand `record_hand_pnl` (sim + live engine), record `ai ↔ seat` / `seat ↔
+# seat` transfers so an AI's at-table chips are a derivable ledger balance
+# (`seat:ai:<sandbox_id>:<personality_id>`), exactly as a human's are
+# (`seat:<game_id>`). Because `balance_of(seat)` tracks the live stack
+# continuously, the cash-out chokepoint enforces the conservation law — a seat can
+# never be drained below its balance — which is the structural kill for the seat
+# double-drain mint. Stake/carry payoffs record an `ai → ai` transfer instead (the
+# `from_seat` discriminator). Proven by `make validate-economy-conservation`.
 CHIP_CUSTODY_ENABLED: bool = _flag("CHIP_CUSTODY_ENABLED")
 
-# D2 — ledger-derived bankroll reads. When True, `BankrollRepository.load_*`
-# return the LEDGER-DERIVED chip count (Σ over `chip_ledger_entries`) as the
-# authoritative value, treating the stored int as a cache and logging any
-# divergence. Requires CHIP_CUSTODY_ENABLED (the ledger must be complete) and a
-# backfilled DB, else derived reads return wrong values. Default **False**: the
-# stored int is the read (transaction-consistent within a chokepoint's single
-# save; the ledger row is written immediately after, so a derived read in that
-# sub-millisecond window would be momentarily stale — the int avoids that). Flip
-# on to make the ledger authoritative for reads after validating int==derived
-# via scripts/audit_ledger_completeness.py. See CASH_MODE_CHIP_CUSTODY_SCOPE.md (D2).
+# D2 — ledger-derived bankroll reads. STABLE, on in dev + prod. `BankrollRepository.
+# load_*` return the LEDGER-DERIVED chip count (Σ over `chip_ledger_entries`) as
+# the authoritative value, treating the stored int as a cache and reconciling any
+# divergence on read. The ledger is the source of truth for every chip; the int is
+# a denormalized cache. Completeness (derived==stored across a churned sim) is the
+# gate, proven by `scripts/validate_chip_custody.py`.
 CHIP_CUSTODY_DERIVE_READS: bool = _flag("CHIP_CUSTODY_DERIVE_READS")
 
 
