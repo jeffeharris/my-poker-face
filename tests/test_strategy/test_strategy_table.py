@@ -431,3 +431,52 @@ class TestSPRFallbackToggle:
         # Degrades to the high entry — never folds the nuts.
         assert out.action_probabilities.get('raise_67', 0) > 0
         assert out.action_probabilities.get('fold', 0) == pytest.approx(0.0)
+
+
+class TestLookupWithFallbackTraced:
+    """The chart-coverage variant returns the source category alongside the
+    profile and stays byte-identical to lookup_with_fallback on the profile."""
+
+    @pytest.fixture
+    def table(self):
+        prof = StrategyProfile({'raise_3bb': 0.8, 'fold': 0.2})
+        return StrategyTable(
+            {
+                'rfi|UTG||AKs': prof,
+                'vs_3bet|BB|CO|AKs': prof,
+            },
+            {},
+        )
+
+    def test_exact_hit(self, table):
+        node = PreflopNode(hand='AKs', position='UTG', scenario='rfi', opener_position='')
+        prof, src = table.lookup_with_fallback_traced(node, ['raise', 'fold', 'call'])
+        assert src == 'hit'
+        assert prof.action_probabilities == {'raise_3bb': 0.8, 'fold': 0.2}
+
+    def test_miss_falls_to_conservative_default(self, table):
+        node = PreflopNode(hand='72o', position='UTG', scenario='rfi', opener_position='')
+        prof, src = table.lookup_with_fallback_traced(node, ['raise', 'fold', 'call'])
+        assert src == 'miss'
+        assert prof.action_probabilities == {'fold': 1.0}
+
+    def test_masked_out_when_no_action_survives(self, table):
+        # Node exists but only 'check' is legal → raise/fold masked out.
+        node = PreflopNode(hand='AKs', position='UTG', scenario='rfi', opener_position='')
+        prof, src = table.lookup_with_fallback_traced(node, ['check'])
+        assert src == 'masked_out'
+        assert prof.action_probabilities == {'check': 1.0}
+
+    def test_squeeze_degrades_to_vs_3bet(self, table):
+        node = PreflopNode(hand='AKs', position='BB', scenario='vs_squeeze', opener_position='CO')
+        prof, src = table.lookup_with_fallback_traced(node, ['raise', 'fold', 'call'])
+        assert src == 'squeeze_degrade'
+        assert prof.action_probabilities == {'raise_3bb': 0.8, 'fold': 0.2}
+
+    @pytest.mark.parametrize('hand', ['AKs', '72o'])
+    def test_profile_parity_with_untraced(self, table, hand):
+        node = PreflopNode(hand=hand, position='UTG', scenario='rfi', opener_position='')
+        legal = ['raise', 'fold', 'call']
+        untraced = table.lookup_with_fallback(node, legal)
+        traced, _ = table.lookup_with_fallback_traced(node, legal)
+        assert untraced.action_probabilities == traced.action_probabilities
