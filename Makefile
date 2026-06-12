@@ -128,6 +128,10 @@ testflight: ## Build, archive & upload an App Store .ipa to TestFlight (needs AS
 # the Android SDK on PATH (Android Studio installs both) — the Android analogue of
 # "iOS needs a Mac + Xcode". See docs/guides/ANDROID_APP.md.
 ANDROID_DIR := react/react/android
+# Human-facing version string testers see in Play. versionCode (the unique,
+# ever-increasing upload id Play dedupes on) stays BUILD_NUMBER; override the name
+# per release: make android-release ANDROID_VERSION_NAME=1.0.1
+ANDROID_VERSION_NAME ?= 1.0.0
 
 android-debug: ## Build a sideloadable debug APK (prod-pointed, no keystore needed)
 	cd react/react && VITE_API_URL=$(PROD_URL) VITE_SOCKET_URL=$(PROD_URL) npm run build
@@ -140,6 +144,6 @@ android-release: ## Build a signed Play Store AAB (needs android/key.properties 
 	@test -f $(ANDROID_DIR)/key.properties || { echo "ERROR: $(ANDROID_DIR)/key.properties missing — see docs/guides/ANDROID_APP.md (release signing)"; exit 1; }
 	cd react/react && VITE_API_URL=$(PROD_URL) VITE_SOCKET_URL=$(PROD_URL) npm run build
 	cd react/react && npx cap copy android
-	cd $(ANDROID_DIR) && ./gradlew bundleRelease -PversionCode=$(BUILD_NUMBER) -PversionName=$(BUILD_NUMBER)
+	cd $(ANDROID_DIR) && ./gradlew bundleRelease -PversionCode=$(BUILD_NUMBER) -PversionName=$(ANDROID_VERSION_NAME)
 	@echo "AAB: $(ANDROID_DIR)/app/build/outputs/bundle/release/app-release.aab"
 	@echo "Upload it to the Play Console (Internal testing track for the fastest loop)."
