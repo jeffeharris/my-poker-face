@@ -2,10 +2,17 @@
 purpose: Handoff for the per-node preflop chart regeneration — state, decisions, how to continue
 type: guide
 created: 2026-06-11
-last_updated: 2026-06-11
+last_updated: 2026-06-12
 ---
 
 # Preflop Chart Regen — Handoff
+
+> **ARCHIVED 2026-06-12.** All open items shipped: vs_squeeze node (#294), the
+> `build_vs_open` ratchet this doc called "vs_3bet drift" (#295), the bluff-aware
+> vs_3bet taper (#299/#311), and the nit/rock tighten (#306/#308). The pipeline is
+> reproducible — a full regen cascade is now a no-op. For the live state of the
+> archetype/chart work see `docs/strategy/ARCHETYPE_CALIBRATION_HANDOFF.md`. Kept
+> for the decision record.
 
 Pick-up doc for the preflop-chart regeneration effort. Read this top-to-bottom
 before touching anything; the work spans the base charts, a new lint module, the

@@ -717,6 +717,13 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
             {"role": "user", "content": prompt},
         ]
 
+        # On-device parity (Apple Foundation Models): when the native client can
+        # run the model itself, it asks the server to COMPOSE the identical prompt
+        # but skip the (paid) LLM call. The client runs `messages` on-device. No
+        # api_usage row is written here precisely because no inference happened.
+        if data.get('render_only'):
+            return jsonify({"messages": messages, "count": 2})
+
         response = client.complete(
             messages=messages,
             json_format=True,
@@ -910,6 +917,11 @@ def get_post_round_chat_suggestions(game_id):
             },
             {"role": "user", "content": prompt},
         ]
+
+        # On-device parity — see targeted-chat route. Return the composed prompt
+        # for the native client to run on Apple Foundation Models; no LLM call here.
+        if data.get('render_only'):
+            return jsonify({"messages": messages, "count": 2})
 
         response = client.complete(
             messages=messages,

@@ -42,10 +42,7 @@ export const MobileOpponents = memo(function MobileOpponents({
   shouldHighlightActivePlayer,
   aiThinking,
   isHeadsUp,
-  isTwoOpponents,
-  isThreeOpponents,
-  isThreeOpponentsNormal,
-  isThreeOpponentsShowdown,
+  isFillMode,
   headsUpOpponent,
   providedGameId,
   humanPlayerName,
@@ -70,10 +67,7 @@ export const MobileOpponents = memo(function MobileOpponents({
   shouldHighlightActivePlayer: boolean;
   aiThinking: boolean;
   isHeadsUp: boolean;
-  isTwoOpponents: boolean;
-  isThreeOpponents: boolean;
-  isThreeOpponentsNormal: boolean;
-  isThreeOpponentsShowdown: boolean;
+  isFillMode: boolean;
   headsUpOpponent: Player | null;
   providedGameId?: string | null;
   humanPlayerName?: string;
@@ -110,13 +104,7 @@ export const MobileOpponents = memo(function MobileOpponents({
 
       {/* Opponents Row - shows only active players during showdown */}
       <div
-        className={[
-          'mobile-opponents',
-          isHeadsUp && 'heads-up-mode',
-          isTwoOpponents && 'two-opponents-mode',
-          isThreeOpponentsNormal && 'three-opponents-mode',
-          isThreeOpponentsShowdown && 'three-opponents-showdown-mode',
-        ]
+        className={['mobile-opponents', isHeadsUp && 'heads-up-mode', isFillMode && 'fill-mode']
           .filter(Boolean)
           .join(' ')}
         data-testid="mobile-opponents"
@@ -157,8 +145,6 @@ export const MobileOpponents = memo(function MobileOpponents({
                 opponent.is_all_in && 'all-in',
                 isCurrentPlayer && !isInShowdown && 'thinking',
                 isHeadsUp && 'heads-up-avatar',
-                isTwoOpponents && 'two-opponents-avatar',
-                isThreeOpponents && 'three-opponents-avatar',
               ]
                 .filter(Boolean)
                 .join(' ')}

@@ -327,9 +327,16 @@ export function MobilePokerTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardDealToken]);
 
-  // Auto-scroll to center the active opponent when turn changes
+  // Auto-scroll to center the active opponent when turn changes. Only relevant
+  // in the scrolling (6+ opponents) row: in fill mode the avatars stretch to
+  // fit, so there's nothing to scroll — and the active player's glow ring
+  // (::after, inset -8px) briefly overflows the container edge, which would
+  // otherwise let scrollTo nudge the row and clip the leftmost avatar. Skip it.
+  // (isFillMode is declared lower in the body; this callback runs post-render,
+  // so the reference resolves — it's intentionally not in the deps array.)
   useEffect(() => {
     if (!storePlayers || !currentPlayer || currentPlayer.is_human) return;
+    if (isFillMode) return;
 
     const opponentEl = opponentRefs.current.get(currentPlayer.name);
     const containerEl = opponentsContainerRef.current;
@@ -427,11 +434,13 @@ export function MobilePokerTable({
   const isHeadsUp = opponents.length === 1;
   const headsUpOpponent = isHeadsUp ? opponents[0] : null;
 
-  // Two opponents mode: 2 AI opponents (3 players total)
-  const isTwoOpponents = opponents.length === 2;
-  const isThreeOpponents = opponents.length === 3;
-  const isThreeOpponentsNormal = isThreeOpponents && !isInShowdown;
-  const isThreeOpponentsShowdown = isInShowdown && activeOpponents.length === 3;
+  // Fill mode: 2–5 opponents share the bar by weight (flex-grow) so they always
+  // fill the available space and redistribute smoothly on fold. Unifies the old
+  // per-count special cases (2/3 opponents) and extends them to 4–5. Heads-up
+  // (1 opponent) keeps its own mode — it shows the psychology panel instead.
+  // Above 5 we fall back to the scrolling fixed-width row (the overflow path).
+  const renderedOpponentCount = isInShowdown ? activeOpponents.length : opponents.length;
+  const isFillMode = !isHeadsUp && renderedOpponentCount >= 2 && renderedOpponentCount <= 5;
 
   // Coach integration (wraps useCoach + table glue: toggle, post-hand review,
   // unread-clear, skill-unlock toasts, recommendation values).
@@ -559,10 +568,7 @@ export function MobilePokerTable({
             shouldHighlightActivePlayer={shouldHighlightActivePlayer}
             aiThinking={aiThinking}
             isHeadsUp={isHeadsUp}
-            isTwoOpponents={isTwoOpponents}
-            isThreeOpponents={isThreeOpponents}
-            isThreeOpponentsNormal={isThreeOpponentsNormal}
-            isThreeOpponentsShowdown={!!isThreeOpponentsShowdown}
+            isFillMode={isFillMode}
             headsUpOpponent={headsUpOpponent}
             providedGameId={providedGameId}
             humanPlayerName={humanPlayer?.name}

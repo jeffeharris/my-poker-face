@@ -760,9 +760,14 @@ def test_passive_postflop_respects_cap_and_ablation_and_validates():
 
 
 def test_rock_carries_passive_postflop():
-    # The fix's attachment point: only rock carries the new tendency.
-    assert DEVIATION_PROFILES['rock'].spot_tendencies == (('passive_postflop', 0.18),)
-    # And no other production archetype carries it (inert unless carried).
+    # Rock = tight-PASSIVE: passive_postflop (call-down) + a MILD fit_or_fold to
+    # trim its post-preflop-tighten WTSD/fold-to-cbet into band (well below nit's
+    # fit_or_fold — rock stays stickier). passive_postflop is rock's alone.
+    assert DEVIATION_PROFILES['rock'].spot_tendencies == (
+        ('passive_postflop', 0.18),
+        ('fit_or_fold', 0.25),
+    )
+    # And no other production archetype carries passive_postflop (inert unless carried).
     for key, prof in DEVIATION_PROFILES.items():
         if key == 'rock':
             continue

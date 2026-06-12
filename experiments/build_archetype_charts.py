@@ -268,27 +268,41 @@ def _invent_call(row: dict, frac: float, hand: str) -> dict:
 # folds its marginal continues. The keep pool = the premiums/strong a nit still
 # defends. Gated on the mixed-field band probe (make validate-archetype-bands);
 # tuned down GRADUALLY (target nit VPIP 16-18 first, not straight to 10-16).
-_TIGHT_KEEP_PAIRS = {'AA', 'KK', 'QQ', 'JJ', 'TT', '99'}
-_TIGHT_KEEP_SUITED = {'AKs', 'AQs', 'AJs', 'ATs', 'KQs', 'KJs', 'QJs'}
-_TIGHT_KEEP_OFFSUIT = {'AKo', 'AQo', 'KQo'}
+# Keep pool facing an OPEN (vpip lever): premiums + strong suited broadways + AK/
+# AQ/KQo continue; the marginal flats fold. Wider — a nit still cold-defends a
+# decent range vs a single open.
+_KEEP_VS_OPEN = {
+    'AA',
+    'KK',
+    'QQ',
+    'JJ',
+    'TT',
+    '99',
+    'AKs',
+    'AQs',
+    'AJs',
+    'ATs',
+    'KQs',
+    'KJs',
+    'QJs',
+    'AKo',
+    'AQo',
+    'KQo',
+}
+# Keep pool facing a 3-BET (fold-to-3bet lever): only the nut tier continues. The
+# band wants nit/rock to OVER-fold to 3-bets (the believable scared-tight weakness,
+# above MDF), so facing a re-raise they ditch the medium opens (JJ-99/AJ/KQ) and
+# continue just QQ+/AK. Tighter than the vs_open keep on purpose.
+_KEEP_VS_3BET = {'AA', 'KK', 'QQ', 'JJ', 'AKs', 'AKo', 'AQs'}
 
 
-def _is_tight_keep(hand: str) -> bool:
-    """The strong tier a nit/rock keeps continuing facing aggression — premiums,
-    strong suited broadways, AK/AQ/KQo. Everything else folds harder."""
-    if hand in _TIGHT_KEEP_PAIRS:
-        return True
-    if len(hand) == 2:
-        return False  # small/medium pairs fold to facing aggression at the tight tier
-    return hand in (_TIGHT_KEEP_SUITED if hand[2] == 's' else _TIGHT_KEEP_OFFSUIT)
-
-
-def _tighten_facing(row: dict, frac: float, hand: str) -> dict:
+def _tighten_facing(row: dict, frac: float, hand: str, keep: set) -> dict:
     """Route `frac` of a NON-keep hand's CALL mass into FOLD — the symmetric
     inverse of _invent_call. Tightens the tight tier's facing range (folds the
     marginal continues the base/competent player defends) without touching the
-    keep-pool premiums, pure-folds, or any raise mass."""
-    if frac <= 0 or _is_tight_keep(hand):
+    keep-pool hands, pure-folds, or any raise mass. `keep` is the per-scenario
+    keep pool (wider facing an open, tighter facing a 3-bet)."""
+    if frac <= 0 or hand in keep:
         return row
     call = row.get('call', 0.0)
     if call <= 0:
@@ -358,7 +372,7 @@ def _transform_facing(
         extra = extra_by_scenario.get(scenario, {})
         promote = promote_3bet_by_scenario.get(scenario, 0.0)
         invent = invent_call_by_scenario.get(scenario, 0.0)
-        tighten = tighten_by_scenario.get(scenario, 0.0)
+        tighten = tighten_by_scenario.get(scenario)  # None or (frac, keep_set)
         for pos_dict in data[scenario].values():
             for hand in pos_dict:
                 row = fn(pos_dict[hand], keep_fold, **extra)
@@ -367,7 +381,7 @@ def _transform_facing(
                 if invent:
                     row = _invent_call(row, invent, hand)
                 if tighten:
-                    row = _tighten_facing(row, tighten, hand)
+                    row = _tighten_facing(row, tighten[0], hand, tighten[1])
                 pos_dict[hand] = row
 
 
@@ -509,15 +523,19 @@ def build_tight(base: dict) -> dict:
             'vs_open': {'damp_raise': 0.55},
             'vs_3bet': {'damp_raise': 0.45},
         },
-        # Tighten the facing range: fold the marginal (non-keep) continues the base
-        # defends, so the tight tier stops inheriting the wider base BB/cold-defense.
-        # GRADUAL FIRST STEP toward the 10-16/8-15 bands — gated on the mixed-field
-        # band probe (make validate-archetype-bands, 9000 hands): nit VPIP 20.1->16.8,
-        # rock 18.1->15.5 (both still WARN — the deliberate gradual target 16-18, NOT
-        # straight to band; the next step toward 14-16 awaits play-test). vs_open is
-        # the VPIP lever; vs_3bet lifts fold-to-3bet toward band. Premiums (AA-99/
-        # AK/AQ/KQ via _is_tight_keep) are preserved — only the marginal flats fold.
-        tighten_by_scenario={'vs_open': 0.25, 'vs_3bet': 0.18},
+        # Tighten the facing range so the tight tier stops inheriting the wider base
+        # BB/cold-defense. Tuned against the mixed-field band gate (9000 hands); each
+        # entry is (frac, keep_pool), premiums always preserved:
+        #   vs_open  (VPIP lever):  fold non-keep flats -> nit VPIP 20.1->14.8 (10-16),
+        #                           rock 18.1->13.6 (8-15). Both now IN BAND.
+        #   vs_3bet  (fold-to-3bet): tighter keep (QQ+/AK) so the medium opens
+        #                           over-fold to a 3-bet (the scared-tight identity the
+        #                           band wants, above MDF) -> nit f3b 56->71.9 (60-80),
+        #                           rock 55->73.5 (65-85). Both now IN BAND.
+        tighten_by_scenario={
+            'vs_open': (0.42, _KEEP_VS_OPEN),
+            'vs_3bet': (0.80, _KEEP_VS_3BET),
+        },
     )
     return data
 

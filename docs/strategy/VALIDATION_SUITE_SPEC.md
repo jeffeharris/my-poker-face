@@ -2,6 +2,7 @@
 purpose: Implementation spec for chart validation - static lints, probe bots, low-variance head-to-head harness
 type: design
 created: 2026-06-10
+last_updated: 2026-06-12
 status: proposed
 depends_on: scripts/test.py (Docker test runner), experiments/run_ai_tournament.py, chart JSON schema
 ---
@@ -108,6 +109,14 @@ resolve the differences being shipped.
 - `scripts/test.py --probes` → tier 2 (Docker, chart-affecting PRs; gate via
   path filter on `poker/strategy/**`).
 - `scripts/test.py --acceptance` → tier 3 (manual / release branch).
+- `make validate-archetype-bands` → **archetype band gate** (BUILT 2026-06-12,
+  PR #303). The deterministic mixed-field probe (`scripts/archetype_mixedfield_probe.py`,
+  seed 4242, 9000 hands) scores every archetype's full banded stat set vs
+  `ARCHETYPE_TARGETS` and exits non-zero on a hard fail. Gates only the high-n
+  frequency stats (`HARD_FAIL_STATS = {vpip, pfr, threebet, all_in}`); low-n /
+  variance-heavy stats and the in-calibration `WARN_ONLY_ARCHETYPES = {nit, rock}`
+  are reported as WARN. `PROBE_HANDS` overrides N. See
+  `docs/technical/ARCHETYPE_SHAPING_FINDINGS.md` (nit/rock band calibration).
 - Tier-1 lint set lives next to the generators
   (`poker/strategy/lints.py`) so a regen script can refuse to write a chart
   that fails — bugs caught at generation time, not review time.
