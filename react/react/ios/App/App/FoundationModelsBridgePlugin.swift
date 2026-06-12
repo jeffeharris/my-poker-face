@@ -58,12 +58,16 @@ public class FoundationModelsBridgePlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let tones = call.getArray("tones", String.self) ?? []
+        // Optional server-composed instructions (server-composes parity mode). When
+        // present, the server has already built the full prompt with real game
+        // context, so we use its system text verbatim instead of our generic one.
+        let system = call.getString("system")
 
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
             Task {
                 do {
-                    let suggestions = try await Self.generate(prompt: prompt, tones: tones)
+                    let suggestions = try await Self.generate(prompt: prompt, system: system, tones: tones)
                     call.resolve(["suggestions": suggestions.map { ["text": $0.text, "tone": $0.tone] }])
                 } catch {
                     // Let the JS side fall back to the server route.
@@ -81,7 +85,7 @@ public class FoundationModelsBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     @available(iOS 26.0, *)
     @Generable
     struct ChatSuggestions {
-        @Guide(description: "2 to 4 short, sharp poker chat lines, each under 15 words")
+        @Guide(description: "A short list of sharp poker chat lines, each under 15 words")
         var suggestions: [ChatSuggestion]
     }
 
@@ -95,13 +99,20 @@ public class FoundationModelsBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @available(iOS 26.0, *)
-    private static func generate(prompt: String, tones: [String]) async throws -> [(text: String, tone: String)] {
-        let instructions = """
+    private static func generate(
+        prompt: String,
+        system: String?,
+        tones: [String]
+    ) async throws -> [(text: String, tone: String)] {
+        // Server-composes mode: use the server's system text as-is and don't append
+        // our tone hint (the server prompt is already complete). Standalone mode
+        // (e.g. the /dev/fmtest page): fall back to our generic instructions + hint.
+        let instructions = system ?? """
         You write sharp, witty poker banter that reacts to the actual hand. \
         Never generic — always specific callbacks to what just happened. Short and punchy.
         """
         var fullPrompt = prompt
-        if !tones.isEmpty {
+        if system == nil, !tones.isEmpty {
             fullPrompt += "\n\nFavor these tones: \(tones.joined(separator: ", "))."
         }
 

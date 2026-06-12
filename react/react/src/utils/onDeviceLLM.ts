@@ -17,7 +17,7 @@ import { isNativePlatform } from './nativeAuth';
 
 interface FoundationModelsPlugin {
   availability(): Promise<{ available: boolean; reason?: string }>;
-  suggestChat(options: { prompt: string; tones?: string[] }): Promise<{
+  suggestChat(options: { prompt: string; system?: string; tones?: string[] }): Promise<{
     suggestions: Array<{ text: string; tone: string }>;
   }>;
 }
@@ -31,12 +31,37 @@ export interface ChatSuggestion {
   tone: string;
 }
 
-/** Opt-in flag — set `localStorage.onDeviceLLM = '1'` to enable the spike. */
-function isFlagEnabled(): boolean {
+/**
+ * On-device is ON by default whenever the model is available. The flag is now
+ * only a kill switch: set `localStorage.onDeviceLLM = '0'` to force the server
+ * route (for A/B comparison). Any other value (or unset) = on-device preferred.
+ */
+function isKillSwitched(): boolean {
   try {
-    return localStorage.getItem(FLAG_KEY) === '1';
+    return localStorage.getItem(FLAG_KEY) === '0';
   } catch {
     return false;
+  }
+}
+
+/**
+ * Raw availability probe — bypasses the opt-in flag, for diagnostics/test UIs.
+ * Returns the native reason string when unavailable (e.g. Apple Intelligence
+ * disabled, device ineligible, model still downloading).
+ */
+export async function rawAvailability(): Promise<{
+  native: boolean;
+  available: boolean;
+  reason?: string;
+}> {
+  if (!isNativePlatform()) {
+    return { native: false, available: false, reason: 'not a native platform' };
+  }
+  try {
+    const res = await FoundationModels.availability();
+    return { native: true, available: res.available, reason: res.reason };
+  } catch (e) {
+    return { native: true, available: false, reason: `bridge error: ${String(e)}` };
   }
 }
 
@@ -44,11 +69,11 @@ function isFlagEnabled(): boolean {
 let availabilityPromise: Promise<boolean> | null = null;
 
 /**
- * Whether on-device suggestion generation should be used. True only when the flag
- * is on, we're in the native shell, and the model reports itself available.
+ * Whether on-device suggestion generation should be used. On by default in the
+ * native shell when the model reports itself available; the kill switch forces off.
  */
 export async function isOnDeviceLLMAvailable(): Promise<boolean> {
-  if (!isFlagEnabled() || !isNativePlatform()) return false;
+  if (isKillSwitched() || !isNativePlatform()) return false;
   if (!availabilityPromise) {
     availabilityPromise = (async () => {
       try {
@@ -66,14 +91,20 @@ export async function isOnDeviceLLMAvailable(): Promise<boolean> {
 /**
  * Generate quick-chat suggestions on-device. Throws on any failure so the caller
  * can fall back to the server route; never returns an empty/partial result silently.
+ *
+ * `system` (server-composes parity) overrides the plugin's generic instructions
+ * with the server's exact prompt. `count` caps the result to match the server UI.
  */
-export async function suggestChatOnDevice(
-  prompt: string,
-  tones?: string[],
-): Promise<ChatSuggestion[]> {
-  const { suggestions } = await FoundationModels.suggestChat({ prompt, tones });
+export async function suggestChatOnDevice(opts: {
+  prompt: string;
+  system?: string;
+  tones?: string[];
+  count?: number;
+}): Promise<ChatSuggestion[]> {
+  const { prompt, system, tones, count } = opts;
+  const { suggestions } = await FoundationModels.suggestChat({ prompt, system, tones });
   if (!Array.isArray(suggestions) || suggestions.length === 0) {
     throw new Error('on-device model returned no suggestions');
   }
-  return suggestions;
+  return typeof count === 'number' ? suggestions.slice(0, count) : suggestions;
 }
