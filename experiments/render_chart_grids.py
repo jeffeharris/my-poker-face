@@ -8,9 +8,11 @@ data — the grids are derived from ``poker/strategy/data/preflop_*_6max.json``,
 a chart regen (e.g. a vs_3bet/vs_4bet rebuild) is reflected automatically.
 
 The grids show the DOMINANT action per hand + its weight. Pairs sit on the
-diagonal, suited hands above it, offsuit below; rows/cols run A->2. A ``·`` cell
-is a (near-)pure fold. The action vocabulary shifts by scenario and depth
-(e.g. 3-bets become jams at 25bb), so each block prints its own legend.
+diagonal, suited hands above it, offsuit below; rows/cols run A->2. A bare ``·``
+cell is a (near-)pure fold (>=99.5%); ``·NN`` means fold is the dominant action
+at NN% (a mixed cell that folds most often, but not a pure fold). The action
+vocabulary shifts by scenario and depth (e.g. 3-bets become jams at 25bb), so
+each block prints its own legend.
 
 Note: dominant-action grids cannot show mixing detail. Some structural facts —
 e.g. that the 100bb vs_3bet 4-bet is *suited-only* — are invisible here and must
@@ -135,7 +137,12 @@ def dom_grid(node: dict, classify) -> str:
                 lab = "·" if a == "fold" else classify(a)
                 agg[lab] = agg.get(lab, 0.0) + f
             best = max(agg.items(), key=lambda x: x[1]) if agg else ("·", 1.0)
-            cells.append("   ·" if best[0] == "·" else f"{best[0]}{round(best[1] * 100):>3}")
+            if best[0] == "·":
+                # fold dominant: bare · only for (near-)pure fold; otherwise show
+                # the fold % so a mixed fold-dominant cell isn't read as pure fold
+                cells.append("   ·" if best[1] >= 0.995 else f"·{round(best[1] * 100):>3}")
+            else:
+                cells.append(f"{best[0]}{round(best[1] * 100):>3}")
         lines.append(f"{RANKS[r]:>3}  " + " ".join(cells))
     return "\n".join(lines)
 
