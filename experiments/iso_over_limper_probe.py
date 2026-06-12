@@ -7,8 +7,13 @@ fold most hands → single-limper spots arise). Primary gate = does the path FIR
 (coverage + action mix); bb/100 is direction-only (noisy at short stacks, and the
 spot is rare so the pooled delta is mostly non-iso hands).
 
+With the fold-equity gate live, the ON arm should DECLINE the never-folding fish
+(high VPIP → no fold equity) → iso fires ~0 and bb/100 neutral (the gate closing
+the leak). FORCE_FE=1 bypasses the gate to reproduce the ungated -EV leak.
+
 Run: docker compose exec -T backend python -m experiments.iso_over_limper_probe
-     QUICK=1 ... (1 seed, depth 10 only, coverage only)
+     QUICK=1 ...  (1 seed, depth 10 only — fast)
+     FORCE_FE=1 ... (bypass the fold-equity gate → the ungated before-number)
 """
 
 import os
@@ -62,8 +67,18 @@ def _counting_lookup(*args, **kwargs):
 tbc.lookup_push_fold_action_6max = _counting_lookup
 
 
+# FORCE_FE=1 bypasses the fold-equity gate (forces it True) so the ON arm
+# reproduces the UNGATED behavior — the before/after for the gate. Default = the
+# real read-based gate, which should decline the never-folding fish → neutral.
+_FORCE_FE = bool(os.environ.get("FORCE_FE"))
+_real_fe = tbc.TieredBotController._opponent_fold_equity_ok
+
+
 def _run_arm(depth, iso_on):
     tbc._iso_over_limper_enabled = lambda: iso_on
+    tbc.TieredBotController._opponent_fold_equity_ok = (
+        (lambda self, idx, gs: True) if _FORCE_FE else _real_fe
+    )
     _C.reset()
     st = sim.load_strategy_table()
     deltas = []

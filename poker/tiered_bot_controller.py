@@ -4573,9 +4573,7 @@ class TieredBotController(AIPlayerController):
                     num_seated,
                     big_blind,
                     eff_bb,
-                    opener_fold_equity_ok=lambda oi: self._reshove_opener_fold_equity_ok(
-                        oi, game_state
-                    ),
+                    opener_fold_equity_ok=lambda oi: self._opponent_fold_equity_ok(oi, game_state),
                 )
             return None
         # Limpers: non-blind opponents who matched the BB without raising. The BB
@@ -4592,7 +4590,15 @@ class TieredBotController(AIPlayerController):
             # jam range in v1 — a conservative, low-spew proxy, far better than the
             # deep-stack chart this spot falls to today). 2+ limpers is a multiway
             # limped field the v1 range doesn't model → fall through.
-            if len(limpers) == 1 and _iso_over_limper_enabled():
+            # Fold-equity gate (mirrors the reshove): only iso-jam over a limper
+            # we read as foldy. A sticky limp-call-wide fish never folds → the jam
+            # has zero fold equity (validated -4 to -8 bb/100), so decline and let
+            # the deep-stack path play it. No read → decline (conservative).
+            if (
+                len(limpers) == 1
+                and _iso_over_limper_enabled()
+                and self._opponent_fold_equity_ok(limpers[0], game_state)
+            ):
                 return lookup_push_fold_action_6max(
                     hand=canonical_hand,
                     position=position,
@@ -4600,7 +4606,7 @@ class TieredBotController(AIPlayerController):
                     num_players=num_seated,
                     over_limper=True,
                 )
-            return None  # multi-limper, or the flag is off → deep-stack path
+            return None  # multi-limper, flag off, or no fold equity → deep-stack path
 
         return lookup_push_fold_action_6max(
             hand=canonical_hand,
@@ -4610,25 +4616,27 @@ class TieredBotController(AIPlayerController):
             facing_jam=False,
         )
 
-    def _reshove_opener_fold_equity_ok(self, opener_idx: int, game_state) -> bool:
-        """Read-based fold-equity gate for a reshove vs the opener at
-        `opener_idx`. True only when this hero has a confident read that the
-        opener folds enough for the jam to carry fold equity (see
-        exploitation.reshove_fold_equity_ok). No opponent model, no read, or a
-        station/maniac opener → False (decline the reshove → fall through).
+    def _opponent_fold_equity_ok(self, opp_idx: int, game_state) -> bool:
+        """Read-based fold-equity gate for a preflop ALL-IN over the opponent at
+        `opp_idx` (the opener for a reshove, the limper for an iso-over-limp). True
+        only when this hero has a confident read that the opponent folds enough for
+        the jam to carry fold equity (see exploitation.reshove_fold_equity_ok — the
+        question is the same: loose-VPIP/station opponents never fold to the jam).
+        No opponent model, no read, or a station/maniac → False (decline the jam →
+        fall through).
 
-        Conservative by design: reshoving into an opener who won't fold is
-        ~-35 bb/100 (validated), while declining is ~neutral, so the no-read
-        default is False.
+        Conservative by design: jamming into an opponent who won't fold is heavily
+        -EV (validated: reshove ~-35 bb/100, iso-over-limper ~-4 to -8 bb/100),
+        while declining is ~neutral, so the no-read default is False.
         """
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None:
             return False
         try:
-            opener_name = game_state.players[opener_idx].name
+            opp_name = game_state.players[opp_idx].name
         except (AttributeError, IndexError):
             return False
-        model = manager.get_model(self.player_name, opener_name)
+        model = manager.get_model(self.player_name, opp_name)
         t = getattr(model, 'tendencies', None)
         if t is None:
             return False

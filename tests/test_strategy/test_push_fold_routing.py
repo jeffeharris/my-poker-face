@@ -321,13 +321,18 @@ class TestIsoOverLimperRouting:
         assert gs.raises_this_round == 0, "a limp must not look like a raise"
         return gs
 
-    def _route(self, gs, hand='AA', flag=True):
+    def _route(self, gs, hand='AA', flag=True, fold_equity=True):
+        # Chart-routing tests patch the fold-equity gate True so they exercise the
+        # iso chart independent of opponent reads (the gate is tested separately).
         c = _controller()
-        with patch('poker.tiered_bot_controller._iso_over_limper_enabled', return_value=flag):
+        with (
+            patch('poker.tiered_bot_controller._iso_over_limper_enabled', return_value=flag),
+            patch.object(TieredBotController, '_opponent_fold_equity_ok', return_value=fold_equity),
+        ):
             return c._try_push_fold_lookup(hand, gs, player_idx=0, num_seated=6)
 
     def test_single_limper_flag_on_jams_premium(self):
-        # First-in over one limper at 10bb: AA jams (v1 = the unopened range).
+        # First-in over one foldy limper at 10bb: AA jams (v1 = the unopened range).
         gs = self._add_limpers(_6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10), 1)
         assert self._route(gs, 'AA', flag=True) == 'jam'
 
@@ -339,6 +344,12 @@ class TestIsoOverLimperRouting:
         # Off (the default): the limped pot keeps going to the deep-stack path.
         gs = self._add_limpers(_6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10), 1)
         assert self._route(gs, 'AA', flag=False) is None
+
+    def test_sticky_limper_no_fold_equity_falls_through(self):
+        # Flag on, single limper, but the limper is read as sticky (won't fold) →
+        # the iso-jam has no fold equity → decline (fall through), even with AA.
+        gs = self._add_limpers(_6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10), 1)
+        assert self._route(gs, 'AA', flag=True, fold_equity=False) is None
 
     def test_two_limpers_falls_through_even_with_flag_on(self):
         # The v1 range models a single limper; a multiway limped field falls through.
@@ -356,9 +367,7 @@ class TestReshoveRouting:
         c = _controller()
         with (
             patch('poker.tiered_bot_controller._reshove_6max_enabled', return_value=flag),
-            patch.object(
-                TieredBotController, '_reshove_opener_fold_equity_ok', return_value=fold_equity
-            ),
+            patch.object(TieredBotController, '_opponent_fold_equity_ok', return_value=fold_equity),
         ):
             return c._try_push_fold_lookup(hand, gs, player_idx=hero_idx, num_seated=num_seated)
 
