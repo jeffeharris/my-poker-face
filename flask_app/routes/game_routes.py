@@ -2191,34 +2191,63 @@ def api_player_action(game_id):
 
         owner_id, owner_name = game_state_service.get_game_owner_info(game_id)
         extensions.game_repo.save_game(game_id, state_machine._state_machine, owner_id, owner_name)
-        if 'memory_manager' in current_game_data:
-            _mm = current_game_data['memory_manager']
-            extensions.game_repo.save_opponent_models(game_id, _mm.get_opponent_model_manager())
-            # Circuit scouting memory: fold this game's observation counts
-            # into the durable per-sandbox lifetime rows. No-op for
-            # non-sandbox games (sandbox_id is None). Isolated + guarded so a
-            # fold hiccup can never break the hand flow.
-            try:
-                extensions.game_repo.fold_observations_into_lifetime(game_id, _mm.sandbox_id)
-            except Exception as _fold_exc:  # pragma: no cover - defensive
-                logger.warning(
-                    "[DOSSIER] observation lifetime fold failed for game %s: %s",
-                    game_id,
-                    _fold_exc,
-                )
 
-        # If the human just folded and opted into "speed through after I fold",
-        # fast-forward the rest of the orbit before progressing.
-        if current_player.is_human:
-            maybe_engage_fast_forward_on_fold(game_id, action)
-
-        progress_game(game_id)
+        # Push the post-action state now. The turn has already advanced to the
+        # next (AI) player, so this flips the client from "Submitting…" to
+        # "<AI> is thinking…" immediately. Previously the first state push only
+        # happened inside progress_game(), *after* the opponent-model + lifetime
+        # DB writes below — so the client sat on "Submitting…" for the
+        # ~300-500ms those blocking SQLite writes took. None of that work needs
+        # to gate the player's response or the turn handoff.
+        update_and_emit_game_state(game_id)
 
         # Training mode surfaces the coach's per-action skill verdict inline so
-        # every decision gets immediate feedback (other modes evaluate silently).
+        # every decision gets immediate feedback (other modes evaluate
+        # silently). skill_feedback was computed synchronously above against the
+        # exact post-action state.
         response_body = {'success': True}
         if current_game_data.get('training_mode') and skill_feedback:
             response_body['skill_evaluation'] = skill_feedback
+
+        # Defer the AI's read-on-you persistence and the AI orbit off the
+        # response path. progress_game() drives the AI turns (LLM calls) and
+        # emits its own state updates plus the player_turn_start that re-enables
+        # the human's action buttons, so the client is fully socket-driven from
+        # here. The per-game lock inside progress_game() serializes this against
+        # any concurrent trigger exactly as the old inline call did.
+        def _advance_after_action():
+            try:
+                if 'memory_manager' in current_game_data:
+                    _mm = current_game_data['memory_manager']
+                    extensions.game_repo.save_opponent_models(
+                        game_id, _mm.get_opponent_model_manager()
+                    )
+                    # Circuit scouting memory: fold this game's observation
+                    # counts into the durable per-sandbox lifetime rows. No-op
+                    # for non-sandbox games (sandbox_id is None). Guarded so a
+                    # fold hiccup can never break the hand flow.
+                    try:
+                        extensions.game_repo.fold_observations_into_lifetime(
+                            game_id, _mm.sandbox_id
+                        )
+                    except Exception as _fold_exc:  # pragma: no cover - defensive
+                        logger.warning(
+                            "[DOSSIER] observation lifetime fold failed for game %s: %s",
+                            game_id,
+                            _fold_exc,
+                        )
+
+                # If the human just folded and opted into "speed through after I
+                # fold", fast-forward the rest of the orbit before progressing.
+                if current_player.is_human:
+                    maybe_engage_fast_forward_on_fold(game_id, action)
+
+                progress_game(game_id)
+            except Exception:  # pragma: no cover - defensive
+                logger.error("Error advancing game %s after action", game_id, exc_info=True)
+
+        socketio.start_background_task(_advance_after_action)
+
         return jsonify(response_body)
     except Exception as e:
         logger.error(f"Error processing action for game {game_id}: {e}", exc_info=True)
