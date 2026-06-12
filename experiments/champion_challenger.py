@@ -482,6 +482,7 @@ def run_cc_hand(
         c._sim_opp_bet_by_street = {}
     sim_current_street: Optional[str] = None
     action_count = 0
+    start_stacks: Dict[str, int] = {}
 
     if feed is not None:
         # Per-hand denominator + c-bet state reset (mirrors
@@ -489,6 +490,8 @@ def run_cc_hand(
         # denominator: opponents that fold before acting never hit
         # observe_action, so without it their rates inflate.
         feed.cbet_detector.reset_for_new_hand()
+        # Captured for the end-of-hand showdown feed's best-effort `won`.
+        start_stacks = {p.name: p.stack for p in sm.game_state.players}
         seated = [p.name for p in sm.game_state.players]
         for hero in feed.hero_names:
             feed.manager.record_hand_dealt(
@@ -592,6 +595,27 @@ def run_cc_hand(
         action_count += 1
         if action_count >= MAX_ACTIONS_PER_HAND:
             break
+
+    # Showdown feed — parity with prod's MemoryManager.complete_hand →
+    # observe_showdown (and with simulate_bb100.run_hand's #324 feed). run_cc_hand
+    # feeds observe_action but NOT showdowns, so without this `_showdowns` stays 0
+    # and WTSD reads 0 for every opponent in the bb/100 harness — which silently
+    # kills any WTSD-gated detector (e.g. loose_passive). Same divergent-path bug
+    # OPPONENT_STAT_SOURCE_OF_TRUTH.md flags. Showdown set = non-folded players at
+    # a TERMINAL phase (≥2 = a real showdown); `won` is best-effort (only
+    # showdown_win_rate reads it — WTSD needs the count).
+    if feed is not None and sm.phase in TERMINAL_PHASES:
+        revealed = [p for p in sm.game_state.players if not getattr(p, 'is_folded', False)]
+        if len(revealed) >= 2:
+            for hero in feed.hero_names:
+                for p in revealed:
+                    if p.name == hero:
+                        continue
+                    won = p.stack > start_stacks.get(p.name, p.stack)
+                    try:
+                        feed.manager.get_model(hero, p.name).observe_showdown(won=won)
+                    except Exception:
+                        pass
 
     return {p.name: p.stack for p in sm.game_state.players}
 

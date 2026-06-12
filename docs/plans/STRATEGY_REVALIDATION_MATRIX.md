@@ -496,3 +496,32 @@ but it is wired to the classifier/diagnostics only, NOT to
 (and thus the bluff_reduction intensity that gates the hard override) so it fires
 vs moderate real-human stations. Then re-run this folding-field control — the 0.0
 should move. The detector to do it is now built, WTSD-gated, and folder-excluding.
+
+## Step 5b — the bridge crossed: loose_passive wired into the gate (2026-06-12)
+
+The bb/100 pass (§Step 5) showed the exploit was inert vs a realistic field (0% fire)
+because the value/stop-bluff counters gated on the EXTREME `_is_hyper_passive`
+threshold, not the new `loose_passive` detector. Fixed that:
+
+1. **Wired `loose_passive` into `compute_value_vs_station_intensity`** — a station
+   for value/stop-bluff is now `_is_hyper_passive` OR `_is_loose_passive_station`,
+   with the loose-passive upside ramped on WTSD (the sticky axis).
+2. **`run_cc_hand` showdown feed** — a QUICK pass caught that it STILL didn't fire
+   (0/1000). Root cause: `exploit_bb100` drives hands via `champion_challenger.run_cc_hand`,
+   which feeds actions but NOT showdowns → `_showdowns=0 → wtsd=0 → loose_passive
+   dead in the bb/100 harness`. The SAME divergent-path bug OPPONENT_STAT_SOURCE_OF_TRUTH.md
+   flags; #324 only patched `simulate_bb100.run_hand`. Added the showdown feed to
+   `run_cc_hand` (mirrors #324). Quick re-check: 68/1000 flipped (6.8%) → fires.
+
+**Result — realistic field, before vs after wiring** (`exploit_bb100`, 8000×3):
+
+| | hands flipped | paired edge | verdict |
+|---|---|---|---|
+| BEFORE (extreme gate only) | 0/24000 (0.0%) | +0.0 | inert |
+| AFTER (loose_passive wired) | 1480/24000 (6.2%) | **+13.4** [+8.8, +18.0] | **✅ CI-clear** |
+
+The exploit now **reaches believable players and wins chips**: +13.4 bb/100 vs a
+field of the real-human Jeff_clone + the disciplined Punisher_clone, where it was
+exactly 0 before. This is the re-architecture's payoff — proven mechanism (Tier 2
+hard override) + trustworthy detection (WTSD-gated loose_passive) → +EV vs real
+opponents, not just cartoonish vpip≈1.0 stations.
