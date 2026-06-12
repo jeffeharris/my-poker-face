@@ -15,6 +15,7 @@ import { gameAPI } from '../../utils/api';
 import { logger } from '../../utils/logger';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { safeGetItem, safeSetItem } from '../../utils/storage';
+import { prewarmOnDevice } from '../../utils/onDeviceLLM';
 import { ChatTargetSelector } from './ChatTargetSelector';
 import './QuickChatSuggestions.css';
 
@@ -188,6 +189,12 @@ export function QuickChatSuggestions({
   useEffect(() => {
     localStorage.setItem('quickchat_length', length);
   }, [length]);
+
+  // Warm the on-device model the moment the quick-chat options are presented, so
+  // the first suggestion isn't paying cold model-load latency. No-op off-device.
+  useEffect(() => {
+    void prewarmOnDevice();
+  }, []);
 
   // All AI players stay selectable as chat targets — including folded ones.
   // Folded targets are still useful: the player can needle a busted opponent

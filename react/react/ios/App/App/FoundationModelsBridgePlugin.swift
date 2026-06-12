@@ -30,8 +30,32 @@ public class FoundationModelsBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "FoundationModels"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "availability", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "suggestChat", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "suggestChat", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prewarm", returnType: CAPPluginReturnPromise)
     ]
+
+    /// Holds a session so the shared on-device model stays resident between calls.
+    /// Stored as AnyObject? to avoid @available on a stored property; cast on use.
+    private static var warmSessionBox: AnyObject?
+
+    /// Load the model into memory ahead of a request (called when the chat options
+    /// are presented). Cuts the cold model-load latency off the first suggestion.
+    @objc func prewarm(_ call: CAPPluginCall) {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            if case .available = SystemLanguageModel.default.availability {
+                let session =
+                    (Self.warmSessionBox as? LanguageModelSession)
+                    ?? LanguageModelSession(instructions: "You write sharp, witty poker banter.")
+                Self.warmSessionBox = session
+                session.prewarm()
+                call.resolve(["warmed": true])
+                return
+            }
+        }
+        #endif
+        call.resolve(["warmed": false])
+    }
 
     /// Reports whether the on-device model can be used right now. The JS bridge
     /// caches this and only routes to on-device generation when `available` is true.

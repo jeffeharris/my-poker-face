@@ -1,6 +1,4 @@
 import { Coins, Trophy, GraduationCap, ChevronRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { isNativePlatform } from '../../utils/nativeAuth';
 import { PageLayout, PageHeader, MenuBar } from '../shared';
 import { useViewport } from '../../hooks/useViewport';
 import menuBanner from '../../assets/menu-banner.webp';
@@ -22,7 +20,6 @@ export function HomeMenu({
   onAdminDashboard,
 }: HomeMenuProps) {
   const { isDesktop } = useViewport();
-  const navigate = useNavigate();
 
   return (
     <>
@@ -84,24 +81,6 @@ export function HomeMenu({
             <ChevronRight className="mode-card__arrow" size={22} />
           </button>
         </div>
-
-        {/* TEMP (on-device LLM spike): native-only so prod web never shows it. */}
-        {isNativePlatform() && (
-          <button
-            onClick={() => navigate('/dev/fmtest')}
-            style={{
-              marginTop: 16,
-              background: 'transparent',
-              border: '1px dashed #888',
-              color: '#aaa',
-              padding: '8px 14px',
-              borderRadius: 8,
-              fontSize: 13,
-            }}
-          >
-            🧪 On-device LLM test
-          </button>
-        )}
       </PageLayout>
     </>
   );

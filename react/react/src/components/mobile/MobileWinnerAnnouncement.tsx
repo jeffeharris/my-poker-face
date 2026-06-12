@@ -4,6 +4,7 @@ import { ArrowLeft, Check } from 'lucide-react';
 import { Card } from '../cards';
 import { INTERHAND_TIMING } from '../../constants/interhandTiming';
 import { gameAPI } from '../../utils/api';
+import { prewarmOnDevice } from '../../utils/onDeviceLLM';
 import { logger } from '../../utils/logger';
 import { config } from '../../config';
 import { getOrdinal, type BackendCard } from '../../types/tournament';
@@ -132,6 +133,12 @@ export const MobileWinnerAnnouncement = memo(function MobileWinnerAnnouncement({
   const winnerName = winnerInfo?.winners?.[0];
   const isShowdown = !!winnerInfo?.showdown;
   const humanAtShowdown = !!winnerInfo?.players_showdown?.[humanName];
+
+  // Warm the on-device model when the post-round screen mounts (options appear),
+  // so the first reaction suggestion isn't paying cold model-load. No-op off-device.
+  useEffect(() => {
+    void prewarmOnDevice();
+  }, []);
 
   // Haptic on the result landing: a rising "ascend" on a win, a "collapse" thud otherwise.
   // Guarded by a ref so it fires once per hand result, not on every re-render.
