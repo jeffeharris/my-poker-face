@@ -549,6 +549,36 @@
   color: var(--color-text-secondary);
 }
 
+/* In fill mode the cards can get narrow (down to ~66px at 5-max on a phone),
+   so the single-line 112px name would just ellipsize. Let it use the full card
+   width and wrap to two lines instead — readable instead of "Gordon R…". Below
+   this width we'd be in scroll mode (fixed 30vw cards), where the base
+   single-line rule above already fits.
+
+   Tighten the info padding here so the name actually gets the card's width
+   (the default 12px sides leave only ~50px of a 77px card for text), and cap
+   the font so it can't balloon to 18px on a tall phone and break short names
+   like "Wyatt" mid-word. */
+.mobile-opponents.fill-mode .opponent-info {
+  padding: 16px 4px 6px 4px;
+}
+
+.mobile-opponents.fill-mode .opponent-name {
+  max-width: 100%;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.1;
+  font-size: clamp(11px, 1.5dvh, 14px);
+  overflow-wrap: anywhere; /* only splits a word when it can't fit a line alone */
+  text-align: center;
+}
+
+.mobile-opponents.fill-mode .opponent-stack {
+  font-size: clamp(10px, 1.4dvh, 13px);
+}
+
 .opponent-bet {
   position: absolute;
   bottom: -2.25dvh;

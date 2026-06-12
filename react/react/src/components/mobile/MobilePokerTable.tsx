@@ -54,6 +54,17 @@ interface MobilePokerTableProps {
   onGameLoadFailed?: () => void;
 }
 
+// Fill mode shows every opponent at once by stretching them to share the row.
+// We choose it only while each card stays wide enough for the name to stay
+// readable (names wrap to two lines below the avatar). Past that — a small
+// phone, or a big tournament field — we fall back to the horizontally scrolling
+// fixed-width row. The decision is driven by the measured row width, not a
+// hardcoded opponent count, so it does the right thing across phones, tablets,
+// landscape, and 8/9-max tables alike.
+const FILL_MODE_MIN_CARD_PX = 66; // narrowest card whose 2-line name still reads
+const OPPONENT_ROW_GAP_PX = 8; // matches the flex `gap` in .mobile-opponents
+const OPPONENT_ROW_PADDING_PX = 24; // 12px each side in .fill-mode
+
 export function MobilePokerTable({
   gameId: providedGameId,
   playerName,
@@ -76,6 +87,28 @@ export function MobilePokerTable({
   const [salQueue, setSalQueue] = useState<ChatMessage[]>([]);
   const opponentsContainerRef = useRef<HTMLDivElement>(null);
   const opponentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Measured width of the opponents row — feeds the fill-vs-scroll decision
+  // below. Seeded from the viewport so the first paint picks a sane mode, then
+  // re-measured on resize / orientation change. We read the container lazily at
+  // event time (falling back to the viewport) rather than via a mount-time
+  // ResizeObserver: this is the mobile layout, so the row spans the viewport,
+  // and the row element doesn't exist yet during the initial loading screen —
+  // an observer attached then would never see the real element.
+  const [opponentsRowWidth, setOpponentsRowWidth] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 0
+  );
+  useEffect(() => {
+    const measure = () =>
+      setOpponentsRowWidth(opponentsContainerRef.current?.offsetWidth ?? window.innerWidth);
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+    };
+  }, []);
 
   // Track last known actions for fade-out animation
   const lastKnownActions = useRef<Map<string, string>>(new Map());
@@ -434,13 +467,21 @@ export function MobilePokerTable({
   const isHeadsUp = opponents.length === 1;
   const headsUpOpponent = isHeadsUp ? opponents[0] : null;
 
-  // Fill mode: 2–5 opponents share the bar by weight (flex-grow) so they always
-  // fill the available space and redistribute smoothly on fold. Unifies the old
-  // per-count special cases (2/3 opponents) and extends them to 4–5. Heads-up
-  // (1 opponent) keeps its own mode — it shows the psychology panel instead.
-  // Above 5 we fall back to the scrolling fixed-width row (the overflow path).
+  // Fill mode: opponents share the bar by weight (flex-grow) so they always fill
+  // the available space and redistribute smoothly on fold. We pick it whenever
+  // every opponent would still be at least FILL_MODE_MIN_CARD_PX wide once
+  // stretched to share the row — i.e. wide enough for the wrapped name to read.
+  // When they wouldn't (a small phone, or a large field), we fall back to the
+  // horizontally scrolling fixed-width row. Heads-up (1 opponent) keeps its own
+  // mode — it shows the psychology panel instead.
   const renderedOpponentCount = isInShowdown ? activeOpponents.length : opponents.length;
-  const isFillMode = !isHeadsUp && renderedOpponentCount >= 2 && renderedOpponentCount <= 5;
+  const fillCardWidth =
+    (opponentsRowWidth -
+      OPPONENT_ROW_PADDING_PX -
+      OPPONENT_ROW_GAP_PX * (renderedOpponentCount - 1)) /
+    Math.max(renderedOpponentCount, 1);
+  const isFillMode =
+    !isHeadsUp && renderedOpponentCount >= 2 && fillCardWidth >= FILL_MODE_MIN_CARD_PX;
 
   // Coach integration (wraps useCoach + table glue: toggle, post-hand review,
   // unread-clear, skill-unlock toasts, recommendation values).
