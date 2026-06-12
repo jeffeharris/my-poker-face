@@ -60,12 +60,13 @@ F4B_CEILING = 0.62
 # 4-bet (raise_2.2x) mass as a fraction of the opener's open range, per vs_3bet node.
 FOURBET_BAND = (0.06, 0.14)
 
-# The depth value/bluff cliff: generate_depth_charts treats a 3-bet weight ≥ this
-# as value (jams it at 25bb), below as bluff. Generators keep bluffs under it.
+# The depth value/bluff cliff: when a vs_open cell has no explicit intent tag,
+# generate_depth_charts FALLS BACK to treating a 3-bet weight ≥ this as value
+# (jams it at 25bb), below as bluff. The tag is primary (DEPTH_INTENT_TAG_TECHDEBT.md);
+# this threshold is only the legacy fallback for charts that predate vs_open_intent.
 VALUE_RAISE_THRESHOLD = 0.50
-# Interim guard for that implicit weight API (DEPTH_INTENT_TAG_TECHDEBT.md): no
-# 3-bet weight may sit in the ambiguous band just under the cliff.
-CLIFF_BAND = (0.45, VALUE_RAISE_THRESHOLD)
+# Valid intent-tag values for a vs_open 3-bet cell.
+INTENT_VALUES = ("value", "bluff")
 
 WEIGHT_SUM_TOL = 0.01
 DEPTH_FLAT_RETENTION = 0.40  # 50bb node must keep ≥40% of the 100bb flat mass
@@ -301,22 +302,39 @@ def lint_fourbet_band(chart: Dict) -> List[str]:
     return fails
 
 
-def lint_cliff_band(chart: Dict) -> List[str]:
-    """No vs_open 3-bet weight in the ambiguous (0.45, 0.50) band beside the depth
-    value/bluff cliff (DEPTH_INTENT_TAG_TECHDEBT.md).
+def lint_vs_open_intent(chart: Dict) -> List[str]:
+    """Every vs_open 3-bet cell carries an explicit value/bluff intent tag.
 
-    **vs_open only.** `t_vs_open` classifies a 3-bet as value via `raise_3x >= 0.50`,
-    so a weight in the gap has ambiguous intent. `t_vs_3bet` instead gates on
-    `fold >= 0.50` — a continuous 'do I continue' signal with no ambiguous band —
-    so vs_3bet's `raise_2.2x` is NOT subject to this guard.
+    The tag (in the sibling ``vs_open_intent`` section) is what depth derivation
+    reads to decide jam-vs-fold at 25bb — replacing the old implicit ``raise_3x
+    >= 0.50`` cliff (DEPTH_INTENT_TAG_TECHDEBT.md). This lint guards the tag
+    instead of the weight: it checks presence + validity, NOT the weight side, so
+    3-bet frequencies are free.
+
+    **vs_open only.** `t_vs_3bet` gates on the **fold** weight (a continuous
+    'do I continue' signal with no ambiguous band), so vs_3bet needs no tag.
+
+    Legacy/optional: a chart with no ``vs_open_intent`` section at all is skipped
+    (depth derivation falls back to the weight threshold), matching the optional
+    treatment of ``vs_squeeze``.
     """
+    intent_section = chart.get("vs_open_intent")
+    if intent_section is None:
+        return []
     fails = []
-    lo, hi = CLIFF_BAND
     for node_name, node in chart.get("vs_open", {}).items():
+        node_intent = intent_section.get(node_name, {})
         for h, d in node.items():
-            r = d.get("raise_3x", 0.0)
-            if lo < r < hi:
-                fails.append(f"vs_open/{node_name}/{h}: raise_3x={r} in cliff band ({lo}, {hi})")
+            if d.get("raise_3x", 0.0) <= 0:
+                continue
+            tag = node_intent.get(h)
+            if tag is None:
+                fails.append(f"vs_open/{node_name}/{h}: 3-bet cell missing intent tag")
+            elif tag not in INTENT_VALUES:
+                fails.append(
+                    f"vs_open_intent/{node_name}/{h}: invalid intent {tag!r} "
+                    f"(expected one of {INTENT_VALUES})"
+                )
     return fails
 
 
@@ -382,7 +400,7 @@ BASE_LINTS = (
     lint_vs3bet_fold_to_3bet,
     lint_vs4bet_fold_to_4bet,
     lint_fourbet_band,
-    lint_cliff_band,
+    lint_vs_open_intent,
 )
 
 

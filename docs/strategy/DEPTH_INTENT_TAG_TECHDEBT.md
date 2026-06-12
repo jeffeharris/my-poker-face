@@ -2,11 +2,25 @@
 purpose: Tech-debt note — replace the implicit value/bluff weight-threshold API in depth derivation with an explicit intent tag
 type: design
 created: 2026-06-11
-last_updated: 2026-06-11
-status: proposed
+last_updated: 2026-06-12
+status: implemented
 ---
 
 # Depth derivation reads 3-bet *intent* from a weight threshold (implicit API)
+
+> **IMPLEMENTED 2026-06-12.** The explicit tag shipped as a node-level **side-car**
+> section (`vs_open_intent`), not an inline cell key — an audit found ~12 runtime
+> consumers (`StrategyTable` loader, `_mask_and_renormalize`, every `_norm`, the
+> lints, action sampling) that do `sum(cell.values())`, so a string inside the cell
+> would crash them. The side-car sits at the chart's top level beside `vs_open`;
+> the runtime loader and lints key off an explicit scenario allow-list, so it is
+> invisible to them and only `generate_depth_charts` reads it. `build_vs_open`
+> emits it (intent recorded at value/bluff placement); `t_vs_open` reads it with the
+> weight threshold as a legacy fallback; the interim cliff-band lint was replaced by
+> `lint_vs_open_intent` (tag presence/validity), which frees the 3-bet weights.
+> Verified behaviour-preserving: regenerating the 100bb chart only *adds* the
+> `vs_open_intent` section, and the 25bb/50bb depth charts come out byte-identical.
+> The rest of this doc is the original problem statement, kept for the record.
 
 ## The problem
 

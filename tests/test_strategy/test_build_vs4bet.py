@@ -30,7 +30,7 @@ def built():
     vs_open = {}
     for nn in chart["vs_open"]:
         op, d, thr, vs, pool, m = bvo._node_plan(nn, chart["vs_open"])
-        vs_open[nn] = bvo.build_node(op, rfi, matrix, d, thr, vs, pool, m)
+        vs_open[nn] = bvo.build_node(op, rfi, matrix, d, thr, vs, pool, m)[0]
     vs_3bet = {
         nn: b3.build_node(*nn.split("_vs_"), rfi, vs_open, matrix) for nn in chart["vs_3bet"]
     }

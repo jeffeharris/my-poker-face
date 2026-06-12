@@ -90,17 +90,26 @@ def test_vs3bet_fold_to_3bet_relative_to_open_range():
     assert lints.lint_vs3bet_fold_to_3bet(ok) == []
 
 
-def test_cliff_band_guard():
-    chart = {"vs_open": {"BB_vs_SB": _node({"AA": {"raise_3x": 0.47, "fold": 0.53}})}}
-    assert lints.lint_cliff_band(chart)  # 0.47 is in (0.45, 0.50)
-    clean = {
-        "vs_open": {
-            "BB_vs_SB": _node(
-                {"AA": {"raise_3x": 0.85, "fold": 0.15}, "A5s": {"raise_3x": 0.35, "fold": 0.65}}
-            )
-        }
+def test_vs_open_intent_presence_and_validity():
+    node = _node({"AA": {"raise_3x": 0.85, "fold": 0.15}, "A5s": {"raise_3x": 0.35, "fold": 0.65}})
+    # A 3-bet cell with no tag in the side-car → fires (AA tagged, A5s missing).
+    missing = {"vs_open": {"BB_vs_SB": node}, "vs_open_intent": {"BB_vs_SB": {"AA": "value"}}}
+    fails = lints.lint_vs_open_intent(missing)
+    assert any("A5s" in f and "missing intent" in f for f in fails)
+    # Both 3-bet cells tagged with valid values → passes.
+    ok = {
+        "vs_open": {"BB_vs_SB": node},
+        "vs_open_intent": {"BB_vs_SB": {"AA": "value", "A5s": "bluff"}},
     }
-    assert lints.lint_cliff_band(clean) == []
+    assert lints.lint_vs_open_intent(ok) == []
+    # An invalid tag value → fires.
+    bad = {
+        "vs_open": {"BB_vs_SB": node},
+        "vs_open_intent": {"BB_vs_SB": {"AA": "value", "A5s": "semibluff"}},
+    }
+    assert any("A5s" in f and "invalid intent" in f for f in lints.lint_vs_open_intent(bad))
+    # Legacy chart with no side-car section at all → skipped (falls back to weight).
+    assert lints.lint_vs_open_intent({"vs_open": {"BB_vs_SB": node}}) == []
 
 
 def test_depth_rfi_passthrough():
