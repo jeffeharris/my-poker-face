@@ -198,26 +198,28 @@ def build_node(hero: str, villain: str, rfi: Dict, vs_open: Dict, matrix: Dict) 
     return {h: _norm(dist[h]) for h in CANONICAL_HANDS}
 
 
-def _cold_call_range(caller: str, vs_open: Dict) -> Dict[str, float]:
-    """Hero's cold-call range from `caller`: the combo-agnostic mean flat-call
-    frequency across the vs_open nodes vs every legal earlier opener. (The
-    squeeze node key {caller}_vs_{squeezer} can't encode WHICH opener hero
-    called — same opener-conflation v1 accepted for vs_3bet; a per-opener
-    squeeze key is the principled upgrade, tracked.)"""
-    openers = POS_ORDER[: POS_ORDER.index(caller)]
-    cc: Dict[str, float] = {}
-    for h in CANONICAL_HANDS:
-        vals = [vs_open.get(f"{caller}_vs_{op}", {}).get(h, {}).get("call", 0.0) for op in openers]
-        cc[h] = sum(vals) / len(vals) if vals else 0.0
-    return cc
+def _cold_call_range(caller: str, opener: str, vs_open: Dict) -> Dict[str, float]:
+    """Hero's cold-call range as the flat-call frequency from the SPECIFIC vs_open
+    node `{caller}_vs_{opener}` — the open hero actually flatted.
+
+    v1 used the mean flat freq across every legal opener because the node key
+    `{caller}_vs_{squeezer}` couldn't encode WHICH opener hero called; the
+    per-opener key `{caller}_vs_{opener}_vs_{squeezer}` (this version) removes that
+    conflation, so a BTN flat vs a UTG open (tight) and vs a CO open (wide) get
+    different squeeze ranges."""
+    node = vs_open.get(f"{caller}_vs_{opener}", {})
+    return {h: node.get(h, {}).get("call", 0.0) for h in CANONICAL_HANDS}
 
 
-def build_squeeze_node(caller: str, squeezer: str, vs_open: Dict, matrix: Dict) -> Dict[str, Dict[str, float]]:
-    """Generate one vs_squeeze node (hero=cold-caller, villain=squeezer)."""
-    cc = _cold_call_range(caller, vs_open)
-    # Squeezer's 3-bet range (proxy: their 3-bet vs the caller's open). VALUE part
-    # (raise_3x ≥ the continue cliff) is what a hero jam runs into.
-    sq_node = vs_open.get(f"{squeezer}_vs_{caller}", {})
+def build_squeeze_node(
+    caller: str, opener: str, squeezer: str, vs_open: Dict, matrix: Dict
+) -> Dict[str, Dict[str, float]]:
+    """Generate one vs_squeeze node (hero=cold-caller of `opener`, villain=squeezer)."""
+    cc = _cold_call_range(caller, opener, vs_open)
+    # Squeezer's 3-bet range (proxy: their 3-bet vs the ORIGINAL opener — the raise
+    # they squeeze over). VALUE part (raise_3x ≥ the continue cliff) is what a hero
+    # jam runs into.
+    sq_node = vs_open.get(f"{squeezer}_vs_{opener}", {})
     sq_3bet = {h: sq_node[h].get("raise_3x", 0.0) for h in sq_node if sq_node[h].get("raise_3x", 0.0) > 0}
     sq_value = {h: w for h, w in sq_3bet.items()
                 if sq_node[h].get("raise_3x", 0.0) >= VILLAIN_CONTINUE_CLIFF} or dict(sq_3bet)
@@ -252,9 +254,11 @@ def build_squeeze_node(caller: str, squeezer: str, vs_open: Dict, matrix: Dict) 
     return {h: _norm(dist[h]) for h in CANONICAL_HANDS}
 
 
-def _squeeze_metrics(caller: str, node: Dict[str, Dict[str, float]], vs_open: Dict) -> tuple:
-    """(fold_to_squeeze, jam_frac) relative to hero's cold-call range."""
-    cc = _cold_call_range(caller, vs_open)
+def _squeeze_metrics(
+    caller: str, opener: str, node: Dict[str, Dict[str, float]], vs_open: Dict
+) -> tuple:
+    """(fold_to_squeeze, jam_frac) relative to hero's cold-call range vs `opener`."""
+    cc = _cold_call_range(caller, opener, vs_open)
     cct = cont = jam = 0.0
     for h, w in cc.items():
         if w <= 0:
@@ -286,22 +290,30 @@ def _node_metrics(hero: str, node: Dict[str, Dict[str, float]], rfi: Dict) -> tu
 def _build_squeeze_section(chart: Dict) -> None:
     """Build the vs_squeeze section in place from the chart's own vs_open.
 
-    The cold-caller-faces-a-squeeze node set: HJ/CO/BTN/SB callers × later
-    squeezers = 10 nodes. Capped range, tighter than the opener's vs_3bet. Reads
-    only vs_open + the equity matrix, so it is independent of the vs_3bet pass —
-    which is why it can be applied on its own via patch_squeeze_only().
+    Per-opener node set, keyed `{caller}_vs_{opener}_vs_{squeezer}`: HJ/CO/BTN/SB
+    callers × each EARLIER opener they cold-called × each LATER squeezer = 20
+    nodes (HJ:4, CO:6, BTN:6, SB:4). Capped range, tighter than the opener's
+    vs_3bet. Reads only vs_open + the equity matrix, so it is independent of the
+    vs_3bet pass — which is why it can be applied on its own via
+    patch_squeeze_only(). A runtime miss (depth/archetype charts omit vs_squeeze)
+    degrades to the squeezer's vs_3bet node in StrategyTable.lookup_with_fallback.
     """
     with open(_MATRIX) as f:
         matrix = json.load(f)["matrix"]
     vs_open = chart["vs_open"]
-    print(f"  {'squeeze node':<14} {'fold-to-sqz':>13} {'jam%cc':>10}")
+    print(f"  {'squeeze node':<22} {'fold-to-sqz':>13} {'jam%cc':>10}")
     squeeze = {}
     for caller in SQUEEZE_CALLERS:
-        for squeezer in POS_ORDER[POS_ORDER.index(caller) + 1:]:
-            node = build_squeeze_node(caller, squeezer, vs_open, matrix)
-            squeeze[f"{caller}_vs_{squeezer}"] = node
-            fsq, jam = _squeeze_metrics(caller, node, vs_open)
-            print(f"  {caller + '_vs_' + squeezer:<14} {100*fsq:>12.1f}% {100*jam:>9.1f}%")
+        ci = POS_ORDER.index(caller)
+        for opener in POS_ORDER[:ci]:
+            if f"{caller}_vs_{opener}" not in vs_open:
+                continue
+            for squeezer in POS_ORDER[ci + 1:]:
+                node = build_squeeze_node(caller, opener, squeezer, vs_open, matrix)
+                name = f"{caller}_vs_{opener}_vs_{squeezer}"
+                squeeze[name] = node
+                fsq, jam = _squeeze_metrics(caller, opener, node, vs_open)
+                print(f"  {name:<22} {100*fsq:>12.1f}% {100*jam:>9.1f}%")
     chart["vs_squeeze"] = squeeze
 
 

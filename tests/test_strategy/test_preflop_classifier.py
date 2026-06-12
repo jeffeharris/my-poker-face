@@ -181,7 +181,8 @@ class TestClassifyPreflopScenario:
 
     def test_vs_squeeze_cold_caller(self):
         """CO opens, BTN cold-calls, SB squeezes (3-bet), BTN (the caller) to act →
-        vs_squeeze, opener=SB (the squeezer/aggressor)."""
+        vs_squeeze. opener_position is the composite {opener}_vs_{squeezer} =
+        'CO_vs_SB' so the node key BTN_vs_CO_vs_SB is opener-specific."""
         players = [
             _player("P0", bet=450),  # BTN cold-called the open, now faces the squeeze
             _player("P1", bet=900),  # SB squeezed to 900
@@ -195,7 +196,7 @@ class TestClassifyPreflopScenario:
         scenario, pos, opener = classify_preflop_scenario(gs)
         assert scenario == "vs_squeeze"
         assert pos == "BTN"
-        assert opener == "SB"
+        assert opener == "CO_vs_SB"
 
     def test_opener_faces_squeeze_is_vs_3bet(self):
         """Same squeeze, but now the ORIGINAL opener (CO) is to act → vs_3bet,

@@ -73,6 +73,13 @@ def classify_preflop_scenario(game_state) -> Tuple[str, str, str]:
     squeeze — a capped (non-opener) range that wants its own chart. The opener's
     identity is read from the hand-scoped engine field because ``last_action`` is
     erased by the re-raise reset (see PokerGameState.preflop_opener_idx).
+
+    For ``vs_squeeze`` the returned ``opener_position`` is the COMPOSITE
+    ``{original_opener}_vs_{squeezer}`` (e.g. 'CO_vs_SB' = hero cold-called CO,
+    SB squeezed). The squeeze chart is keyed on BOTH the open hero flatted and the
+    squeezer, so the cold-call range is opener-specific; the full node matchup is
+    ``{caller}_vs_{opener}_vs_{squeezer}``. For every other scenario it is just the
+    relevant raiser's position.
     """
     raises = game_state.raises_this_round
     current_idx = game_state.current_player_idx
@@ -82,17 +89,19 @@ def classify_preflop_scenario(game_state) -> Tuple[str, str, str]:
         return ("rfi", current_pos, "")
 
     if raises == 1:
-        scenario = "vs_open"
-    elif raises == 2:
-        opener_idx = getattr(game_state, "preflop_opener_idx", -1)
-        # Non-opener facing the 3-bet = squeeze/cold-defense. Unknown opener
-        # (-1, shouldn't happen at two raises) falls back to vs_3bet.
-        scenario = "vs_squeeze" if (opener_idx >= 0 and current_idx != opener_idx) else "vs_3bet"
-    else:
-        scenario = "vs_4bet"
+        return ("vs_open", current_pos, _find_raiser_position(game_state))
 
-    opener_pos = _find_raiser_position(game_state)
-    return (scenario, current_pos, opener_pos)
+    if raises >= 3:
+        return ("vs_4bet", current_pos, _find_raiser_position(game_state))
+
+    # raises == 2: opener-faces-3bet (vs_3bet) or cold-caller-faces-squeeze.
+    squeezer_pos = _find_raiser_position(game_state)
+    opener_idx = getattr(game_state, "preflop_opener_idx", -1)
+    # Unknown opener (-1, shouldn't happen at two raises) falls back to vs_3bet.
+    if opener_idx >= 0 and current_idx != opener_idx:
+        opener_pos = get_6max_position(game_state, opener_idx)
+        return ("vs_squeeze", current_pos, f"{opener_pos}_vs_{squeezer_pos}")
+    return ("vs_3bet", current_pos, squeezer_pos)
 
 
 def _find_raiser_position(game_state) -> str:

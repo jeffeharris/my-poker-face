@@ -66,3 +66,17 @@ def test_bluff_4bets_fold_above_depth_gate(built):
 def test_generated_vs3bet_is_not_a_copied_range(built):
     _, nodes = built
     assert lints.lint_anti_clone({"vs_3bet": nodes}, branches=("vs_3bet",)) == []
+
+
+def test_squeeze_section_is_per_opener_20_nodes():
+    """vs_squeeze is keyed {caller}_vs_{opener}_vs_{squeezer} (20 nodes), and the
+    opener differentiates the cold-call range (the per-opener-key upgrade)."""
+    with open(b3._BASE) as f:
+        chart = json.load(f)
+    b3._build_squeeze_section(chart)
+    sq = chart["vs_squeeze"]
+    assert len(sq) == 20
+    assert all(len(k.split("_vs_")) == 3 for k in sq), "squeeze keys must be 3-part"
+    # Same caller (CO) + squeezer (BTN), different opener (UTG vs HJ) → distinct
+    # ranges: a CO flat vs a tight UTG open ≠ vs a wider HJ open.
+    assert sq["CO_vs_UTG_vs_BTN"] != sq["CO_vs_HJ_vs_BTN"]

@@ -290,6 +290,54 @@ class TestParseHelpers:
         assert data == {}
 
 
+class TestSqueezePerOpenerKey:
+    """vs_squeeze nodes are keyed {caller}_vs_{opener}_vs_{squeezer}; the composite
+    opener_position carries both the open hero flatted and the squeezer."""
+
+    def test_parse_three_part_squeeze_matchup(self):
+        data = _parse_json_to_preflop_data(
+            {"vs_squeeze": {"BTN_vs_CO_vs_SB": {"AA": {"raise_2.2x": 0.8, "call": 0.2}}}}
+        )
+        assert "vs_squeeze|BTN|CO_vs_SB|AA" in data
+
+    def test_squeeze_lookup_is_opener_specific(self):
+        # Same caller (BTN) + squeezer (SB), different opener → distinct nodes.
+        table = StrategyTable(
+            _parse_json_to_preflop_data(
+                {
+                    "vs_squeeze": {
+                        "BTN_vs_UTG_vs_SB": {"AA": {"call": 1.0}},
+                        "BTN_vs_CO_vs_SB": {"AA": {"raise_2.2x": 1.0}},
+                    }
+                }
+            )
+        )
+        vs_utg = table.lookup_preflop(
+            PreflopNode(
+                hand="AA", position="BTN", scenario="vs_squeeze", opener_position="UTG_vs_SB"
+            )
+        )
+        vs_co = table.lookup_preflop(
+            PreflopNode(
+                hand="AA", position="BTN", scenario="vs_squeeze", opener_position="CO_vs_SB"
+            )
+        )
+        assert vs_utg.action_probabilities == {"call": 1.0}
+        assert vs_co.action_probabilities == {"raise_2.2x": 1.0}
+
+    def test_squeeze_miss_degrades_to_vs3bet_keyed_by_squeezer(self):
+        # No vs_squeeze section (depth/archetype charts): the cold-caller routes to
+        # the SQUEEZER's vs_3bet node (BTN_vs_SB), not the opener's.
+        table = StrategyTable(
+            _parse_json_to_preflop_data({"vs_3bet": {"BTN_vs_SB": {"AA": {"call": 1.0}}}})
+        )
+        node = PreflopNode(
+            hand="AA", position="BTN", scenario="vs_squeeze", opener_position="CO_vs_SB"
+        )
+        result = table.lookup_with_fallback(node, ["fold", "call"])
+        assert result.action_probabilities == {"call": 1.0}
+
+
 # ---------------------------------------------------------------------------
 # Postflop SPR fallback (the chart is populated only at spr_bucket='high')
 # ---------------------------------------------------------------------------
