@@ -7,11 +7,34 @@ import type {
   PostRoundTone,
   PostRoundSuggestionsResponse,
 } from '../types/chat';
+import { isOnDeviceLLMAvailable, suggestChatOnDevice } from './onDeviceLLM';
 
 // Common fetch options to ensure credentials are included
 const fetchOptions: RequestInit = {
   credentials: 'include',
 };
+
+/**
+ * Server-composes parity: the suggestion endpoints accept `render_only: true` and
+ * return the EXACT prompt they'd send to the LLM ({ messages, count }) without
+ * calling it. The native client runs that prompt on Apple's on-device model, so
+ * the content matches the server while the (paid) inference moves to the phone.
+ */
+interface ComposedPromptResponse {
+  messages?: Array<{ role: string; content: string }>;
+  count?: number;
+}
+
+function parseComposedPrompt(
+  payload: ComposedPromptResponse
+): { system?: string; user: string; count?: number } | null {
+  const messages = payload?.messages;
+  if (!Array.isArray(messages)) return null;
+  const user = messages.find((m) => m?.role === 'user')?.content;
+  if (typeof user !== 'string' || !user) return null;
+  const system = messages.find((m) => m?.role === 'system')?.content;
+  return { system, user, count: payload?.count };
+}
 
 /**
  * Authenticated fetch wrapper for admin endpoints.
@@ -144,20 +167,55 @@ export const gameAPI = {
     intensity: ChatIntensity,
     lastAction?: { type: string; player: string; amount?: number }
   ): Promise<TargetedSuggestionsResponse> => {
+    const body = { playerName, targetPlayer, tone, length, intensity, lastAction };
+
+    // On-device first (server-composes parity): ask the server to compose the
+    // identical prompt (render_only) and run it on Apple Foundation Models. Any
+    // failure falls through to the normal server LLM route below.
+    if (await isOnDeviceLLMAvailable()) {
+      try {
+        const composed = await fetch(
+          `${config.API_URL}/api/game/${gameId}/targeted-chat-suggestions`,
+          {
+            ...fetchOptions,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...body, render_only: true }),
+          }
+        );
+        if (composed.ok) {
+          const payload = await composed.json();
+          const parsed = parseComposedPrompt(payload);
+          if (parsed) {
+            const suggestions = await suggestChatOnDevice({
+              prompt: parsed.user,
+              system: parsed.system,
+              tones: [tone],
+              count: parsed.count ?? 2,
+            });
+            return {
+              suggestions: suggestions.map((s) => ({ text: s.text, tone })),
+              targetPlayer,
+              fallback: false,
+            };
+          }
+          // Backend predates render_only and returned suggestions directly — use them.
+          if (Array.isArray(payload?.suggestions)) {
+            return payload as TargetedSuggestionsResponse;
+          }
+        }
+      } catch {
+        // fall through to server
+      }
+    }
+
     const response = await fetch(`${config.API_URL}/api/game/${gameId}/targeted-chat-suggestions`, {
       ...fetchOptions,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        playerName,
-        targetPlayer,
-        tone,
-        length,
-        intensity,
-        lastAction,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -175,6 +233,45 @@ export const gameAPI = {
   ): Promise<PostRoundSuggestionsResponse> => {
     // Backend derives hand context from RecordedHand — we send playerName,
     // tone, and (for the warm tones) the optional sarcastic register.
+    const body = { playerName, tone, ...(intensity ? { intensity } : {}) };
+
+    // On-device first (server-composes parity): identical prompt from the server,
+    // run on Apple Foundation Models. Falls through to the server LLM on any error.
+    if (await isOnDeviceLLMAvailable()) {
+      try {
+        const composed = await fetch(
+          `${config.API_URL}/api/game/${gameId}/post-round-chat-suggestions`,
+          {
+            ...fetchOptions,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...body, render_only: true }),
+          }
+        );
+        if (composed.ok) {
+          const payload = await composed.json();
+          const parsed = parseComposedPrompt(payload);
+          if (parsed) {
+            const suggestions = await suggestChatOnDevice({
+              prompt: parsed.user,
+              system: parsed.system,
+              tones: [tone],
+              count: parsed.count ?? 2,
+            });
+            return {
+              suggestions: suggestions.map((s) => ({ text: s.text, tone })),
+              fallback: false,
+            };
+          }
+          if (Array.isArray(payload?.suggestions)) {
+            return payload as PostRoundSuggestionsResponse;
+          }
+        }
+      } catch {
+        // fall through to server
+      }
+    }
+
     const response = await fetch(
       `${config.API_URL}/api/game/${gameId}/post-round-chat-suggestions`,
       {
@@ -183,11 +280,7 @@ export const gameAPI = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          playerName,
-          tone,
-          ...(intensity ? { intensity } : {}),
-        }),
+        body: JSON.stringify(body),
       }
     );
 
