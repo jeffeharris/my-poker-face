@@ -85,6 +85,11 @@ class TestChattinessBehavior(unittest.TestCase):
 
     def test_low_chattiness_rarely_speaks(self):
         """Low chattiness players should rarely speak."""
+        # Seed the RNG: should_speak samples random.random() < 0.2 over 100 trials,
+        # so the speak-count is binomial (mean 20, sd 4) and the unseeded ≤30 bound
+        # is only ~2.5 sd out — it flaked in CI. A fixed seed makes it deterministic
+        # (seed 10 → count 20) while still exercising the real sampling path.
+        random.seed(10)
         player = Mock()
         player.elastic_personality.get_trait_value.return_value = 0.2
 
@@ -100,6 +105,9 @@ class TestChattinessBehavior(unittest.TestCase):
 
     def test_high_chattiness_usually_speaks(self):
         """High chattiness players should usually speak."""
+        # Seeded for the same reason as the low-chattiness test above (binomial
+        # sampling, mean 90, sd 3); seed 10 → count 92, inside the [80, 100] band.
+        random.seed(10)
         player = Mock()
         player.elastic_personality.get_trait_value.return_value = 0.9
 
