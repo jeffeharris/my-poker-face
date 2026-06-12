@@ -388,6 +388,7 @@ def register_blueprints(app: Flask) -> None:
     from .routes import (
         admin_dashboard_bp,
         archetype_review_bp,
+        async_game_bp,
         capture_label_bp,
         cash_bp,
         character_bp,
@@ -413,6 +414,7 @@ def register_blueprints(app: Flask) -> None:
     )
 
     app.register_blueprint(game_bp)
+    app.register_blueprint(async_game_bp)
     app.register_blueprint(debug_bp)
     app.register_blueprint(personality_bp)
     app.register_blueprint(image_bp)

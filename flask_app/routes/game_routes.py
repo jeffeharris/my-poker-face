@@ -1728,6 +1728,214 @@ def _human_seat_name(game_data) -> Optional[str]:
     return None
 
 
+def build_and_persist_game(
+    *,
+    player_name,
+    owner_id,
+    owner_name,
+    ai_player_names,
+    player_llm_configs,
+    player_prompt_configs,
+    default_llm_config,
+    starting_stack,
+    big_blind,
+    blind_config,
+    game_mode,
+    ai_chat,
+    bot_types,
+    guest_tracking_id=None,
+    enable_avatars=False,
+):
+    """Construct, register, and persist a single-table game.
+
+    Extracted verbatim from ``api_new_game``'s post-validation construction
+    block so other entry points (the async-friends new-game route) reuse the
+    exact same engine + controller + memory + tournament-session wiring instead
+    of duplicating it. Callers own input validation and any rate-limit
+    bookkeeping. Returns ``(game_id, game_data)``.
+    """
+    game_state = initialize_game_state(
+        player_names=ai_player_names,
+        human_name=player_name,
+        starting_stack=starting_stack,
+        big_blind=big_blind,
+    )
+
+    base_state_machine = PokerStateMachine(game_state=game_state, blind_config=blind_config)
+    state_machine = StateMachineAdapter(base_state_machine)
+
+    # Generate game_id first so it can be passed to controllers for tracking
+    game_id = generate_game_id()
+
+    # Create default game-level prompt config from game_mode (loaded from DB preset)
+    default_prompt_config = load_game_mode_preset(game_mode)
+
+    ai_controllers = {}
+
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            # Use per-player config if set, otherwise use default
+            player_config = player_llm_configs.get(player.name, default_llm_config)
+            player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
+            if not ai_chat:
+                # Quiet the LLM-driven bots (Guided/Improv) when chat is off.
+                player_prompt_config = player_prompt_config.copy(
+                    chattiness=False, dramatic_sequence=False
+                )
+            bot_type = bot_types.get(player.name, 'sharp')
+
+            from flask_app.handlers.tiered_factory import build_controller
+
+            new_controller = build_controller(
+                bot_type=bot_type,
+                player_name=player.name,
+                state_machine=state_machine,
+                llm_config=player_config,
+                prompt_config=player_prompt_config,
+                game_id=game_id,
+                owner_id=owner_id,
+                capture_label_repo=extensions.capture_label_repo,
+                decision_analysis_repo=extensions.decision_analysis_repo,
+                expression_enabled=ai_chat,
+            )
+            ai_controllers[player.name] = new_controller
+
+    from poker.repositories.sqlite_repositories import PressureEventRepository
+
+    event_repository = PressureEventRepository(config.DB_PATH)
+    pressure_detector = PressureEventDetector()
+    pressure_stats = PressureStatsTracker(game_id, event_repository)
+
+    memory_manager = AIMemoryManager(game_id, extensions.persistence_db_path, owner_id=owner_id)
+    memory_manager.set_hand_history_repo(extensions.hand_history_repo)  # Enable hand history saving
+    # Phase 3: relationship state populates from hand outcomes.
+    # Tournament mode (the only mode today) → cash_mode=False;
+    # cash_pair_stats stays empty.
+    memory_manager.set_relationship_repo(
+        extensions.relationship_repo,
+        cash_mode=False,
+    )
+    for player in state_machine.game_state.players:
+        # Resolve each player's stable personality_id (None for humans)
+        try:
+            pid = extensions.personality_repo.resolve_name_to_personality_id(player.name)
+        except Exception:
+            pid = None
+        if not player.is_human:
+            memory_manager.initialize_for_player(player.name, personality_id=pid)
+            controller = ai_controllers[player.name]
+            controller.session_memory = memory_manager.get_session_memory(player.name)
+            controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
+            controller.memory_manager = memory_manager
+        else:
+            # Register with owner_id (the stable auth id) so per-hand
+            # BIG_WIN/BIG_LOSS events write to (owner_id, ai_pid) rows
+            # — the same key the dossier read uses. Falls back to `pid`
+            # (almost always None for humans) when owner_id isn't set
+            # on this session, preserving legacy display-name behavior.
+            memory_manager.initialize_human_observer(
+                player.name,
+                personality_id=owner_id or pid,
+            )
+
+    # Advance state machine to deal cards and post blinds before recording hand start,
+    # so that hole cards are available when on_hand_start records them.
+    state_machine.run_until_player_action()
+
+    memory_manager.on_hand_start(
+        state_machine.game_state, hand_number=1, deck_seed=state_machine.current_hand_seed
+    )
+
+    # A single-table game is a one-table tournament: build a TournamentSession
+    # from the real players. It replaces the legacy TournamentTracker as the
+    # elimination/completion authority (one wrapper type for single + multi),
+    # feeding the unified completion path. The live state machine still owns play
+    # and blinds — the session is a passive field/standings observer here.
+    import zlib
+
+    from flask_app.handlers.single_table_tournament import build_session_for_new_game
+
+    tournament_session = build_session_for_new_game(
+        state_machine.game_state.players,
+        starting_stack=starting_stack,
+        seed=zlib.crc32(game_id.encode()),
+    )
+
+    game_data = {
+        'state_machine': state_machine,
+        'ai_controllers': ai_controllers,
+        'pressure_detector': pressure_detector,
+        'pressure_stats': pressure_stats,
+        'memory_manager': memory_manager,
+        'tournament_session': tournament_session,
+        'owner_id': owner_id,
+        'owner_name': owner_name,
+        'llm_config': default_llm_config,  # Default config for new players
+        'player_llm_configs': player_llm_configs,  # Per-player LLM overrides
+        'player_prompt_configs': player_prompt_configs,  # Per-player prompt config overrides
+        'default_game_mode': game_mode,  # Game-level mode setting
+        'ai_chat': ai_chat,  # Game-level AI table talk toggle (drives ai_instant)
+        'last_announced_phase': None,  # Track which phase we've announced cards for
+        'guest_tracking_id': guest_tracking_id,
+        'guest_messages_this_action': 0,  # Chat rate limiting for guests
+        'messages': [
+            {
+                'id': '1',
+                'sender': 'Table',
+                'content': '***   GAME START   ***',
+                'timestamp': datetime.now().isoformat(),
+                'type': 'table',
+            }
+        ],
+        # Stack tracking for pressure events (double_up, crippled, short_stack)
+        'hand_start_stacks': {p.name: p.stack for p in state_machine.game_state.players},
+        'short_stack_players': set(),  # No one is short at game start
+    }
+    game_state_service.set_game(game_id, game_data)
+
+    # Stamp the resolved bot type for every AI player so the saved game is
+    # self-describing on restore. The front-end omits bot_types from the
+    # request when all opponents are on the default ('sharp'); without
+    # this, the dict on disk is empty and restoration can't tell that the
+    # tiered path was wanted.
+    saved_bot_types = dict(bot_types)
+    for player in state_machine.game_state.players:
+        if not player.is_human:
+            saved_bot_types.setdefault(player.name, 'sharp')
+
+    extensions.game_repo.save_game(
+        game_id,
+        state_machine._state_machine,
+        owner_id,
+        owner_name,
+        llm_configs={
+            'player_llm_configs': player_llm_configs,
+            'default_llm_config': default_llm_config,
+            'bot_types': saved_bot_types,
+            'ai_chat': ai_chat,
+        },
+    )
+    extensions.game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
+    # Persist the one-table TournamentSession to the durable `tournaments` table
+    # (resolver_kind='single'), so all games — single and multi — share one
+    # tournament identity and one rehydration path on cold-load. Best-effort;
+    # never block game creation.
+    try:
+        from flask_app.services import tournament_registry
+
+        tournament_registry.persist_single_session(
+            game_id=game_id, owner_id=owner_id, session=tournament_session
+        )
+    except Exception:
+        logger.warning("failed to persist single-table tournament session for %s", game_id)
+    # New games adopt the owner's default coaching mode (sticky cross-device pref).
+    stamp_coach_default_mode(game_id, owner_id)
+    if enable_avatars:
+        start_background_avatar_generation(game_id, ai_player_names, owner_id=owner_id)
+
+    return game_id, game_data
+
+
 @game_bp.route('/api/new-game', methods=['POST'])
 @limiter.limit(config.RATE_LIMIT_NEW_GAME)
 def api_new_game():
@@ -1905,190 +2113,30 @@ def api_new_game():
         if not allowed:
             return jsonify({'error': error_msg, 'code': 'GUEST_LIMIT_OPPONENTS'}), 403
 
-    game_state = initialize_game_state(
-        player_names=ai_player_names,
-        human_name=player_name,
-        starting_stack=starting_stack,
-        big_blind=big_blind,
-    )
-
     # Blind escalation config
     blind_config = {
         'growth': blind_growth,
         'hands_per_level': blinds_increase,
         'max_blind': max_blind,
     }
-    base_state_machine = PokerStateMachine(game_state=game_state, blind_config=blind_config)
-    state_machine = StateMachineAdapter(base_state_machine)
 
-    # Generate game_id first so it can be passed to controllers for tracking
-    game_id = generate_game_id()
-
-    # Create default game-level prompt config from game_mode (loaded from DB preset)
-    default_prompt_config = load_game_mode_preset(game_mode)
-
-    ai_controllers = {}
-
-    for player in state_machine.game_state.players:
-        if not player.is_human:
-            # Use per-player config if set, otherwise use default
-            player_config = player_llm_configs.get(player.name, default_llm_config)
-            player_prompt_config = player_prompt_configs.get(player.name, default_prompt_config)
-            if not ai_chat:
-                # Quiet the LLM-driven bots (Guided/Improv) when chat is off.
-                player_prompt_config = player_prompt_config.copy(
-                    chattiness=False, dramatic_sequence=False
-                )
-            bot_type = bot_types.get(player.name, 'sharp')
-
-            from flask_app.handlers.tiered_factory import build_controller
-
-            new_controller = build_controller(
-                bot_type=bot_type,
-                player_name=player.name,
-                state_machine=state_machine,
-                llm_config=player_config,
-                prompt_config=player_prompt_config,
-                game_id=game_id,
-                owner_id=owner_id,
-                capture_label_repo=extensions.capture_label_repo,
-                decision_analysis_repo=extensions.decision_analysis_repo,
-                expression_enabled=ai_chat,
-            )
-            ai_controllers[player.name] = new_controller
-
-    from poker.repositories.sqlite_repositories import PressureEventRepository
-
-    event_repository = PressureEventRepository(config.DB_PATH)
-    pressure_detector = PressureEventDetector()
-    pressure_stats = PressureStatsTracker(game_id, event_repository)
-
-    memory_manager = AIMemoryManager(game_id, extensions.persistence_db_path, owner_id=owner_id)
-    memory_manager.set_hand_history_repo(extensions.hand_history_repo)  # Enable hand history saving
-    # Phase 3: relationship state populates from hand outcomes.
-    # Tournament mode (the only mode today) → cash_mode=False;
-    # cash_pair_stats stays empty.
-    memory_manager.set_relationship_repo(
-        extensions.relationship_repo,
-        cash_mode=False,
-    )
-    for player in state_machine.game_state.players:
-        # Resolve each player's stable personality_id (None for humans)
-        try:
-            pid = extensions.personality_repo.resolve_name_to_personality_id(player.name)
-        except Exception:
-            pid = None
-        if not player.is_human:
-            memory_manager.initialize_for_player(player.name, personality_id=pid)
-            controller = ai_controllers[player.name]
-            controller.session_memory = memory_manager.get_session_memory(player.name)
-            controller.opponent_model_manager = memory_manager.get_opponent_model_manager()
-            controller.memory_manager = memory_manager
-        else:
-            # Register with owner_id (the stable auth id) so per-hand
-            # BIG_WIN/BIG_LOSS events write to (owner_id, ai_pid) rows
-            # — the same key the dossier read uses. Falls back to `pid`
-            # (almost always None for humans) when owner_id isn't set
-            # on this session, preserving legacy display-name behavior.
-            memory_manager.initialize_human_observer(
-                player.name,
-                personality_id=owner_id or pid,
-            )
-
-    # Advance state machine to deal cards and post blinds before recording hand start,
-    # so that hole cards are available when on_hand_start records them.
-    state_machine.run_until_player_action()
-
-    memory_manager.on_hand_start(
-        state_machine.game_state, hand_number=1, deck_seed=state_machine.current_hand_seed
-    )
-
-    # A single-table game is a one-table tournament: build a TournamentSession
-    # from the real players. It replaces the legacy TournamentTracker as the
-    # elimination/completion authority (one wrapper type for single + multi),
-    # feeding the unified completion path. The live state machine still owns play
-    # and blinds — the session is a passive field/standings observer here.
-    import zlib
-
-    from flask_app.handlers.single_table_tournament import build_session_for_new_game
-
-    tournament_session = build_session_for_new_game(
-        state_machine.game_state.players,
+    game_id, _game_data = build_and_persist_game(
+        player_name=player_name,
+        owner_id=owner_id,
+        owner_name=owner_name,
+        ai_player_names=ai_player_names,
+        player_llm_configs=player_llm_configs,
+        player_prompt_configs=player_prompt_configs,
+        default_llm_config=default_llm_config,
         starting_stack=starting_stack,
-        seed=zlib.crc32(game_id.encode()),
+        big_blind=big_blind,
+        blind_config=blind_config,
+        game_mode=game_mode,
+        ai_chat=ai_chat,
+        bot_types=bot_types,
+        guest_tracking_id=current_user.get('tracking_id') if current_user else None,
+        enable_avatars=config.ENABLE_AVATAR_GENERATION,
     )
-
-    game_data = {
-        'state_machine': state_machine,
-        'ai_controllers': ai_controllers,
-        'pressure_detector': pressure_detector,
-        'pressure_stats': pressure_stats,
-        'memory_manager': memory_manager,
-        'tournament_session': tournament_session,
-        'owner_id': owner_id,
-        'owner_name': owner_name,
-        'llm_config': default_llm_config,  # Default config for new players
-        'player_llm_configs': player_llm_configs,  # Per-player LLM overrides
-        'player_prompt_configs': player_prompt_configs,  # Per-player prompt config overrides
-        'default_game_mode': game_mode,  # Game-level mode setting
-        'ai_chat': ai_chat,  # Game-level AI table talk toggle (drives ai_instant)
-        'last_announced_phase': None,  # Track which phase we've announced cards for
-        'guest_tracking_id': current_user.get('tracking_id') if current_user else None,
-        'guest_messages_this_action': 0,  # Chat rate limiting for guests
-        'messages': [
-            {
-                'id': '1',
-                'sender': 'Table',
-                'content': '***   GAME START   ***',
-                'timestamp': datetime.now().isoformat(),
-                'type': 'table',
-            }
-        ],
-        # Stack tracking for pressure events (double_up, crippled, short_stack)
-        'hand_start_stacks': {p.name: p.stack for p in state_machine.game_state.players},
-        'short_stack_players': set(),  # No one is short at game start
-    }
-    game_state_service.set_game(game_id, game_data)
-
-    # Stamp the resolved bot type for every AI player so the saved game is
-    # self-describing on restore. The front-end omits bot_types from the
-    # request when all opponents are on the default ('sharp'); without
-    # this, the dict on disk is empty and restoration can't tell that the
-    # tiered path was wanted.
-    saved_bot_types = dict(bot_types)
-    for player in state_machine.game_state.players:
-        if not player.is_human:
-            saved_bot_types.setdefault(player.name, 'sharp')
-
-    extensions.game_repo.save_game(
-        game_id,
-        state_machine._state_machine,
-        owner_id,
-        owner_name,
-        llm_configs={
-            'player_llm_configs': player_llm_configs,
-            'default_llm_config': default_llm_config,
-            'bot_types': saved_bot_types,
-            'ai_chat': ai_chat,
-        },
-    )
-    extensions.game_repo.save_opponent_models(game_id, memory_manager.get_opponent_model_manager())
-    # Persist the one-table TournamentSession to the durable `tournaments` table
-    # (resolver_kind='single'), so all games — single and multi — share one
-    # tournament identity and one rehydration path on cold-load. Best-effort;
-    # never block game creation.
-    try:
-        from flask_app.services import tournament_registry
-
-        tournament_registry.persist_single_session(
-            game_id=game_id, owner_id=owner_id, session=tournament_session
-        )
-    except Exception:
-        logger.warning("failed to persist single-table tournament session for %s", game_id)
-    # New games adopt the owner's default coaching mode (sticky cross-device pref).
-    stamp_coach_default_mode(game_id, owner_id)
-    if config.ENABLE_AVATAR_GENERATION:
-        start_background_avatar_generation(game_id, ai_player_names, owner_id=owner_id)
 
     # Record game creation timestamp to prevent rapid duplicate creation
     if owner_id:

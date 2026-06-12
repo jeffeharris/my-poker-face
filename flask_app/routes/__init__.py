@@ -2,6 +2,7 @@
 
 from .admin_dashboard_routes import admin_dashboard_bp
 from .archetype_review_routes import archetype_review_bp
+from .async_game_routes import async_game_bp
 from .capture_label_routes import capture_label_bp
 from .cash_routes import cash_bp
 from .character_request_routes import character_request_bp
@@ -27,6 +28,7 @@ from .user_routes import user_bp
 
 __all__ = [
     'game_bp',
+    'async_game_bp',
     'debug_bp',
     'personality_bp',
     'image_bp',
