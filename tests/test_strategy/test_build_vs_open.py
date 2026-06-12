@@ -1,11 +1,13 @@
 """Unit tests for poker/strategy/data/build_vs_open.py.
 
 Regression guards for the June chart-review findings:
-  * polarized (early-open) nodes must keep designated bluff-pool hands BELOW the
-    depth value/bluff cliff — otherwise depth derivation jams them shallow;
+  * polarized (early-open) nodes must keep designated bluff-pool hands tagged
+    "bluff" — otherwise depth derivation jams them shallow;
   * realized 3-bet AND defend mass must track the node target (the bluff backfill
     closes the gap the named pool alone can't fill);
-  * no 3-bet weight may land in the ambiguous (0.45, 0.50) band;
+  * every 3-bet cell carries an explicit value/bluff intent tag (depth derivation
+    reads the tag, not the weight — DEPTH_INTENT_TAG_TECHDEBT.md);
+  * 3-bet weights stay bimodal (depth-safe even via the legacy weight fallback);
   * the merged BvB value top excludes set-mine pairs / dominated offsuit Ax.
 """
 
@@ -27,6 +29,14 @@ def inputs():
 
 
 def _build(opener, rfi, matrix, defend, threebet, merged):
+    """Return just the node (build_node now also returns the intent map)."""
+    pool = bvo.BLUFF_3BET_POOL_WIDE if opener in bvo.WIDE_OPENERS else bvo.BLUFF_3BET_POOL
+    return bvo.build_node(
+        opener, rfi, matrix, defend, threebet, bvo.VALUE_SHARE_BY_OPENER[opener], pool, merged
+    )[0]
+
+
+def _build_with_intent(opener, rfi, matrix, defend, threebet, merged):
     pool = bvo.BLUFF_3BET_POOL_WIDE if opener in bvo.WIDE_OPENERS else bvo.BLUFF_3BET_POOL
     return bvo.build_node(
         opener, rfi, matrix, defend, threebet, bvo.VALUE_SHARE_BY_OPENER[opener], pool, merged
@@ -43,6 +53,22 @@ def test_polarized_bluff_pool_stays_sub_cliff(inputs):
         if node[h].get("raise_3x", 0.0) >= lints.VALUE_RAISE_THRESHOLD
     ]
     assert offenders == [], f"bluff-pool hands promoted to value weight: {offenders}"
+
+
+def test_intent_map_covers_exactly_the_3bet_hands(inputs):
+    """build_node tags every 3-bet hand value/bluff and nothing else; the tag
+    matches the weight side (value=VALUE_RAISE_W, bluff=BLUFF_RAISE_W)."""
+    rfi, matrix, _ = inputs
+    node, intent = _build_with_intent("SB", rfi, matrix, *bvo.BB_TARGETS["SB"], merged=True)
+    threebet_hands = {h for h, d in node.items() if d.get("raise_3x", 0.0) > 0}
+    assert set(intent) == threebet_hands, "intent map must cover exactly the 3-bet hands"
+    assert all(v in ("value", "bluff") for v in intent.values())
+    for h, tag in intent.items():
+        w = node[h]["raise_3x"]
+        if tag == "value":
+            assert w == bvo.VALUE_RAISE_W, f"{h}: value tag but weight {w}"
+        else:
+            assert w == bvo.BLUFF_RAISE_W, f"{h}: bluff tag but weight {w}"
 
 
 @pytest.mark.parametrize(
