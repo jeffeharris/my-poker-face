@@ -19,6 +19,7 @@ import { Card, HoleCard, DebugHoleCard } from '../../cards';
 import { PlayerThinking } from '../PlayerThinking';
 import { SeatSpeechBubble } from '../SeatSpeechBubble/SeatSpeechBubble';
 import { ActionBadge } from '../../shared';
+import { CountUp } from '../../shared/CountUp';
 import { avatarUrlForEmotion } from '../../../utils/avatarUrl';
 import { config } from '../../../config';
 import type { Player } from '../../../types/player';
@@ -109,6 +110,7 @@ export const PlayerSeat = memo(function PlayerSeat({
             <img
               src={`${config.API_URL}${avatarUrl}`}
               alt={`${player.name} - ${avatarEmotion}`}
+              decoding="async"
               className={`avatar-image${isAiThinking ? ' avatar-thinking' : ''}`}
             />
           ) : (
@@ -122,8 +124,14 @@ export const PlayerSeat = memo(function PlayerSeat({
         </button>
         <div className="player-details">
           <div className="player-name">{displayName}</div>
-          <div className="player-stack">${player.stack}</div>
-          {player.bet > 0 && <div className="player-bet">Bet: ${player.bet}</div>}
+          <div className="player-stack">
+            $<CountUp value={player.stack} />
+          </div>
+          {player.bet > 0 && (
+            <div className="player-bet">
+              Bet: $<CountUp value={player.bet} from={0} />
+            </div>
+          )}
           <ActionBadge
             player={player}
             lastKnownActions={lastKnownActions}

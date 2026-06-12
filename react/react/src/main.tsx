@@ -6,6 +6,8 @@ import { DeckPackProvider } from './hooks/useDeckPack';
 import { UsageStatsProvider } from './hooks/UsageStatsProvider';
 import { installCsrfFetch } from './utils/csrf';
 import { initSentry } from './sentry';
+import { initSafeAreaCapture } from './utils/safeArea';
+import { isNativePlatform } from './utils/nativeAuth';
 import './styles/fonts.css';
 import './index.css';
 import App from './App.tsx';
@@ -18,6 +20,11 @@ initSentry();
 // PRH-36: attach the X-CSRF-Token header to mutating API requests, before any
 // fetch fires. Must run before the providers below (which fetch on mount).
 installCsrfFetch();
+
+// Capture the device's bottom safe-area inset into --app-safe-bottom (stable
+// across keyboard show/hide, unlike live env()). Bottom-anchored UI uses it so
+// the iOS keyboard can't leave the action bar clipped by the home indicator.
+initSafeAreaCapture();
 
 // Self-heal stale-deploy chunk failures. After a deploy, a client running the
 // previous build (or a stale PWA cache) can request a lazily-imported route
@@ -36,16 +43,32 @@ window.addEventListener('vite:preloadError', () => {
   // rather than loop — a persistent failure is a real bug, not a stale cache.
 });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <UsageStatsProvider>
-          <DeckPackProvider>
-            <App />
-          </DeckPackProvider>
-        </UsageStatsProvider>
-      </AuthProvider>
-    </BrowserRouter>
-  </StrictMode>
-);
+function render() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <BrowserRouter>
+        <AuthProvider>
+          <UsageStatsProvider>
+            <DeckPackProvider>
+              <App />
+            </DeckPackProvider>
+          </UsageStatsProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </StrictMode>
+  );
+}
+
+// On native, wire token storage + Google sign-in before rendering so the auth
+// bootstrap (which loads persisted tokens) finds them. On web this is a no-op
+// and renders immediately — the dynamic import is never reached.
+if (isNativePlatform()) {
+  import('./native/bootstrap')
+    .then(({ initNative }) => initNative())
+    .catch(() => {
+      // Native init failure shouldn't block the app — render logged-out.
+    })
+    .finally(render);
+} else {
+  render();
+}

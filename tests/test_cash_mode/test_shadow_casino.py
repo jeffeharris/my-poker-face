@@ -1,10 +1,9 @@
-"""Phase-1 dual-write shadow coverage for casino provisioning.
+"""Presence coverage for casino provisioning.
 
 Verifies the `presence_shadow.shadow_transition(...)` calls added *after* the
 authoritative `save_table` / bankroll writes in
 `cash_mode/casino_provisioning.py` fire with the correct Presence events,
-entity ids, and seat arguments — and that they are fully gated by the
-`economy_flags.PRESENCE_SHADOW_WRITE_ENABLED` kill switch.
+entity ids, and seat arguments — gated on `PRESENCE_AUTHORITY_ENABLED`.
 
 Design of the harness (why it does NOT spin up the real cash DB):
 
@@ -32,7 +31,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-from cash_mode import economy_flags
 from cash_mode.presence import (
     IllegalPresenceTransition,
     Presence,
@@ -100,8 +98,8 @@ class FakePresenceRepo:
 
 @pytest.fixture
 def shadow_on(monkeypatch):
-    """Enable the kill switch and route shadow writes to a recording repo."""
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", True, raising=False)
+    """Route presence writes to a recording repo. Writes are gated on
+    `PRESENCE_AUTHORITY_ENABLED`, which the cash-mode conftest pins True."""
     repo = FakePresenceRepo()
     # shadow_transition() resolves the repo from flask_app.extensions when no
     # repo= is passed; the call sites don't pass one, so patch the lookup.

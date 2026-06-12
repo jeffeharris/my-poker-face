@@ -34,7 +34,7 @@ discrimination tasks from the research §2.1
 The harness reuses the deterministic, LLM-free sim machinery in
 `experiments/simulate_bb100.py` (`make_controller` / `make_game_state` /
 `drive_hand`). **No production code is changed.** The tilt arm flips the
-in-process `TILT_CONDITIONING_ENABLED` env var (OFF in prod) for the duration of
+in-process `TILT_CONDITIONING_ENABLED` env var for the duration of
 generation and injects a `ComposureState` + a `tilted` emotional zone onto the
 sim controller's psychology namespace — the documented sim hooks, no strategy
 edits.

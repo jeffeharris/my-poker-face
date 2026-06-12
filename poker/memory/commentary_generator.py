@@ -18,7 +18,7 @@ from core.llm.settings import (
     get_drama_speak_score_weight,
 )
 
-from ..config import COMMENTARY_ENABLED, is_development_mode
+from ..config import is_development_mode
 from ..hand_narrator import narrate_hand_recap
 from ..moment_analyzer import MomentAnalyzer
 from ..prompt_manager import DRAMA_CONTEXTS, TONE_MODIFIERS, PromptManager
@@ -400,7 +400,9 @@ class CommentaryGenerator:
         Returns:
             HandCommentary or None if commentary generation is disabled/fails
         """
-        if not COMMENTARY_ENABLED:
+        from core.feature_flags import is_enabled
+
+        if not is_enabled("ENABLE_AI_COMMENTARY"):
             return None
 
         # Check if hand warrants reflection (lower bar than speaking)

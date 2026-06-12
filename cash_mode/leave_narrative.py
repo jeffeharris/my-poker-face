@@ -25,7 +25,6 @@ message — the comment is decoration.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -415,18 +414,16 @@ def _join_worker(
 
 
 def is_disabled() -> bool:
-    """True when the env disables leave-narrative LLM calls.
+    """True when leave-narrative LLM calls are turned off.
 
-    Set `CASH_LEAVE_NARRATIVE_DISABLED=1` (default in pytest via
-    conftest) so integration tests of the lobby don't fire real LLM
-    calls during the suite. The lobby still emits leave events; they
-    just go out without comments.
+    Gated on the `CASH_LEAVE_NARRATIVE_ENABLED` flag (default on). The test
+    suite sets `CASH_LEAVE_NARRATIVE_ENABLED=0` (via conftest) so integration
+    tests of the lobby don't fire real LLM calls. The lobby still emits leave
+    events; they just go out without comments.
     """
-    return os.environ.get("CASH_LEAVE_NARRATIVE_DISABLED", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    from core import feature_flags
+
+    return not feature_flags.is_enabled("CASH_LEAVE_NARRATIVE_ENABLED")
 
 
 def queue_leave_comment(

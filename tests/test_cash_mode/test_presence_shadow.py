@@ -1,10 +1,11 @@
-"""Tests for the Presence-machine shadow-write helper (cutover Phase 1).
+"""Tests for the Presence-machine off-grid write helper.
 
 `cash_mode.presence_shadow.shadow_transition` is the single funnel every
-seat/idle/hustle/vice reroute call site uses to dual-write into the dormant
-`entity_presence` table. Its two guarantees — gated on a default-off kill
-switch, and never-raises so it can't break the real write it shadows — are
-what make the parallel cutover safe, so they're pinned here.
+off-grid (side-hustle / vice) reroute call site uses to write into the
+`entity_presence` table. Its two guarantees — gated on the presence authority
+flag, and never-raises so it can't break the real write it accompanies — are
+pinned here. (The helper kept its `shadow_` name from the pre-cutover dual-write
+phase; post-cutover it is driven by `PRESENCE_AUTHORITY_ENABLED`.)
 """
 
 from __future__ import annotations
@@ -28,21 +29,18 @@ def repo(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _flag_off():
-    """Default BOTH presence gates OFF around every test; restore after. These
-    are shadow-flag-isolation unit tests: `presence_shadow.is_enabled()` is
-    `SHADOW or AUTHORITY`, and authority is hardwired True in prod, so we pin it
-    off here to isolate the shadow flag's effect."""
-    prev_shadow = economy_flags.PRESENCE_SHADOW_WRITE_ENABLED
+    """Default the presence gate OFF around every test; restore after.
+    `presence_shadow.is_enabled()` reads `PRESENCE_AUTHORITY_ENABLED` (hardwired
+    True in prod), so we pin it off here to test the disabled path and let
+    individual tests turn it on."""
     prev_authority = economy_flags.PRESENCE_AUTHORITY_ENABLED
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = False
     economy_flags.PRESENCE_AUTHORITY_ENABLED = False
     yield
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = prev_shadow
     economy_flags.PRESENCE_AUTHORITY_ENABLED = prev_authority
 
 
 def test_disabled_is_a_noop(repo):
-    """Both gates off → a shadow call writes nothing."""
+    """Gate off → a presence call writes nothing."""
     eid = player_entity_id("jeff")
     presence_shadow.shadow_transition(
         entity_id=eid,
@@ -56,7 +54,7 @@ def test_disabled_is_a_noop(repo):
 
 
 def test_enabled_writes_the_transition(repo):
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
+    economy_flags.PRESENCE_AUTHORITY_ENABLED = True
     eid = player_entity_id("jeff")
     presence_shadow.shadow_transition(
         entity_id=eid,
@@ -74,8 +72,8 @@ def test_enabled_writes_the_transition(repo):
 
 def test_illegal_transition_is_swallowed_state_intact(repo):
     """An illegal edge (SIT from SEATED) must not raise and must leave the
-    existing row untouched — a shadow failure can't corrupt state."""
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
+    existing row untouched — a best-effort failure can't corrupt state."""
+    economy_flags.PRESENCE_AUTHORITY_ENABLED = True
     eid = player_entity_id("jeff")
     presence_shadow.shadow_transition(
         entity_id=eid,
@@ -102,7 +100,7 @@ def test_illegal_transition_is_swallowed_state_intact(repo):
 def test_double_seat_is_swallowed(repo):
     """Two entities into one seat: the DB partial-unique index rejects the
     second; the helper swallows it and the first occupant stands."""
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
+    economy_flags.PRESENCE_AUTHORITY_ENABLED = True
     presence_shadow.shadow_transition(
         entity_id=player_entity_id("jeff"),
         sandbox_id="sb",
@@ -126,7 +124,7 @@ def test_double_seat_is_swallowed(repo):
 
 def test_missing_repo_is_swallowed(repo):
     """Enabled but no repo available (None, e.g. outside the app) → no raise."""
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
+    economy_flags.PRESENCE_AUTHORITY_ENABLED = True
     # Explicit repo=None and no extensions singleton in test context.
     presence_shadow.shadow_transition(
         entity_id=player_entity_id("jeff"),
@@ -140,7 +138,7 @@ def test_missing_repo_is_swallowed(repo):
 
 
 def test_is_enabled_reads_flag_live(repo):
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = False
+    economy_flags.PRESENCE_AUTHORITY_ENABLED = False
     assert presence_shadow.is_enabled() is False
-    economy_flags.PRESENCE_SHADOW_WRITE_ENABLED = True
+    economy_flags.PRESENCE_AUTHORITY_ENABLED = True
     assert presence_shadow.is_enabled() is True

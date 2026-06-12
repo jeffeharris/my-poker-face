@@ -490,17 +490,21 @@ class CharacterImageService:
                         f"Content policy blocked {personality_name}, generating archetype identity..."
                     )
                     archetype = self._generate_archetype_identity(
-                        llm_client, personality_name, game_id=game_id, owner_id=owner_id
+                        personality_name, game_id=game_id, owner_id=owner_id
                     )
-                    personality['visual_identity'] = archetype
+                    # Build a NEW dict rather than mutating `personality` in place:
+                    # it may be a reference to a cached personality object, and
+                    # mutating it would leak the archetype visual_identity into any
+                    # other holder of that cache entry (before the pop below).
+                    updated_personality = {**personality, 'visual_identity': archetype}
                     self._personality_generator.personality_repo.save_personality(
-                        personality_name, personality, source='updated'
+                        personality_name, updated_personality, source='updated'
                     )
                     # Invalidate cache so next call picks up new identity
                     self._personality_generator._cache.pop(personality_name, None)
 
                     prompt_config = ImagePromptConfig.from_personality(
-                        personality, personality_name, emotion_detail
+                        updated_personality, personality_name, emotion_detail
                     )
                     prompt = prompt_config.assemble_prompt()
                     logger.debug(f"Retry prompt for {personality_name}/{emotion}: {prompt}")
@@ -544,7 +548,6 @@ class CharacterImageService:
 
     def _generate_archetype_identity(
         self,
-        llm_client: LLMClient,
         name: str,
         game_id: Optional[str] = None,
         owner_id: Optional[str] = None,
@@ -553,6 +556,7 @@ class CharacterImageService:
 
         When an image provider blocks a character name, this generates a
         description-based identity (appearance + apparel) without using the name.
+        Builds its own text-tier client; the image client is not used here.
         """
         import json
 
@@ -576,7 +580,16 @@ class CharacterImageService:
             prompt_template='archetype_generation',
         )
         result = json.loads(response.content)
-        logger.info(f"Generated archetype for {name}: {result.get('identity', 'unknown')}")
+
+        # Validate required fields before returning — this identity gets persisted
+        # to the personality DB, so a malformed LLM response must fail loudly here
+        # rather than save a half-built visual_identity.
+        required = ['identity', 'appearance', 'apparel']
+        missing = [k for k in required if not result.get(k)]
+        if missing:
+            raise ValueError(f"Archetype response missing required fields: {missing}")
+
+        logger.info(f"Generated archetype for {name}: {result['identity']}")
         return result
 
     def _build_legacy_prompt(self, personality_name: str, emotion_detail: str) -> str:

@@ -76,7 +76,9 @@ def is_enabled() -> bool:
     its legacy read-driven `refresh_unseated_tables` call — the safety
     fallback so the world still moves without the ticker.
     """
-    return os.environ.get("WORLD_TICKER_ENABLED", "true").lower() != "false"
+    from core import feature_flags
+
+    return feature_flags.is_enabled("WORLD_TICKER_ENABLED")
 
 
 def _async_narration_enabled() -> bool:
@@ -89,7 +91,9 @@ def _async_narration_enabled() -> bool:
     Kill switch (`TICKER_ASYNC_NARRATION_ENABLED=false`) reverts to synchronous
     in-tick narration — the pre-Step-2 behavior.
     """
-    return os.environ.get("TICKER_ASYNC_NARRATION_ENABLED", "true").lower() != "false"
+    from core import feature_flags
+
+    return feature_flags.is_enabled("TICKER_ASYNC_NARRATION_ENABLED")
 
 
 _started = False

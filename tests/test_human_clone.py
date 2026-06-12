@@ -179,6 +179,73 @@ class TestPreflopBehavior:
         assert result['action'] == 'check'
 
 
+def _build_reg_strategy():
+    """A disciplined reg (AF 2.5) — folds the bottom of its opens to a 3bet."""
+    return build_clone_strategy(
+        CloneProfile(
+            source_player='Reg',
+            hands_observed=200,
+            vpip=0.24,
+            pfr=0.20,
+            aggression_factor=2.5,
+            fold_to_cbet=0.70,
+        )
+    )
+
+
+def _build_station_strategy():
+    """A loose-passive station (AF 0.5) — calls 3bets about as wide as it plays."""
+    return build_clone_strategy(
+        CloneProfile(
+            source_player='Station',
+            hands_observed=200,
+            vpip=0.55,
+            pfr=0.10,
+            aggression_factor=0.5,
+            fold_to_cbet=0.20,
+        )
+    )
+
+
+class TestVs3BetReshove:
+    """Facing a reshove (re-raise well beyond an open), a disciplined reg folds
+    the bottom of its range (fold equity) while a station continues wide."""
+
+    def _reshove_ctx(self, hand):
+        # highest_bet 1000 (10bb) over a 2.2bb open, bb=100 → a reshove.
+        return _ctx(
+            canonical_hand=hand,
+            valid_actions=['fold', 'call', 'all_in'],
+            cost_to_call=780,
+            highest_bet=1000,
+            big_blind=100,
+            min_raise=2000,
+            max_raise=780,
+        )
+
+    def test_reg_continues_premium_folds_marginal(self):
+        strat = _build_reg_strategy()
+        assert strat(self._reshove_ctx('AA'))['action'] in ('call', 'all_in')
+        assert strat(self._reshove_ctx('A5s'))['action'] == 'fold'
+
+    def test_station_continues_wider_than_reg(self):
+        # A5s: the reg folds it to a reshove; the station (no fold equity) calls.
+        assert _build_station_strategy()(self._reshove_ctx('A5s'))['action'] in ('call', 'all_in')
+
+    def test_normal_open_not_treated_as_3bet(self):
+        # Facing a 2.5bb open (highest_bet 250 < 3.5bb ceiling) the reg plays its
+        # full opening range — the 3bet-fold branch must not fire.
+        strat = _build_reg_strategy()
+        ctx = _ctx(
+            canonical_hand='AA',
+            valid_actions=['fold', 'call', 'raise'],
+            cost_to_call=250,
+            highest_bet=250,
+            big_blind=100,
+        )
+        assert strat(ctx)['action'] == 'raise'
+
+
 class TestPostflopBehavior:
     def test_folds_negative_ev(self):
         strat = _build_jeff_strategy()

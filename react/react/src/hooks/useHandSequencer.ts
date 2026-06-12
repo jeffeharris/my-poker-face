@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../stores/gameStore';
 import { avatarUrlForEmotion } from '../utils/avatarUrl';
+import { HAPTICS, startHeartbeat, stopHeartbeat } from '../utils/haptics';
 import { deriveTier } from '../constants/presentationTiming';
 import {
   planEvent,
@@ -70,6 +71,12 @@ export function useHandSequencer({
 
   const queueRef = useRef<SourceEvent[]>([]);
   const engineRef = useRef<EngineState>(initialEngineState);
+  // Haptics: track each opponent's last broadcast action so we buzz once when an
+  // AI commits chips (raise/all-in), not on every re-render or non-acting beat.
+  // Keyed by name → `${last_action}@${stack}`; the stack drop makes each distinct
+  // commit re-fire while a stale action sitting through other beats stays silent.
+  const oppActionSigRef = useRef<Map<string, string>>(new Map());
+  const handNoRef = useRef<number | null>(null);
   const effectTimersRef = useRef<number[]>([]);
   const pumpTimerRef = useRef<number | null>(null);
   const processingRef = useRef(false);
@@ -112,16 +119,53 @@ export function useHandSequencer({
     [updatePlayers]
   );
 
+  // Buzz once per opponent action so you can feel the action go around the table
+  // without looking: a double-knock on a check/call, an increasing-intensity ramp
+  // on a raise, the big crescendo+buzz on an all-in. Folds stay silent (a fold is
+  // a non-event tactilely, and keeps the signal from getting noisy).
+  const signalOpponentAction = useCallback((state: GameState) => {
+    // New hand → forget last hand's actions so the first action re-fires.
+    if (handNoRef.current !== state.hand_number) {
+      handNoRef.current = state.hand_number;
+      oppActionSigRef.current.clear();
+    }
+    for (const p of state.players ?? []) {
+      if (p.is_human) continue;
+      const action = p.last_action;
+      if (action !== 'raise' && action !== 'all_in' && action !== 'check' && action !== 'call')
+        continue;
+      // Include phase so a check/call that repeats across streets (same action,
+      // unchanged stack) still re-knocks each street instead of deduping away.
+      const sig = `${action}@${p.stack}@${state.phase}`;
+      if (oppActionSigRef.current.get(p.name) === sig) continue;
+      oppActionSigRef.current.set(p.name, sig);
+      if (action === 'all_in') HAPTICS.allIn();
+      else if (action === 'raise') HAPTICS.opponentRaise();
+      else HAPTICS.knock(); // check or call → a plain double knock
+    }
+  }, []);
+
   const runEffect = useCallback(
     (effect: Effect) => {
       switch (effect.kind) {
         case 'applyState':
           applyStateRef.current(effect.state);
+          signalOpponentAction(effect.state);
           break;
         case 'setReveal':
           setRevealRef.current(effect.revealed);
+          // All-in showdown: the board is about to run out with chips committed.
+          // If YOU'RE in it (your cards are among those revealed), start a
+          // heartbeat that beats through the sweat until the winner lands.
+          {
+            const humanName = useGameStore.getState().players?.find((p) => p.is_human)?.name;
+            if (humanName && effect.revealed?.players_cards?.[humanName]) {
+              startHeartbeat();
+            }
+          }
           break;
         case 'setWinner':
+          stopHeartbeat(); // the sweat is over — kill the heartbeat before the verdict
           setWinnerRef.current(effect.winner);
           break;
         case 'setActive':
@@ -129,6 +173,9 @@ export function useHandSequencer({
           break;
         case 'dealCards':
           signalCardDeal(effect.count, effect.total);
+          // A soft tick as the board advances (flop/turn/river) so you can feel
+          // the street change without watching. Native-only no-op on web.
+          HAPTICS.boardCard();
           break;
         case 'hero':
           if (effect.mode === 'commit') {
@@ -154,7 +201,7 @@ export function useHandSequencer({
           break;
       }
     },
-    [applyReaction, setRunoutDirectorActive, signalCardDeal]
+    [applyReaction, setRunoutDirectorActive, signalCardDeal, signalOpponentAction]
   );
 
   // Drain one event: plan it, fire its effects at their offsets, then schedule
@@ -216,6 +263,9 @@ export function useHandSequencer({
     clearTimers();
     queueRef.current = [];
     engineRef.current = initialEngineState;
+    oppActionSigRef.current.clear();
+    handNoRef.current = null;
+    stopHeartbeat(); // never let a heartbeat outlive a dropped/replayed hand
     scheduleRef.current = null;
     processingRef.current = false;
     setIsPlaying(false);

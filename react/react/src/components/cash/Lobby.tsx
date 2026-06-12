@@ -22,11 +22,11 @@
  * `/api/cash/state` (separate endpoint, kept).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { createAuthedSocket } from '../../utils/socket';
 import { ChevronDown, ChevronRight, Lock, Spade, Dices, Clock, Play, Trophy } from 'lucide-react';
-import { PageLayout, MenuBar, ShuffleLoading } from '../shared';
+import { PageLayout, MenuBar, ShuffleLoading, Skeleton } from '../shared';
 import type { TickerLine } from '../shared/ShuffleLoading';
 import {
   getLobby,
@@ -38,6 +38,7 @@ import {
   setWorldPace,
 } from './api';
 import { SponsorModal } from './SponsorModal';
+import { LuckyStackColdOpen } from './LuckyStackColdOpen';
 import { LuckyStackIntake } from './LuckyStackIntake';
 import { TableCard } from './TableCard';
 import { ActivityTicker } from './ActivityTicker';
@@ -56,6 +57,8 @@ import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { IntelHub } from './IntelHub';
 import type { FileCabinetPerson } from './types';
+import { readLobbyCache, writeLobbyCache } from './lobbyCache';
+import { useAuth } from '../../hooks/useAuth';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
@@ -78,6 +81,7 @@ import { SalFloater } from '../mobile/SalFloater';
 import { rememberAdminOrigin } from '../admin/adminOrigin';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
+import { publishWidgetData } from '../../utils/widgetData';
 import { setTournamentOrigin } from '../../utils/tournamentOrigin';
 import { CharacterDetailCard, type CharacterDossierData } from '../character';
 import './CashMode.css';
@@ -204,6 +208,18 @@ function formatPausedAgo(iso: string | null): string | null {
 
 export function Lobby() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // The redirect from /menu hands us `state.intakeNeeded` for a brand-new career
+  // player, so the black cold open mounts on the FIRST render — before our own
+  // lobby fetch resolves — instead of flashing the lobby UI for a beat. (A hard
+  // refresh loses nav state, but then the fetch-driven `setShowIntake` below
+  // takes over and the cold open just replays — intake_needed is still true.)
+  const intakeHinted = Boolean((location.state as { intakeNeeded?: boolean } | null)?.intakeNeeded);
+  // Per-user key for the stale-while-revalidate lobby snapshot (seeded below).
+  const { user } = useAuth();
+  const userId = user?.id;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
   const [bankroll, setBankroll] = useState<number | null>(null);
   const [bankrollHistory, setBankrollHistory] = useState<BankrollPoint[]>([]);
   const [lastSessionDelta, setLastSessionDelta] = useState<number | null>(null);
@@ -246,7 +262,11 @@ export function Lobby() {
   // sits us down). NOT re-derived from every lobby poll — otherwise the poll
   // that lands right after `submitIntake` flips it false and unmounts the
   // reveal mid-beat (the "flash").
-  const [showIntake, setShowIntake] = useState(false);
+  const [showIntake, setShowIntake] = useState(intakeHinted);
+  // The cinematic cold open plays first (black setup beat → neon diner reveal),
+  // then hands off to the intake modal. Client-only: once the player advances
+  // past it, the intake shows; a mid-cold-open refresh just replays it.
+  const [coldOpenDone, setColdOpenDone] = useState(false);
   // The three authored backgrounds for intake Q2, from the lobby payload (the
   // server is the single source of truth so there's no client copy to drift).
   const [intakeBackstories, setIntakeBackstories] = useState<IntakeBackstory[]>([]);
@@ -434,6 +454,28 @@ export function Lobby() {
   // when the ticker is enabled). The socket's `lobby_tick` is the primary
   // refresh trigger — see the socket effect below — and this interval is
   // just a slow fallback for a dropped websocket. Stop both on unmount.
+  // Stale-while-revalidate: seed the lobby's inert display fields from the last
+  // persisted snapshot before first paint, so re-opening The Circuit shows the
+  // hero/reputation/tables instantly while the live load() below revalidates.
+  // useLayoutEffect paints the cached values without a blank flash; functional
+  // updaters only fill a field still at its empty default, so the live fetch
+  // always wins. One-shot/sticky fields are intentionally not seeded (lobbyCache).
+  useLayoutEffect(() => {
+    const snap = readLobbyCache(userId);
+    if (!snap) return;
+    setBankroll((cur) => cur ?? snap.bankroll);
+    setBankrollHistory((cur) => (cur.length ? cur : snap.bankrollHistory));
+    setLastSessionDelta((cur) => cur ?? snap.lastSessionDelta);
+    setReputation((cur) => cur ?? snap.reputation);
+    setTables((cur) => (cur.length ? cur : snap.tables));
+    setSeatedTableId((cur) => cur ?? snap.seatedTableId);
+    setHasActiveSession((cur) => cur || snap.hasActiveSession);
+    setSeatedStakeLabelFromServer((cur) => cur ?? snap.seatedStakeLabel);
+    setSeatedSince((cur) => cur ?? snap.seatedSince);
+    setPendingForgivenessCount((cur) => cur || snap.pendingForgivenessCount);
+    setWorldPaceState((cur) => cur ?? snap.worldPace);
+  }, [userId]);
+
   useEffect(() => {
     let cancelled = false;
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -446,6 +488,13 @@ export function Lobby() {
         setBankrollHistory(lobby.bankroll_history ?? []);
         setLastSessionDelta(lobby.last_session_delta ?? null);
         setReputation(lobby.reputation ?? null);
+        // Push the latest net-worth + reputation to the native home-screen
+        // widget (no-op on web / before the bridge exists).
+        publishWidgetData({
+          bankroll: lobby.bankroll,
+          history: lobby.bankroll_history ?? [],
+          reputation: lobby.reputation ?? null,
+        });
         if (lobby.intake_needed) setShowIntake(true); // sticky — never auto-cleared here
         if (lobby.intake_backstories?.length) setIntakeBackstories(lobby.intake_backstories);
         // One-shot Sal handoff: capture the first time it arrives (the server
@@ -475,6 +524,22 @@ export function Lobby() {
         // user just changed. Single writer per sandbox makes this safe.
         setWorldPaceState((cur) => cur ?? lobby.world_pace ?? 'lively');
         setStakablePanelTick((t) => t + 1);
+        // Persist the inert display slice for instant next-open (SWR). One-shot /
+        // sticky fields (intake, mentor_intro, mentor_stake, events) are excluded
+        // by design — see lobbyCache.ts.
+        writeLobbyCache(userIdRef.current, {
+          bankroll: lobby.bankroll,
+          bankrollHistory: lobby.bankroll_history ?? [],
+          lastSessionDelta: lobby.last_session_delta ?? null,
+          reputation: lobby.reputation ?? null,
+          tables: lobby.tables,
+          seatedTableId: lobby.seated_table_id ?? null,
+          hasActiveSession: lobby.has_active_session ?? false,
+          seatedStakeLabel: lobby.seated_stake_label ?? null,
+          seatedSince: lobby.seated_since ?? null,
+          pendingForgivenessCount: lobby.pending_forgiveness_count ?? 0,
+          worldPace: lobby.world_pace ?? null,
+        });
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
@@ -552,7 +617,7 @@ export function Lobby() {
   // instant motion ahead of the refetch. No-op gracefully if the socket
   // can't connect — the fallback poll above still refreshes.
   useEffect(() => {
-    const socket = io(config.SOCKET_URL, {
+    const socket = createAuthedSocket(config.SOCKET_URL, {
       withCredentials: true,
       ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
     });
@@ -914,6 +979,22 @@ export function Lobby() {
 
           {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
 
+          {/* First-ever load (no SWR snapshot yet): shape the hero + table rows so
+              the lobby fills in place instead of blank-then-pop. A returning user
+              is seeded from cache before paint, so bankroll is already set here. */}
+          {bankroll === null && !showIntake && (
+            <div
+              className="cash-entry__skeleton"
+              aria-busy="true"
+              style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}
+            >
+              <Skeleton height="7rem" radius="var(--radius-2xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+              <Skeleton height="3.5rem" radius="var(--radius-xl)" />
+            </div>
+          )}
+
           {reputation && <ReputationPanel reputation={reputation} />}
 
           {(hasActiveSession || seatedTableId) && (
@@ -1184,7 +1265,8 @@ export function Lobby() {
             });
           }}
         />
-        {showIntake && (
+        {showIntake && !coldOpenDone && <LuckyStackColdOpen onDone={() => setColdOpenDone(true)} />}
+        {showIntake && coldOpenDone && (
           <LuckyStackIntake backstories={intakeBackstories} onDone={handleIntakeDone} />
         )}
         {/* Sal's post-graduation handoff: his portrait + bubble walk the player

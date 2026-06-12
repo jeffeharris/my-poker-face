@@ -260,8 +260,11 @@ class TestCareerKeyringLobby(unittest.TestCase):
         assert first["intake_needed"] is True
         backstories = first["intake_backstories"]
         assert len(backstories) == 3 and {"id", "title", "text"} <= set(backstories[0])
-        # Submit the cold-open: name + the backstory they picked (by id). The bio
-        # is resolved SERVER-SIDE from the id; it's remembered as a callback hook.
+        # Submit the cold-open: name + the backstory they picked (by id). The
+        # backstory is resolved SERVER-SIDE from the id and remembered as a
+        # callback hook; the bio is normally an LLM snark-line riffing on it, but
+        # CASH_INTAKE_BIO_DISABLED (conftest) short-circuits that in tests so the
+        # bio falls back to the verbatim backstory text.
         from cash_mode.career_progression import get_backstory
 
         chosen = get_backstory("quiet")
@@ -272,7 +275,7 @@ class TestCareerKeyringLobby(unittest.TestCase):
         body = res.get_json()
         assert body["player_name"] == "Jeff"
         assert body["fish_name"]  # rule-based handle (deterministic)
-        assert body["bio"] == chosen["text"]  # bio IS the chosen backstory
+        assert body["bio"] == chosen["text"]  # LLM disabled in tests → backstory fallback
         assert "intensity" not in body  # decoupled from quick-chat
         assert "avatar_prompt" in body  # the avatar seam is present
         # The backstory is persisted (text + id) for later narrative callbacks.

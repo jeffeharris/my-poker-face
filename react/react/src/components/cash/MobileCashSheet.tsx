@@ -17,6 +17,7 @@ import { logger } from '../../utils/logger';
 import type { CashModeInfo } from '../../types/game';
 import { computeLeaveBreakdown } from './loanSettlement';
 import { CashOutSummary, type SessionSummary } from './CashOutSummary';
+import { CountUp } from '../shared/CountUp';
 import { getNetWorth } from './api';
 import type { NetWorthResponse, TierStatus } from './types';
 import './MobileCashSheet.css';
@@ -257,11 +258,15 @@ export function MobileCashSheet({
         <div className="mobile-cash-sheet__body">
           <div className="mobile-cash-sheet__row">
             <span className="mobile-cash-sheet__label">Bankroll</span>
-            <span className="mobile-cash-sheet__value">${cashMode.bankroll.toLocaleString()}</span>
+            <span className="mobile-cash-sheet__value">
+              $<CountUp value={cashMode.bankroll} useGrouping />
+            </span>
           </div>
           <div className="mobile-cash-sheet__row">
             <span className="mobile-cash-sheet__label">At table</span>
-            <span className="mobile-cash-sheet__value">${playerStack.toLocaleString()}</span>
+            <span className="mobile-cash-sheet__value">
+              $<CountUp value={playerStack} useGrouping />
+            </span>
           </div>
           <div className="mobile-cash-sheet__row">
             <span className="mobile-cash-sheet__label">Stake</span>

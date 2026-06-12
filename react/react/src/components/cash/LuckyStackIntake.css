@@ -7,16 +7,32 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* No vertical `justify-content: center`: with `overflow-y: auto`, centering a
+     card taller than the viewport clips its top out of reach. Instead the card
+     uses `margin: auto` — it centers when it fits and pins to the top (fully
+     scrollable) when it doesn't. */
   padding: 1rem;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: radial-gradient(120% 120% at 50% 0%, #21130c 0%, #0c0805 70%);
+  /* Ease in over the cold open so the diner→intake handoff isn't a hard cut. */
+  animation: lucky-overlay-in 0.5s ease both;
+}
+
+@keyframes lucky-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .lucky__card {
   position: relative;
   z-index: 1;
   width: min(460px, 100%);
+  margin: auto;
   background: #17120e;
   border: 1px solid #4a3522;
   border-radius: 14px;
@@ -128,15 +144,15 @@
   margin-bottom: 1.1rem;
 }
 
-/* The waitress's spoken question above the reply choices — her voice, not a
-   form label (so it doesn't read as an awkward uppercase field heading). */
+/* Section heading above the backstory choices. */
 .lucky__prompt {
   text-align: left;
-  font-size: 0.92rem;
-  font-style: italic;
-  line-height: 1.4;
-  color: #d9ccbb;
-  margin: 0.2rem 0 0.55rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  color: #e9b06a;
+  margin: 0.5rem 0 0.6rem;
 }
 
 .lucky__label {
@@ -270,5 +286,22 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+/* Short viewports (most phones in portrait): tighten spacing so a step fits with
+   little/no scrolling — without shrinking the portrait (the two-step split keeps
+   each screen short enough to keep the waitress big). The overlay still scrolls
+   if a step ever overflows (the margin:auto fix above). */
+@media (max-height: 760px) {
+  .lucky__waitress-img {
+    margin: 0.2rem auto 0.5rem;
+  }
+  .lucky__card {
+    padding: 1.1rem 1.2rem 1.3rem;
+  }
+  .lucky__speech {
+    min-height: 0;
+    margin-bottom: 0.8rem;
   }
 }

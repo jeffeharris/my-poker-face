@@ -38,7 +38,15 @@ os.environ['RATE_LIMIT_GAME_ACTION'] = '10000 per minute'
 # cash-mode integration tests live OUTSIDE that subdirectory
 # (`tests/test_cash_lobby_route.py`, `tests/test_cash_sit_route.py`,
 # etc.) and don't see the per-package conftest.
-os.environ.setdefault('CASH_LEAVE_NARRATIVE_DISABLED', '1')
+os.environ.setdefault('CASH_LEAVE_NARRATIVE_ENABLED', '0')
+
+# Disable the Lucky Stack intake bio LLM call (grok-4-fast) across the WHOLE
+# suite. `intake_persona` otherwise fires a real xai call to snark-ify the bio
+# during intake/lobby integration tests — burning tokens and making the bio
+# non-deterministic. Disabled, the bio falls back to the chosen backstory text
+# (the deterministic part the tests assert on). Mirrors the leave-narrative
+# disable above. See cash_mode/career_progression._generate_snarky_bio.
+os.environ.setdefault('CASH_INTAKE_BIO_DISABLED', '1')
 
 # Disable the realtime world ticker across the suite. The ticker is a
 # background daemon started in create_app(); left on, it runs against
@@ -183,7 +191,9 @@ def load_personality_from_json(name):
 # economy flags — a NEW flag missing from both would re-open the .env-pollution
 # hole.
 RESET_ECONOMY_FLAGS = (
-    "REGEN_ENABLED",
+    # REGEN_ENABLED is RETIRED (locked off) as of 2026-06-10 — locked flags are
+    # excluded from the partition, and the tests that exercise the regen branch
+    # save/restore the global themselves, so it no longer needs the blanket reset.
     "VICE_RESERVE_GATED",
     "GENESIS_RESERVE_ENABLED",
     "RAKE_RESERVE_GATED",
@@ -191,11 +201,10 @@ RESET_ECONOMY_FLAGS = (
     "DIRECTOR_POLICY_HOLD",
     "CASINO_RELATIVE_THRESHOLDS",
     "CASINO_RESEED_ON_SPENT",
-    # PRESENCE_SHADOW_WRITE_ENABLED / PRESENCE_AUTHORITY_ENABLED are no longer
-    # `_env_flag(...)` reads (the Presence cutover hardwired authority True and
-    # left shadow a vestigial constant), so they're intentionally absent here —
-    # `test_economy_flag_defaults` only tracks env-driven flags. The fixture
-    # pins PRESENCE_AUTHORITY_ENABLED = True explicitly below.
+    # PRESENCE_AUTHORITY_ENABLED is no longer an `_env_flag(...)` read (the
+    # Presence cutover hardwired it True; the old shadow flag was removed), so
+    # it's intentionally absent here — `test_economy_flag_defaults` only tracks
+    # env-driven flags. The fixture pins PRESENCE_AUTHORITY_ENABLED = True below.
     "CHIP_CUSTODY_ENABLED",
     "CHIP_CUSTODY_DERIVE_READS",
     "TOURNAMENT_CIRCUIT_ENABLED",

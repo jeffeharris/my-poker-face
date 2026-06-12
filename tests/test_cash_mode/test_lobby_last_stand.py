@@ -97,6 +97,50 @@ class TestCommittedSeatedAis(unittest.TestCase):
         self.assertEqual(out, {})
 
 
+class TestLastStandReserveIsPostDebitNotDoubleCounted(unittest.TestCase):
+    """Regression: the last-stand scan must read the POST-debit bankroll, not
+    re-subtract the burst's already-debited committed buy-ins.
+
+    `_bankroll_lookup` (used DURING a burst to size reloads) returns
+    `_available_buyin_capacity(current, committed)` = ``max(0, current - committed)``,
+    which is correct while the buy-ins are planned-but-not-yet-debited. After
+    `_apply_bankroll_transfers` debits those buy-ins, the DB balance is already
+    ``pre_debit - committed``. Reusing `_bankroll_lookup` for the last-stand scan
+    subtracts ``committed`` a SECOND time, so a solvent AI reads as $0 reserve and
+    trips a false predator signal. `refresh_unseated_tables` therefore hands the
+    scan `_seated_reserve_lookup` (the raw post-debit balance) instead.
+    """
+
+    def test_double_subtracting_committed_buyins_is_a_false_last_stand(self):
+        pre_debit_reserve = 1000
+        rebuy = 500  # committed during the burst, then debited from the DB
+        post_debit_db = pre_debit_reserve - rebuy  # 500 — what's really left off-table
+        committed = {"reloader": rebuy}
+
+        table = _table(seats=[_ai("reloader", 500)])
+
+        # The DURING-burst lookup, wrongly reused after the debit has landed:
+        # max(0, 500 - 500) = 0 -> the solvent AI is falsely flagged.
+        buggy_lookup = lambda pid: lobby._available_buyin_capacity(
+            post_debit_db, committed.get(pid, 0)
+        )
+        self.assertEqual(
+            _committed_seated_ais(table, reserve_lookup=buggy_lookup),
+            {"reloader": 500},
+            "guard tripwire: the double-counting lookup should produce the "
+            "false positive this fix removes",
+        )
+
+        # The fix (`_seated_reserve_lookup`): read the post-debit balance
+        # directly, no second subtraction -> the real $500 reserve is seen and
+        # the AI is correctly NOT a last stand.
+        fixed_lookup = lambda pid: post_debit_db
+        self.assertEqual(
+            _committed_seated_ais(table, reserve_lookup=fixed_lookup),
+            {},
+        )
+
+
 class TestSelectNewLastStands(unittest.TestCase):
     def setUp(self):
         lobby._last_stand_announced.clear()

@@ -2,7 +2,7 @@
 purpose: Architecture of the central feature-flag registry — lifecycle stages, per-env defaults, resolution pipeline, and how it integrates with config/DB/tests
 type: architecture
 created: 2026-06-07
-last_updated: 2026-06-07
+last_updated: 2026-06-10
 ---
 
 # Feature Flag System
@@ -172,24 +172,72 @@ python3 scripts/flags.py status            # current process env
 python3 scripts/flags.py status --env prod # preview prod resolution
 ```
 
-## Current inventory (2026-06-07)
+## Current inventory (2026-06-10)
 
-All registered flags are `owner="cash_mode.economy"`.
+**44 registered flags** across nine owners. Generate this live with
+`python3 scripts/flags.py status --env <dev|prod>`; the promote/hold/kill plan for
+each is in
+[`docs/plans/FEATURE_FLAG_LIFECYCLE_PLAN.md`](../plans/FEATURE_FLAG_LIFECYCLE_PLAN.md).
+
+**`cash_mode.economy` (25):**
 
 - **GRADUATED** (locked on): `RAKE_ENABLED`, `PRESENCE_AUTHORITY_ENABLED`
-- **RETIRED** (locked off): `PRESENCE_SHADOW_WRITE_ENABLED`
+- **RETIRED** (locked off): `REGEN_ENABLED` (passive faucet, superseded by the
+  side hustle — retired 2026-06-10; bankroll regen branch is dead-pending-cleanup)
 - **STABLE, dev+prod on**: `SIDE_HUSTLE_ENABLED`, `RAKE_PLAYER_TABLES`,
   `REPUTATION_DEMEANOR_ENABLED`, `DOSSIER_SCOUTING_GATE_ENABLED`,
   `CHIP_CUSTODY_ENABLED`, `CHIP_CUSTODY_DERIVE_READS`, `RENOWN_V2_ENABLED`,
   `RENOWN_V2_PERSIST_AI`, `PRESTIGE_SEEKING_ENABLED`, `TOURNAMENT_CIRCUIT_ENABLED`,
-  `TOURNAMENT_DRAW_ENABLED`
-- **STABLE, prod-only** (the Director thermostat — `dev=False, prod=True`):
-  `GENESIS_RESERVE_ENABLED`, `RAKE_RESERVE_GATED`, `DIRECTOR_POLICY_HOLD`,
-  `VICE_RESERVE_GATED`, `CASINO_RESEED_ON_SPENT`
-- **EXPERIMENTAL** (off everywhere): `REGEN_ENABLED`, `DIRECTOR_INEQUALITY_RAKE`,
-  `CASINO_RELATIVE_THRESHOLDS`, `TABLE_AFFINITY_ENABLED`
+  `TOURNAMENT_DRAW_ENABLED`, plus the **Director thermostat** —
+  `RAKE_RESERVE_GATED`, `GENESIS_RESERVE_ENABLED`, `DIRECTOR_POLICY_HOLD`,
+  `VICE_RESERVE_GATED`, `CASINO_RESEED_ON_SPENT` (promoted `dev=True` on
+  2026-06-10 to close the dev/prod drift; dev now runs the prod economy)
+- **BETA** (dev on, prod off — under dev evaluation as of 2026-06-10):
+  `DIRECTOR_INEQUALITY_RAKE`, `CASINO_RELATIVE_THRESHOLDS`, `TABLE_AFFINITY_ENABLED`
+- **EXPERIMENTAL** (off everywhere): `CAREER_PROGRESSION_ENABLED`,
+  `CAREER_VOUCH_ENABLED`, `INTAKE_WORLD_WARMUP_ENABLED`
 
-Net: **13/23 on in dev, 18/23 on in prod.**
+**`poker.strategy` (5)** — the tilt/excursion system (see `TILT_EXCURSION_DESIGN.md`),
+all `db_overridable=True`:
+
+- **STABLE** (dev+prod on): `TILT_CONDITIONING_ENABLED` — promoted 2026-06-11
+  after the reachability blocker was retracted (tilt fires at calibrated rates);
+  active for the maniac (`tilt_conditioning_cap=0.35`), byte-identical for every
+  other archetype.
+- **EXPERIMENTAL** (off everywhere): `TILT_PERSISTENCE_ENABLED`,
+  `TILT_TELEGRAPH_ENABLED`, `TILT_ERRATIC_READS_ENABLED`, `TILT_SIGNATURE_ENABLED`
+
+**App / infrastructure (14)** — migrated into the registry on 2026-06-10 (formerly
+scattered `os.environ.get(...)` reads, a hardcoded constant, and a `_bool_env`
+helper that evaded the guard):
+
+- `flask_app.config` (5): `ENABLE_AVATAR_GENERATION`, `ENABLE_AI_COMMENTARY`
+  (STABLE on), `CSRF_PROTECTION_ENABLED` (STABLE, dev=off/prod=on),
+  `ENABLE_AI_DEBUG`, `ENABLE_TEST_ROUTES` (EXPERIMENTAL, off)
+- `flask_app.services` (2): `WORLD_TICKER_ENABLED`,
+  `TICKER_ASYNC_NARRATION_ENABLED` (STABLE on)
+- `flask_app.chat` (1): `SARCASM_DETECTION_ENABLED` (STABLE on)
+- `core.moderation` (1): `MODERATION_ENABLED` (STABLE on)
+- `poker.controllers` (2): `DECISION_ANALYSIS_ENABLED` (STABLE on),
+  `DECISION_ANALYSIS_QUEUE_ENABLED` (STABLE, dev=off/prod=on)
+- `cash_mode.narrative` (1): `CASH_LEAVE_NARRATIVE_ENABLED` (STABLE on; de-inverted
+  from the legacy `CASH_LEAVE_NARRATIVE_DISABLED` env flag)
+- `poker.guest_limits` (2): `GUEST_LIMITS_ENABLED` (STABLE, dev=off/prod=on),
+  `GUEST_FREE_CHAT_ENABLED` (EXPERIMENTAL, off — security gate)
+
+The poker-core `COMMENTARY_ENABLED` constant was **consolidated** into the existing
+`ENABLE_AI_COMMENTARY` flag (one switch for the feature, not two). The `_bool_env`
+helper in `guest_limits.py` was removed and `test_no_adhoc_bool_env_helpers` now
+bans local boolean env-helpers (a variable-name env read evaded the per-flag
+centralization guard — the gap that hid `GUEST_FREE_CHAT_ENABLED`).
+
+Net: **30/44 on in dev, 30/44 on in prod** (the Director thermostat and
+tilt-conditioning are on in both; dev's extra is the 3 BETA economy evals, prod's
+is `CSRF`/`DECISION_ANALYSIS_QUEUE`/`GUEST_LIMITS` which are correctly dev-off).
+
+> The retired `PRESENCE_SHADOW_WRITE_ENABLED` flag (and the obsolete cutover
+> validation scripts) were removed on 2026-06-10 — the off-grid presence mirror
+> it once gated is now driven solely by the graduated `PRESENCE_AUTHORITY_ENABLED`.
 
 ## Out of scope
 

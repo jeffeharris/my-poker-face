@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { createAuthedSocket } from '../utils/socket';
 import toast from 'react-hot-toast';
 import type {
   ChatMessage,
@@ -13,6 +14,8 @@ import type { CashBustEvent, LobbyEvent } from '../components/cash/types';
 import type { RunoutSchedule } from '../types/runout';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { HAPTICS } from '../utils/haptics';
+import { onAppResume } from '../utils/nativeApp';
 import { useGameStore, selectGameState } from '../stores/gameStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useHandSequencer } from './useHandSequencer';
@@ -97,6 +100,15 @@ interface UsePokerGameResult {
 // Cap message arrays to prevent unbounded memory growth in long games
 const MAX_MESSAGES = 200;
 
+// Backstop for a missed state broadcast: after the human acts we expect a
+// game-state push (the next actor / board / winner) shortly. The first push
+// CLEARS this timer (it never re-arms), so during a normal AI orbit it's gone
+// within a second or two — it only ever fires when a push genuinely never
+// arrived (dropped packet, room-join race after a reconnect), in which case we
+// re-sync. Kept well above normal first-push latency, far below the old 30s
+// stall that read as "my action didn't register".
+const MISSED_PUSH_REFRESH_MS = 10000;
+
 const fetchWithCredentials = (url: string, options: RequestInit = {}) => {
   return fetch(url, {
     ...options,
@@ -125,6 +137,12 @@ export function usePokerGame({
   const [error, setError] = useState<string | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
+  // True from the moment the human submits an action until the authoritative
+  // next-turn signal (`player_turn_start`) / a full refresh. It hard-gates the
+  // action buttons off across that window, so a transient/queued state push that
+  // momentarily still shows the human as the current player (with stale
+  // player_options) can't flash the buttons back up after a tap.
+  const [actedAwaitingTurn, setActedAwaitingTurn] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageIdsRef = useRef<Set<string>>(new Set());
@@ -193,6 +211,13 @@ export function usePokerGame({
   const clearWinnerInfo = useCallback(() => {
     setWinnerInfo(null);
     setRevealedCards(null);
+    // Belt-and-suspenders: also drop the run-out "stage" layout flag. Normally the
+    // sequencer's scheduled setActive(false) clears it after the river hold, but on
+    // iOS that timeout can be throttled/dropped while the WebView is busy, leaving
+    // the table stuck in the expanded showdown layout with no overlay left to
+    // dismiss. Clearing the winner is the definitive end of hand presentation, so
+    // the stage must be down by here regardless of whether that timer fired.
+    useGameStore.getState().setRunoutDirectorActive(false);
   }, []);
   const clearTournamentResult = useCallback(() => setTournamentResult(null), []);
   const clearRevealedCards = useCallback(() => setRevealedCards(null), []);
@@ -433,6 +458,8 @@ export function usePokerGame({
         (data: { current_player_options: string[]; cost_to_call: number }) => {
           clearAiThinkingTimeout();
           setAiThinking(false);
+          // A genuine new turn — release the post-action button gate.
+          setActedAwaitingTurn(false);
 
           // Check for queued preemptive action
           if (queuedActionRef.current === 'check_fold') {
@@ -444,6 +471,10 @@ export function usePokerGame({
             handlePlayerActionRef.current(action);
             return; // Action will trigger new state update
           }
+
+          // It's the human's turn to act — a rising two-tap "you're up" cue to
+          // draw attention back to the table. Native-only no-op on web.
+          HAPTICS.turn();
 
           updateStorePlayerOptions(data.current_player_options);
         }
@@ -709,6 +740,9 @@ export function usePokerGame({
         }
 
         setAiThinking(!currentPlayer.is_human);
+        // Authoritative re-sync: button visibility now follows server truth, so
+        // drop any lingering post-action gate (e.g. after a reconnect mid-turn).
+        setActedAwaitingTurn(false);
 
         return true;
       } catch (err) {
@@ -729,13 +763,19 @@ export function usePokerGame({
       // frames during the upgrade probe. Production (gunicorn +
       // GeventWebSocketWorker behind Caddy) handles WS fine, so let
       // socket.io negotiate normally there.
-      const socket = io(config.SOCKET_URL, {
+      const socket = createAuthedSocket(config.SOCKET_URL, {
         reconnection: true,
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 20000,
         withCredentials: true, // Send cookies for auth
+        // Own Manager per game socket. Without this, socket.io multiplexes on a
+        // URL-keyed Manager and `disconnect()` leaves the instance in its nsp
+        // cache, so the next createSocket (game switch / remount) hands back the
+        // same socket and setupSocketListeners re-registers every handler on it —
+        // duplicate listeners that fire N times and leak captured closures.
+        forceNew: true,
         ...(import.meta.env.PROD ? {} : { transports: ['polling'] }),
       });
 
@@ -787,6 +827,7 @@ export function usePokerGame({
   useEffect(() => {
     // Belt-and-suspenders: never leave a prior socket connected when (re)running.
     if (socketRef.current) {
+      socketRef.current.removeAllListeners();
       socketRef.current.disconnect();
       socketRef.current = null;
     }
@@ -830,6 +871,10 @@ export function usePokerGame({
 
     return () => {
       if (socketRef.current) {
+        // removeAllListeners before disconnect so the ~25 handlers (and the
+        // refs/setState they close over) are released immediately, not left to
+        // GC the detached socket.
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
         socketRef.current = null;
       }
@@ -837,31 +882,45 @@ export function usePokerGame({
     };
   }, [providedGameId, resetSequencer]);
 
-  // Handle visibility changes (browser wake from sleep)
+  // Recover from a backgrounded/suspended session (browser wake or native app
+  // resume). iOS suspends the WebView while backgrounded: the socket dies and
+  // pending setTimeouts (the sequencer pump) freeze, so on return we (1) drop any
+  // frozen sequencer timeline before it can replay stale beats, (2) reconnect if
+  // the socket dropped, and (3) re-sync to server truth. Reconnecting routes
+  // through the socket `connect` handler, which itself calls refreshGameState.
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && gameId && !gameGoneRef.current) {
-        const socket = socketRef.current;
-
-        if (!socket || !socket.connected) {
-          if (socket) {
-            socket.connect();
-          } else {
-            createSocket(gameId);
-          }
+    const recover = () => {
+      if (!gameId || gameGoneRef.current) return;
+      // F4: kill any frozen pump immediately — refreshGameState also resets the
+      // sequencer, but a dropped socket takes the slower reconnect→fetch path.
+      resetSequencer();
+      const socket = socketRef.current;
+      if (!socket || !socket.connected) {
+        if (socket) {
+          socket.connect();
         } else {
-          // Silent refresh - just update state in background, no loading flash
-          refreshGameState(gameId, true);
+          createSocket(gameId);
         }
+      } else {
+        // Silent refresh - just update state in background, no loading flash
+        refreshGameState(gameId, true);
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') recover();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Native: visibilitychange is unreliable in a WKWebView, so also drive
+    // recovery off the Capacitor app-resume signal. No-op on web.
+    const removeResume = onAppResume(recover);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      removeResume();
     };
-  }, [gameId, createSocket, refreshGameState]);
+  }, [gameId, createSocket, refreshGameState, resetSequencer]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -886,13 +945,16 @@ export function usePokerGame({
       queuedActionRef.current = null;
       setQueuedAction(null);
       setAiThinking(true);
+      // Hide the action buttons until the next genuine turn (player_turn_start),
+      // immune to intermediate state pushes that still read as the human's turn.
+      setActedAwaitingTurn(true);
 
       // Optimistic UI: move the chips to the pot immediately so the tap feels
       // responsive instead of "submitting…". The authoritative game_state push
       // reconciles (and clears the rollback snapshot); we revert only on reject.
       applyOptimisticAction(action, amount);
 
-      // Safety net: if no socket event clears aiThinking within 30s, auto-refresh state
+      // Safety net: if no state push clears aiThinking shortly, auto-refresh.
       clearAiThinkingTimeout();
       aiThinkingTimeoutRef.current = setTimeout(async () => {
         logger.warn('[RESILIENCE] aiThinking timeout — refreshing game state');
@@ -904,7 +966,7 @@ export function usePokerGame({
             setAiThinking(false);
           }
         }
-      }, 30000);
+      }, MISSED_PUSH_REFRESH_MS);
 
       const postAction = () =>
         fetchWithCredentials(`${config.API_URL}/api/game/${gameId}/action`, {
@@ -959,6 +1021,8 @@ export function usePokerGame({
         // so the table doesn't show money in a pot it never reached.
         rollbackOptimisticAction();
         setAiThinking(false);
+        // It's still the human's turn — let the buttons come back so they can retry.
+        setActedAwaitingTurn(false);
         clearAiThinkingTimeout();
       }
     },
@@ -1134,6 +1198,7 @@ export function usePokerGame({
     gameState?.player_options &&
     gameState.player_options.length > 0 &&
     !aiThinking &&
+    !actedAwaitingTurn &&
     isConnected
   );
 

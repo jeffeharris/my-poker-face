@@ -597,7 +597,7 @@ class TestCommentaryGenerator(unittest.TestCase):
         self.assertIn("Went all-in", events)
         self.assertTrue(any("Big pot" in e for e in events))
 
-    @patch('poker.memory.commentary_generator.COMMENTARY_ENABLED', False)
+    @patch.dict(os.environ, {"ENABLE_AI_COMMENTARY": "false"})
     def test_commentary_disabled(self):
         """Test that commentary is skipped when disabled."""
         generator = CommentaryGenerator()
@@ -739,7 +739,7 @@ class TestAIMemoryManager(unittest.TestCase):
         mock_ai_player.assistant.chat = Mock(return_value='{"emotional_reaction": "test"}')
 
         # This should not raise - tests thread safety
-        with patch('poker.memory.memory_manager.COMMENTARY_ENABLED', False):
+        with patch.dict(os.environ, {"ENABLE_AI_COMMENTARY": "false"}):
             result = self.manager.generate_commentary_for_hand({"Alice": mock_ai_player})
 
         self.assertEqual(result, {})  # Commentary disabled

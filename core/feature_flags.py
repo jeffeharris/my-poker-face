@@ -276,8 +276,12 @@ _ECON = "cash_mode.economy"
 register(
     FeatureFlag(
         "REGEN_ENABLED",
-        Stage.EXPERIMENTAL,
-        "Passive idle-chip faucet (retired in favour of the side hustle); A/B knob.",
+        # RETIRED 2026-06-10: passive idle-chip faucet, superseded by the side
+        # hustle (SIDE_HUSTLE_ENABLED). Locked off everywhere; the bankroll.py
+        # regen branch is dead-pending-cleanup (still exercised by economy tests
+        # that set the global directly).
+        Stage.RETIRED,
+        "Passive idle-chip faucet — retired in favour of the side hustle.",
         owner=_ECON,
         dev=False,
         prod=False,
@@ -296,15 +300,16 @@ register(
 
 # --- Vice / lever reserve-gating ---
 # The Director thermostat (these + RAKE_RESERVE_GATED, DIRECTOR_POLICY_HOLD,
-# CASINO_RESEED_ON_SPENT) is LIVE in prod but off in dev — dev=False/prod=True
-# makes that drift explicit. Flip dev=True to run the prod economy locally.
+# CASINO_RESEED_ON_SPENT) was promoted dev=True on 2026-06-10 to close the
+# dev/prod drift — dev now runs the same prod economy. (Tests still force these
+# off via tests/conftest.py::RESET_ECONOMY_FLAGS, so determinism is unaffected.)
 register(
     FeatureFlag(
         "VICE_RESERVE_GATED",
         Stage.STABLE,
         "Scale vice intensity with the bank-pool deficit instead of always-on.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=True,
     )
 )
@@ -314,7 +319,7 @@ register(
         Stage.STABLE,
         "Seed the bank pool to a fraction of holdings once at sandbox birth.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=True,
     )
 )
@@ -344,17 +349,20 @@ register(
         Stage.STABLE,
         "Director two-layer rake: add lower stake tiers as the bank empties.",
         owner=_ECON,
-        dev=False,
+        # dev=True (2026-06-10): turned on in dev so the BETA DIRECTOR_INEQUALITY_RAKE
+        # evaluation isn't a no-op (inequality-rake is gated inside this block).
+        dev=True,
         prod=True,
     )
 )
 register(
     FeatureFlag(
         "DIRECTOR_INEQUALITY_RAKE",
-        Stage.EXPERIMENTAL,
+        # BETA (2026-06-10): dev-on for evaluation; still prod-off pending sim.
+        Stage.BETA,
         "On a flat field, lead the refill with rake (implies RAKE_RESERVE_GATED).",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=False,
     )
 )
@@ -364,7 +372,7 @@ register(
         Stage.STABLE,
         "Hold the rake schedule for a window instead of recomputing per hand.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=True,
     )
 )
@@ -373,10 +381,11 @@ register(
 register(
     FeatureFlag(
         "CASINO_RELATIVE_THRESHOLDS",
-        Stage.EXPERIMENTAL,
+        # BETA (2026-06-10): dev-on for evaluation; still prod-off pending sim.
+        Stage.BETA,
         "Treat casino spawn/close/whale gates as fractions of holdings.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=False,
     )
 )
@@ -386,7 +395,7 @@ register(
         Stage.STABLE,
         "Lean casino fish lifecycle: one fish, reseed on bust (steady trickle).",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=True,
     )
 )
@@ -421,14 +430,6 @@ register(
         "PRESENCE_AUTHORITY_ENABLED",
         Stage.GRADUATED,
         "entity_presence is the authoritative actor-location store (permanent).",
-        owner=_ECON,
-    )
-)
-register(
-    FeatureFlag(
-        "PRESENCE_SHADOW_WRITE_ENABLED",
-        Stage.RETIRED,
-        "Vestigial pre-flip presence shadow dual-write (superseded by authority).",
         owner=_ECON,
     )
 )
@@ -513,10 +514,11 @@ register(
 register(
     FeatureFlag(
         "TABLE_AFFINITY_ENABLED",
-        Stage.EXPERIMENTAL,
+        # BETA (2026-06-10): dev-on for evaluation; still prod-off pending sim.
+        Stage.BETA,
         "Success-weighted room stickiness in idle table selection.",
         owner=_ECON,
-        dev=False,
+        dev=True,
         prod=False,
     )
 )
@@ -556,11 +558,14 @@ _STRAT = "poker.strategy"
 register(
     FeatureFlag(
         "TILT_CONDITIONING_ENABLED",
-        Stage.BETA,
-        "Option-C tilt_conditioning layer: state-conditioned aggression spike in re-raise spots (inert until an archetype opts in via DeviationProfile.tilt_conditioning_cap).",
+        # STABLE 2026-06-11: tilt reachability confirmed (EMOTIONAL_SYSTEM_ANALYSIS
+        # measurement update) and the maniac opts in (cap 0.35); promoted prod-on.
+        # Byte-identical for every other archetype (still tilt_conditioning_cap=0.0).
+        Stage.STABLE,
+        "Option-C tilt_conditioning layer: state-conditioned aggression spike in re-raise spots. Active for the maniac (DeviationProfile.tilt_conditioning_cap=0.35); inert for every archetype whose cap stays 0.0.",
         owner=_STRAT,
         dev=True,
-        prod=False,
+        prod=True,
         db_overridable=True,
     )
 )
@@ -569,6 +574,38 @@ register(
         "TILT_PERSISTENCE_ENABLED",
         Stage.EXPERIMENTAL,
         "Tilt-excursion persistence (TILT_EXCURSION_DESIGN.md): slow-recovery-while-tilted + second-wind escape in PlayerPsychology.recover() so tilt lasts long enough to be felt without going chronic. Inert (byte-identical recover) when off.",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "PUSH_FOLD_6MAX_RESHOVE_ENABLED",
+        # ON 2026-06-11 after the bb/100 A/B (PUSH_FOLD_6MAX_SCOPE.md). Unconditional
+        # reshoving was −21/−52 bb/100 vs the call-happy field (no fold equity); the
+        # fold-equity gate (exploitation.reshove_fold_equity_ok — suppress vs openers
+        # who play too many hands to fold, i.e. stations AND maniacs) makes it
+        # bb/100-NEUTRAL (no leak) while still reshoving vs openers who fold. Triple-
+        # gated: this flag + the per-persona push_fold_nash opt-in (8 sharks) + the
+        # fold-equity read. Upside (vs tight openers) is unproven in the rule-bot
+        # sim — no foldy openers exist there — but the downside is gated to ~zero.
+        # The reshove detector is controller-agnostic (push_fold.reshove_action_6max);
+        # this flag gates the sharp bot's call site — other controllers can opt in.
+        Stage.STABLE,
+        "6-max short-stack RESHOVE (jam-or-fold over a single non-all-in open) via the push_fold_6max 'reshove' chart, fold-equity-gated. Off => the spot falls through to the deep-stack / short_stack.py path.",
+        owner=_STRAT,
+        dev=True,
+        prod=True,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "EMOTIONAL_REBALANCE_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Emotional-system rebalance (EMOTIONAL_SYSTEM_BALANCE.md §3/§6.1): decouple conviction (confidence) from chip-winning — re-derive baseline_confidence from self_belief+ego (drop aggression/risk) and cut the UP event-pumps while concentrating DOWNs on epistemic events, so the fear pole (shaken) becomes reachable. Changes psychology axes; off => current baseline + event table (byte-identical).",
         owner=_STRAT,
         dev=False,
         prod=False,
@@ -606,5 +643,168 @@ register(
         dev=False,
         prod=False,
         db_overridable=True,
+    )
+)
+
+# --- Flask app: config-level toggles (read by flask_app/config.py) ---------
+# Defaults match the prior os.environ.get(...) defaults exactly; dev/prod splits
+# mirror the verified live state (CSRF / debug arming). Migrated 2026-06-10.
+_FLASK_CFG = "flask_app.config"
+register(
+    FeatureFlag(
+        "ENABLE_AVATAR_GENERATION",
+        Stage.STABLE,
+        "Background AI player avatar generation (expensive; default on).",
+        owner=_FLASK_CFG,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "ENABLE_AI_COMMENTARY",
+        Stage.STABLE,
+        "Post-hand AI commentary generation (default on).",
+        owner=_FLASK_CFG,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "CSRF_PROTECTION_ENABLED",
+        Stage.STABLE,
+        "Double-submit-cookie CSRF enforcement. Off in dev/test (cross-origin SPA, FLASK_ENV=development) and ON in prod (same-origin) — current_env() mirrors config.is_development exactly.",
+        owner=_FLASK_CFG,
+        dev=False,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "ENABLE_AI_DEBUG",
+        Stage.EXPERIMENTAL,
+        "Backend AI-debug surface: LLM stats on player cards (dev/debug opt-in). Also drives the frontend VITE_ENABLE_AI_DEBUG build arg separately.",
+        owner=_FLASK_CFG,
+        dev=False,
+        prod=False,
+    )
+)
+register(
+    FeatureFlag(
+        "ENABLE_TEST_ROUTES",
+        Stage.EXPERIMENTAL,
+        "Register the test-helper HTTP endpoints (flask_app/routes/test_routes.py); dev/test opt-in only.",
+        owner=_FLASK_CFG,
+        dev=False,
+        prod=False,
+    )
+)
+
+# --- Flask app: realtime world ticker (flask_app/services/ticker_service.py) -
+_FLASK_SVC = "flask_app.services"
+register(
+    FeatureFlag(
+        "WORLD_TICKER_ENABLED",
+        Stage.STABLE,
+        "Realtime cash-mode world ticker (default on); off falls back to read-driven refresh on /api/cash/lobby.",
+        owner=_FLASK_SVC,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "TICKER_ASYNC_NARRATION_ENABLED",
+        Stage.STABLE,
+        "Run vice/side-hustle START narration OFF the tick in a background greenlet (default on); off reverts to synchronous in-tick narration.",
+        owner=_FLASK_SVC,
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Flask app: chat / social --------------------------------------------
+register(
+    FeatureFlag(
+        "SARCASM_DETECTION_ENABLED",
+        Stage.STABLE,
+        "Sarcasm perception gate: only recipients with high adaptation_bias detect sarcasm (off => the prior universal sarcasm transform).",
+        owner="flask_app.chat",
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Core: content moderation (core/moderation.py) ------------------------
+register(
+    FeatureFlag(
+        "MODERATION_ENABLED",
+        Stage.STABLE,
+        "OpenAI text moderation on user content (default on; additionally no-ops without an OPENAI_API_KEY).",
+        owner="core.moderation",
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Poker: per-decision analytics (poker/controllers.py) -----------------
+_CTRL = "poker.controllers"
+register(
+    FeatureFlag(
+        "DECISION_ANALYSIS_ENABLED",
+        Stage.STABLE,
+        "Master switch for per-decision equity-MC quality logging (default on).",
+        owner=_CTRL,
+        dev=True,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "DECISION_ANALYSIS_QUEUE_ENABLED",
+        Stage.STABLE,
+        "Enqueue decisions for the out-of-band analytics worker instead of analyzing inline. Off in dev (inline, keeps tests cheap), on in prod (the worker container).",
+        owner=_CTRL,
+        dev=False,
+        prod=True,
+    )
+)
+
+# --- Cash mode: leave-table narration (cash_mode/leave_narrative.py) -------
+# De-inverted from the legacy CASH_LEAVE_NARRATIVE_DISABLED env flag.
+register(
+    FeatureFlag(
+        "CASH_LEAVE_NARRATIVE_ENABLED",
+        Stage.STABLE,
+        "AI leave-table narration LLM calls (default on; disabled in the test suite via env so the lobby doesn't fire real LLM calls).",
+        owner="cash_mode.narrative",
+        dev=True,
+        prod=True,
+    )
+)
+
+# --- Guest limits (poker/guest_limits.py) ---------------------------------
+# Migrated 2026-06-10 (formerly a `not is_development_mode()` derive + a local
+# `_bool_env` read that evaded the centralization guard).
+_GUEST = "poker.guest_limits"
+register(
+    FeatureFlag(
+        "GUEST_LIMITS_ENABLED",
+        Stage.STABLE,
+        "Enforce guest rate/abuse limits (hands cap, opponent cap, free-chat lock). On in prod, off in dev/test — current_env() mirrors is_development_mode().",
+        owner=_GUEST,
+        dev=False,
+        prod=True,
+    )
+)
+register(
+    FeatureFlag(
+        "GUEST_FREE_CHAT_ENABLED",
+        Stage.EXPERIMENTAL,
+        "Allow guests free-text chat (off by default — free text is appended verbatim to the AI prompt, a prompt-injection/cost surface; PRH-27). Structured quick-chat stays allowed regardless.",
+        owner=_GUEST,
+        dev=False,
+        prod=False,
     )
 )

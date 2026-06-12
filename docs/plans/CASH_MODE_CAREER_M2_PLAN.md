@@ -2,7 +2,7 @@
 purpose: Build plan for Career M2 — the real, emergent vouch_ready (respect-gated, likability-driven) over the relationship graph, evaluated on the world ticker
 type: spec
 created: 2026-06-04
-last_updated: 2026-06-06
+last_updated: 2026-06-08
 ---
 
 # Career M2 — emergent vouches (`vouch_ready`)
@@ -35,14 +35,19 @@ entirely on the player raising likability through play + social events** — the
 `cash_routes.py` 0.85/0.85 on the graduation stake, and Sal has already vouched).
 Findings that drove the call:
 
-- **Respect ≥ `RESPECT_FLOOR` (0.50) is easy** — it equals the neutral default and
-  *rises* when you play well (e.g. `BIG_LOSS` for the AI = +0.08 respect to you).
-- **Likability ≥ `LIKE_THRESHOLD` (0.70) is the real gate, and raw poker ERODES
-  it** (`BAD_BEAT` −0.10, `DOMINATED_SHOWDOWN`, `BLUFFED_OFF` all negative). The
-  only way up is **social** events from `chat_relationship.py`: `COMPLIMENT`
-  (+0.05 like), `PROPS` (+0.10 resp/+0.02 like), `FRIENDLY_BANTER` (+0.03),
-  `COMMISERATE` (+0.05). ~+0.20 from neutral ≈ 4+ positive chats with no
-  offsetting negatives.
+> *(Threshold values below updated for the 0.35-neutral re-tune — see the
+> Follow-ups section. The qualitative picture is unchanged: respect is a light
+> earned gate, likability is the real driver, raw poker erodes likability.)*
+
+- **Respect ≥ `RESPECT_FLOOR` (0.45 = neutral + 0.10) is a light EARNED gate** —
+  it *rises* when you play well (e.g. `BIG_LOSS` for the AI = +0.08 respect to
+  you), so a good pot or two clears it; spew and you stall.
+- **Likability ≥ `LIKE_THRESHOLD` (0.55 = neutral + 0.20) is the real gate, and
+  raw poker ERODES it** (`BAD_BEAT` −0.10, `DOMINATED_SHOWDOWN`, `BLUFFED_OFF` all
+  negative). The only way up is **social** events from `chat_relationship.py`:
+  `COMPLIMENT` (+0.05 like), `PROPS` (+0.10 resp/+0.02 like), `FRIENDLY_BANTER`
+  (+0.03), `COMMISERATE` (+0.05). +0.20 from the 0.35 neutral ≈ 4+ positive chats
+  with no offsetting negatives.
 
 **Decision (user, 2026-06-06): ship social-accrual-only as-is. No new
 eligibility code.** Emergent vouches are a **rare reward for the socially-engaged
@@ -182,13 +187,21 @@ Discipline: don't lower `LIKE_THRESHOLD` to force blooms (cheapens the vouch and
 breaks "liked ≠ a gimme"); add *sources of likability* instead. Tune magnitudes so
 a vouch still takes a genuinely warm relationship, not a single session.
 
-**Threshold re-tune vs. the regard rebaseline (if it lands).** The parked regard
-rebaseline (`REGARD_NEUTRAL = 0.35`, see `REGARD_NEUTRAL_REBASELINE_HANDOFF.md`)
-would move neutral from 0.50 → 0.35. If it lands, re-tune here: `RESPECT_FLOOR`
-(0.50 = the *old* neutral → should become genuinely *earned*, e.g. ~0.55),
-`LIKE_THRESHOLD` (0.70; the climb from 0.35 is now +0.35), and
-`HOME_TABLE_REVEAL_LIKABILITY` (0.60). Until it lands, the current 0.50-neutral
-values are internally consistent — leave them.
+**Threshold re-tune vs. the regard rebaseline — DONE (2026-06-08).** The regard
+rebaseline (`REGARD_NEUTRAL = 0.35`) landed (#202, now on main), so the vouch
+gates were re-anchored to **earned-amount-above-neutral** instead of the old
+0.5-neutral absolutes (`cash_mode/career_progression.py`):
+- `RESPECT_FLOOR = REGARD_NEUTRAL + 0.10` (0.45) — respect is now genuinely
+  *earned* (a little competence above neutral), not "merely not disrespected";
+  clears from a good pot or two of winning play.
+- `LIKE_THRESHOLD = REGARD_NEUTRAL + 0.20` (0.55) — **preserves the original
+  climb** (the old 0.70 was +0.20 over the old 0.50 neutral), so reachability is
+  unchanged: ~a handful of warm social beats, not a longer +0.35 grind.
+- `HOME_TABLE_REVEAL_LIKABILITY = REGARD_NEUTRAL + 0.10` (0.45) — below the vouch
+  gate, scouting stays the cheaper milestone.
+Anchoring to the constant (not hardcoded absolutes) keeps the gates reachable if
+neutral ever moves again. The +deltas are the live tuning knobs — adjust from the
+`[VOUCH] eval` instrumentation in the live pass.
 
 ## Why M2 before the Dream Table
 The dream table (`CASH_MODE_DREAM_TABLE.md`) rides the vouch/graduation seam and

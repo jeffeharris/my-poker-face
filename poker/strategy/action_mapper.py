@@ -14,9 +14,14 @@ expectation (the band is symmetric around the table's intent).
 
 import math
 import random
-from typing import NoReturn, Optional, Tuple
+from typing import List, NoReturn, Optional, Tuple
 
-from .action_vocab import ENGINE_ONLY_TOKENS, AbstractAction, EngineAction
+from .action_vocab import (
+    ENGINE_ONLY_TOKENS,
+    AbstractAction,
+    EngineAction,
+    abstract_call_token,
+)
 
 
 def _raise_unknown_abstract(abstract_action: str) -> NoReturn:
@@ -129,6 +134,7 @@ def resolve_preflop_sizing(
     rng: Optional[random.Random] = None,
     sizing_jitter: float = 0.0,
     size_multiplier: float = 1.0,
+    valid_actions: Optional[List[str]] = None,
 ) -> Tuple[str, int]:
     """Resolve abstract preflop action to concrete game engine action + amount.
 
@@ -140,6 +146,9 @@ def resolve_preflop_sizing(
             P1). Scales the chart-derived raise target BEFORE jitter/rounding so
             same-archetype players size differently. 1.0 (default) is a no-op —
             the deterministic sim / Baseline-GTO reference stays byte-identical.
+        valid_actions: the engine's legal-action set, used to resolve a 'call'
+            that is actually a call-off (see below). Optional — when omitted, a
+            'call' always resolves to a flat call (legacy behavior).
 
     Returns:
         Tuple of (game_action, amount) where:
@@ -151,14 +160,26 @@ def resolve_preflop_sizing(
     # Simple actions with no sizing
     if action == 'fold':
         return ('fold', 0)
-    if action == 'call':
-        return ('call', 0)
     if action == 'check':
         return ('check', 0)
 
     player = game_state.players[player_idx]
     player_total = player.stack + player.bet  # total chips including current bet
     big_blind = game_state.current_ante
+
+    # 'call' is normally a flat call, but when calling is itself a call-off
+    # (the engine drops 'call' and offers only 'all_in' because the amount to
+    # call >= stack) the engine action is all_in. abstract_call_token is the
+    # single blessed call->jam translation; routing it through this boundary —
+    # the one place abstract turns into engine, alongside JAM — keeps producers
+    # (push/fold caller, the all-in veto, charts) from each re-deriving it.
+    if action == 'call':
+        if (
+            valid_actions is not None
+            and abstract_call_token(valid_actions) == AbstractAction.JAM.value
+        ):
+            return (EngineAction.ALL_IN.value, player_total)
+        return ('call', 0)
 
     if action == AbstractAction.JAM:
         return (EngineAction.ALL_IN.value, player_total)
@@ -214,6 +235,7 @@ def resolve_postflop_sizing(
     player_idx: int,
     rng: Optional[random.Random] = None,
     sizing_jitter: float = 0.0,
+    valid_actions: Optional[List[str]] = None,
 ) -> Tuple[str, int]:
     """Resolve abstract postflop action to concrete game engine action + amount.
 
@@ -223,6 +245,8 @@ def resolve_postflop_sizing(
         abstract_action: Action from strategy (e.g., 'bet_67', 'raise_150', 'fold', 'jam')
         game_state: Current PokerGameState with player stacks, bets, pot, blinds
         player_idx: Index of the acting player
+        valid_actions: the engine's legal-action set, used to resolve a 'call'
+            that is actually a call-off (see resolve_preflop_sizing). Optional.
 
     Returns:
         Tuple of (game_action, amount) where:
@@ -234,13 +258,20 @@ def resolve_postflop_sizing(
     # Simple actions with no sizing
     if action == 'fold':
         return ('fold', 0)
-    if action == 'call':
-        return ('call', 0)
     if action == 'check':
         return ('check', 0)
 
     player = game_state.players[player_idx]
     player_total = player.stack + player.bet
+
+    # See resolve_preflop_sizing: a 'call' that is a call-off resolves to all_in.
+    if action == 'call':
+        if (
+            valid_actions is not None
+            and abstract_call_token(valid_actions) == AbstractAction.JAM.value
+        ):
+            return (EngineAction.ALL_IN.value, player_total)
+        return ('call', 0)
 
     if action == AbstractAction.JAM:
         return (EngineAction.ALL_IN.value, player_total)

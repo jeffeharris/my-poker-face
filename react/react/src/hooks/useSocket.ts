@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
 import { config } from '../config';
+import { createAuthedSocket } from '../utils/socket';
 
 interface UseSocketOptions {
   onConnect?: () => void;
@@ -23,7 +24,7 @@ export function useSocket(url: string = config.SOCKET_URL, options: UseSocketOpt
 
   useEffect(() => {
     if (options.autoConnect !== false) {
-      const socket = io(url, {
+      const socket = createAuthedSocket(url, {
         withCredentials: true,
         ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
       });
@@ -47,7 +48,7 @@ export function useSocket(url: string = config.SOCKET_URL, options: UseSocketOpt
 
   const connect = () => {
     if (!socketRef.current || !socketRef.current.connected) {
-      socketRef.current = io(url, {
+      socketRef.current = createAuthedSocket(url, {
         withCredentials: true,
         ...(SOCKET_TRANSPORTS ? { transports: SOCKET_TRANSPORTS } : {}),
       });

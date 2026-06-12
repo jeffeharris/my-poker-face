@@ -124,6 +124,7 @@ class PokerGameState:
     last_raise_amount: int = ANTE  # Tracks the size of the last raise (defaults to big blind)
     raises_this_round: int = 0  # Track raises for cap enforcement (reset each betting round)
     preflop_raise_count: int = 0  # Hand-scoped count of preflop raises (1=SRP, 2=3BP, 3+=4BP+); survives street resets, used for postflop pot_type classification
+    preflop_opener_idx: int = -1  # Hand-scoped index of the ORIGINAL preflop raiser (first open); -1 = no raise yet. Set when preflop_raise_count goes 0->1, never overwritten within a hand. Lets the preflop classifier tell an opener-faces-3bet from a cold-caller-faces-a-squeeze (the opener's identity is otherwise erased by has_acted/last_action resets on each re-raise). Mirrors preflop_raise_count's survive-resets contract.
     ### FLAGS ###
     pre_flop_action_taken: bool = False
     awaiting_action: bool = False
@@ -154,6 +155,7 @@ class PokerGameState:
             'last_raise_amount': self.last_raise_amount,
             'raises_this_round': self.raises_this_round,
             'preflop_raise_count': self.preflop_raise_count,
+            'preflop_opener_idx': self.preflop_opener_idx,
             'pre_flop_action_taken': self.pre_flop_action_taken,
             'awaiting_action': self.awaiting_action,
             'run_it_out': self.run_it_out,
@@ -584,6 +586,9 @@ def player_raise(game_state, raise_to_amount: int):
     # pot_type classification. Preflop is detected by no community cards dealt.
     if len(game_state.community_cards) == 0:
         raise_updates['preflop_raise_count'] = game_state.preflop_raise_count + 1
+        # The first preflop raise is the original open: stamp the opener seat once.
+        if game_state.preflop_raise_count == 0:
+            raise_updates['preflop_opener_idx'] = game_state.current_player_idx
     game_state = game_state.update(**raise_updates)
     return game_state
 
@@ -618,6 +623,9 @@ def player_all_in(game_state):
         # Preflop all-in raise counts toward the hand-scoped preflop raise count.
         if len(game_state.community_cards) == 0:
             updates['preflop_raise_count'] = game_state.preflop_raise_count + 1
+            # A preflop all-in open is still the original open: stamp it once.
+            if game_state.preflop_raise_count == 0:
+                updates['preflop_opener_idx'] = game_state.current_player_idx
 
         game_state = game_state.update(**updates)
     return game_state

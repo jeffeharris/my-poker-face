@@ -45,6 +45,8 @@ export type { FloatingUserMenuProps } from './FloatingUserMenu';
 
 export { ShuffleLoading } from './ShuffleLoading';
 
+export { Skeleton } from './Skeleton';
+
 export { ActionBadge } from './ActionBadge';
 export type { ActionBadgeProps } from './ActionBadge';
 

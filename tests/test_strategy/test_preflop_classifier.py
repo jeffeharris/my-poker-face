@@ -18,7 +18,9 @@ def _player(name, bet=0):
     return SimpleNamespace(name=name, bet=bet, is_folded=False, stack=1000)
 
 
-def _game(players, dealer_idx=0, current_idx=0, raises=0, ante=50, table_positions=None):
+def _game(
+    players, dealer_idx=0, current_idx=0, raises=0, ante=50, table_positions=None, opener_idx=-1
+):
     """Build a minimal game-state namespace for testing."""
     gs = SimpleNamespace(
         players=tuple(players),
@@ -26,6 +28,7 @@ def _game(players, dealer_idx=0, current_idx=0, raises=0, ante=50, table_positio
         current_player_idx=current_idx,
         raises_this_round=raises,
         current_ante=ante,
+        preflop_opener_idx=opener_idx,
     )
     # Allow caller to supply explicit positions; otherwise derive them
     # using the same logic as PokerGameState.table_positions.
@@ -161,7 +164,7 @@ class TestClassifyPreflopScenario:
         assert opener == "BTN"
 
     def test_vs_3bet(self):
-        """CO opens, BTN 3-bets, CO to act → vs_3bet, opener=BTN (3-bettor)."""
+        """CO opens, BTN 3-bets, CO (the opener) to act → vs_3bet, opener=BTN (3-bettor)."""
         players = [
             _player("P0", bet=450),  # BTN (3-bet to 450)
             _player("P1"),  # SB
@@ -170,11 +173,61 @@ class TestClassifyPreflopScenario:
             _player("P4"),  # HJ
             _player("P5", bet=150),  # CO (original open to 150)
         ]
-        gs = _game(players, dealer_idx=0, current_idx=5, raises=2)
+        gs = _game(players, dealer_idx=0, current_idx=5, raises=2, opener_idx=5)
         scenario, pos, opener = classify_preflop_scenario(gs)
         assert scenario == "vs_3bet"
         assert pos == "CO"
         assert opener == "BTN"
+
+    def test_vs_squeeze_cold_caller(self):
+        """CO opens, BTN cold-calls, SB squeezes (3-bet), BTN (the caller) to act →
+        vs_squeeze, opener=SB (the squeezer/aggressor)."""
+        players = [
+            _player("P0", bet=450),  # BTN cold-called the open, now faces the squeeze
+            _player("P1", bet=900),  # SB squeezed to 900
+            _player("P2", bet=50),  # BB
+            _player("P3"),  # UTG
+            _player("P4"),  # HJ
+            _player("P5", bet=450),  # CO (original opener, also faces the squeeze)
+        ]
+        # CO (P5) opened; BTN (P0) is to act and is NOT the opener → squeeze.
+        gs = _game(players, dealer_idx=0, current_idx=0, raises=2, opener_idx=5)
+        scenario, pos, opener = classify_preflop_scenario(gs)
+        assert scenario == "vs_squeeze"
+        assert pos == "BTN"
+        assert opener == "SB"
+
+    def test_opener_faces_squeeze_is_vs_3bet(self):
+        """Same squeeze, but now the ORIGINAL opener (CO) is to act → vs_3bet,
+        not vs_squeeze: the opener's range is uncapped."""
+        players = [
+            _player("P0", bet=450),  # BTN cold-caller
+            _player("P1", bet=900),  # SB squeezer
+            _player("P2", bet=50),  # BB
+            _player("P3"),  # UTG
+            _player("P4"),  # HJ
+            _player("P5", bet=450),  # CO opener, to act
+        ]
+        gs = _game(players, dealer_idx=0, current_idx=5, raises=2, opener_idx=5)
+        scenario, pos, opener = classify_preflop_scenario(gs)
+        assert scenario == "vs_3bet"
+        assert pos == "CO"
+        assert opener == "SB"
+
+    def test_unknown_opener_falls_back_to_vs_3bet(self):
+        """Defensive: opener_idx == -1 at two raises (shouldn't happen) →
+        vs_3bet, preserving pre-split behavior."""
+        players = [
+            _player("P0", bet=450),
+            _player("P1", bet=900),
+            _player("P2", bet=50),
+            _player("P3"),
+            _player("P4"),
+            _player("P5", bet=450),
+        ]
+        gs = _game(players, dealer_idx=0, current_idx=0, raises=2, opener_idx=-1)
+        scenario, _, _ = classify_preflop_scenario(gs)
+        assert scenario == "vs_3bet"
 
     def test_vs_4bet(self):
         """3+ raises → vs_4bet."""

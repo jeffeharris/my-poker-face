@@ -1,10 +1,19 @@
 import { memo, useState } from 'react';
-import { Check, Crosshair, HandCoins, MessageCircle } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  ChevronsUp,
+  Crosshair,
+  HandCoins,
+  MessageCircle,
+  X,
+} from 'lucide-react';
 import {
   useBettingCalculations,
   createBettingContext,
   type BettingContext,
 } from '../../hooks/useBettingCalculations';
+import { hapticImpact } from '../../utils/haptics';
 import './MobileActionButtons.css';
 
 interface MobileActionButtonsProps {
@@ -58,6 +67,7 @@ export const MobileActionButtons = memo(function MobileActionButtons({
   const [raiseAmount, setRaiseAmount] = useState(calc.safeMinRaiseTo);
 
   const handleRaise = () => {
+    hapticImpact('light');
     // Pre-fill with coach's suggested amount if valid, otherwise use minimum
     const suggestedAmount =
       raiseToAmount && raiseToAmount >= calc.safeMinRaiseTo && raiseToAmount <= calc.safeMaxRaiseTo
@@ -73,6 +83,7 @@ export const MobileActionButtons = memo(function MobileActionButtons({
     const isValidRaise = calc.isValidRaise(raiseAmount) || isAllIn;
 
     if (isValidRaise) {
+      hapticImpact(isAllIn ? 'heavy' : 'medium');
       onAction(isAllIn ? 'all_in' : 'raise', raiseAmount);
       setShowRaiseSheet(false);
     }
@@ -194,7 +205,10 @@ export const MobileActionButtons = memo(function MobileActionButtons({
               key={id}
               className={`quick-bet-btn ${raiseAmount === amount ? 'selected' : ''}`}
               data-testid="quick-bet-btn"
-              onClick={() => setRaiseAmount(amount)}
+              onClick={() => {
+                hapticImpact('light');
+                setRaiseAmount(amount);
+              }}
               disabled={amount > calc.safeMaxRaiseTo}
             >
               {label}
@@ -210,7 +224,10 @@ export const MobileActionButtons = memo(function MobileActionButtons({
               key={id}
               className={`quick-bet-btn ${isCover ? 'cover' : ''} ${raiseAmount === amount ? 'selected' : ''}`}
               data-testid="quick-bet-btn"
-              onClick={() => setRaiseAmount(amount)}
+              onClick={() => {
+                hapticImpact('light');
+                setRaiseAmount(amount);
+              }}
               disabled={amount > calc.safeMaxRaiseTo}
             >
               {label}
@@ -259,9 +276,14 @@ export const MobileActionButtons = memo(function MobileActionButtons({
         <button
           className={`action-btn fold-btn ${recommendedAction === 'fold' ? 'coach-recommended' : ''}`}
           data-testid="action-btn-fold"
-          onClick={() => onAction('fold')}
+          onClick={() => {
+            hapticImpact('light');
+            onAction('fold');
+          }}
         >
-          <span className="action-icon">✕</span>
+          <span className="action-icon">
+            <X />
+          </span>
           <span className="btn-label">Fold</span>
         </button>
       )}
@@ -270,7 +292,10 @@ export const MobileActionButtons = memo(function MobileActionButtons({
         <button
           className={`action-btn check-btn ${recommendedAction === 'check' ? 'coach-recommended' : ''}`}
           data-testid="action-btn-check"
-          onClick={() => onAction('check')}
+          onClick={() => {
+            hapticImpact('light');
+            onAction('check');
+          }}
         >
           <span className="action-icon">
             <Check />
@@ -283,9 +308,14 @@ export const MobileActionButtons = memo(function MobileActionButtons({
         <button
           className={`action-btn call-btn ${recommendedAction === 'call' ? 'coach-recommended' : ''}`}
           data-testid="action-btn-call"
-          onClick={() => onAction('call')}
+          onClick={() => {
+            hapticImpact('medium');
+            onAction('call');
+          }}
         >
-          <span className="action-icon">→</span>
+          <span className="action-icon">
+            <ArrowRight />
+          </span>
           <span className="btn-label">Call ${calc.callAmount}</span>
         </button>
       )}
@@ -296,7 +326,9 @@ export const MobileActionButtons = memo(function MobileActionButtons({
           data-testid="action-btn-raise"
           onClick={handleRaise}
         >
-          <span className="action-icon">↑</span>
+          <span className="action-icon">
+            <ChevronsUp />
+          </span>
           <span className="btn-label">{playerOptions.includes('raise') ? 'Raise' : 'Bet'}</span>
         </button>
       )}

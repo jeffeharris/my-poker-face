@@ -45,6 +45,12 @@ TILT_DRAG_FLOOR = 0.30  # recovery drag at poise->0 while tilted (slower climb-o
 TILT_DRAG_EXP = 2.0  # poise exponent for the drag (shapes the per-temperament spread)
 TILT_SECOND_WIND_K = 15  # consecutive tilted hands before the second-wind escape fires
 TILT_SECOND_WIND_ACCEL = 0.45  # brisk recovery rate once second wind triggers (caps the tail)
+# Probability-rolled tilt-episode duration (EMOTIONAL_SYSTEM_BALANCE.md). On tilt
+# entry, roll D = "hands held in tilt" = round((1-poise)^2 * MAX * U(0,1)); hold (near-
+# freeze recovery) for D hands, then climb out. Steep poise term => hotheads get long
+# episodes, monks ~0; the cap keeps it bounded (non-chronic).
+TILT_EPISODE_MAX_HANDS = 24  # scaling base; hard ceiling at poise=0 (believability bound)
+TILT_EPISODE_HOLD_DRAG = 0.05  # recovery multiplier while holding the episode (~frozen)
 
 
 def _tilt_persistence_enabled() -> bool:
@@ -54,6 +60,17 @@ def _tilt_persistence_enabled() -> bool:
         from core.feature_flags import is_enabled
 
         return is_enabled('TILT_PERSISTENCE_ENABLED')
+    except Exception:
+        return False
+
+
+def _emotional_rebalance_enabled() -> bool:
+    """Live read of EMOTIONAL_REBALANCE_ENABLED; False if the registry is unavailable
+    (sim/test isolation) so the off-path stays byte-identical (current axes)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('EMOTIONAL_REBALANCE_ENABLED')
     except Exception:
         return False
 
@@ -228,6 +245,30 @@ _PRESSURE_IMPACTS: Dict[str, Dict[str, float]] = {
     # confidence/energy bump (looser, friendlier).
     'reputation_villain_intimidation': {'composure': -0.06, 'confidence': -0.03},
     'reputation_legend_warmth': {'confidence': 0.04, 'energy': 0.05},
+}
+
+
+# EMOTIONAL_REBALANCE_ENABLED variant (EMOTIONAL_SYSTEM_BALANCE.md §6.1): conviction
+# (confidence) decoupled from chip-winning — cut the UP pumps so K stops pinning at
+# ~0.96, and concentrate the DOWNs on epistemic (out-read) events. Only the confidence
+# deltas of the listed events change; composure/energy are identical, so off-flag is
+# byte-identical. (New epistemic events shown_a_bluff / hero_call_wrong need detector
+# emission — a later slice; not in this table yet.)
+_REBALANCED_CONF_DELTAS: Dict[str, float] = {
+    'big_win': 0.02,  # was 0.12 — winning chips != validating reads
+    'winning_streak': 0.03,  # was 0.10
+    'successful_bluff': 0.12,  # was 0.20 — real read-confirmation, but half the pump
+    'big_loss': -0.05,  # was -0.15 — composure carries the chip hit, not conviction
+    'bluff_called': -0.22,  # was -0.25 — core conviction-killer, kept strong
+    'losing_streak': -0.10,  # was -0.12 — sustained out-play -> doubt
+}
+_PRESSURE_IMPACTS_REBALANCED: Dict[str, Dict[str, float]] = {
+    ev: (
+        {**impacts, 'confidence': _REBALANCED_CONF_DELTAS[ev]}
+        if ev in _REBALANCED_CONF_DELTAS
+        else impacts
+    )
+    for ev, impacts in _PRESSURE_IMPACTS.items()
 }
 
 
@@ -668,7 +709,10 @@ class PlayerPsychology:
 
     def _get_pressure_impacts(self, event_name: str) -> Dict[str, float]:
         """Get axis impacts for a pressure event."""
-        return _PRESSURE_IMPACTS.get(event_name, {})
+        table = (
+            _PRESSURE_IMPACTS_REBALANCED if _emotional_rebalance_enabled() else _PRESSURE_IMPACTS
+        )
+        return table.get(event_name, {})
 
     def resolve_hand_events(
         self,
@@ -929,6 +973,21 @@ class PlayerPsychology:
         )
         self._mark_updated()
 
+    def _roll_tilt_episode_len(self) -> int:
+        """Roll D = hands held in a tilt episode (EMOTIONAL_SYSTEM_BALANCE.md). Steep
+        in (1 - poise) so volatile low-poise personas get long episodes while high-poise
+        monks roll ~0; capped at TILT_EPISODE_MAX_HANDS (believability bound). Uses an
+        instance-local RNG (no global mutation); sims tolerate run-to-run variation."""
+        rng = getattr(self, '_episode_rng', None)
+        if rng is None:
+            rng = random.Random()
+            self._episode_rng = rng
+        proneness = (1.0 - self.anchors.poise) ** 2
+        # Shift U into [0.4, 1.0] so a triggered episode is meaningfully long (not
+        # frequently ~0, which would fire the brisk exit immediately). proneness gives
+        # the per-temperament spread: hotheads ~E[9] hands, high-poise monks ~0.
+        return int(round(proneness * TILT_EPISODE_MAX_HANDS * (0.4 + 0.6 * rng.random())))
+
     def recover(self, recovery_rate: Optional[float] = None) -> Dict[str, Any]:
         """
         Apply recovery between hands.
@@ -982,7 +1041,23 @@ class PlayerPsychology:
         # keeps it non-chronic). Off => comp_rate == rate => byte-identical.
         comp_rate = rate
         tilt_persist = _tilt_persistence_enabled()
-        if tilt_persist and pre_comp < TILT_LINE:
+        rebalance = _emotional_rebalance_enabled()
+        if rebalance and pre_comp < TILT_LINE:
+            # EMOTIONAL_SYSTEM_BALANCE.md: probability-rolled episode DURATION. On
+            # entry (streak just crossed 0) roll D = "hands in tilt", persona-scaled.
+            # While streak < D, near-freeze composure recovery (HOLD the episode at a
+            # felt, sustained level); once D hands elapse, brisk recovery climbs out.
+            # %time-in-tilt ~= entry-rate x E[D], so D directly tunes frequency, and
+            # D's cap keeps it bounded (non-chronic = believable). `_tilt_streak` is
+            # the episode clock (consecutive tilted hands), maintained below.
+            streak = getattr(self, '_tilt_streak', 0)
+            if streak == 0:
+                self._tilt_episode_len = self._roll_tilt_episode_len()
+            if streak < getattr(self, '_tilt_episode_len', 0):
+                comp_rate = rate * TILT_EPISODE_HOLD_DRAG
+            else:
+                comp_rate = TILT_SECOND_WIND_ACCEL
+        elif tilt_persist and pre_comp < TILT_LINE:
             if getattr(self, '_tilt_streak', 0) >= TILT_SECOND_WIND_K:
                 comp_rate = TILT_SECOND_WIND_ACCEL
             else:
@@ -1016,7 +1091,7 @@ class PlayerPsychology:
         # below the tilt line. Only tracked when the feature is on (off => no new
         # state, byte-identical). Not serialized — a cold-loaded persona just
         # restarts the counter, at most lengthening one episode after a reload.
-        if tilt_persist:
+        if tilt_persist or rebalance:
             self._tilt_streak = (
                 (getattr(self, '_tilt_streak', 0) + 1) if new_comp < TILT_LINE else 0
             )

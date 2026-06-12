@@ -67,9 +67,78 @@ _GUEST_TRACKING_SIGNER_SALT = 'guest-tracking-v1'
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_DELTA = timedelta(days=7)
 
+# Native (mobile) token lifetimes. Native clients hold tokens at rest in the
+# device Keychain/Keystore and refresh them, so the access token is short-lived
+# (limits the blast radius if one leaks) and paired with a long-lived refresh
+# token. The legacy JWT_EXPIRATION_DELTA above still backs generate_token() for
+# any non-browser API client that wants a single long-lived bearer token.
+ACCESS_TOKEN_EXPIRATION = timedelta(hours=1)
+REFRESH_TOKEN_EXPIRATION = timedelta(days=30)
+
 # OAuth state expiration (10 minutes)
 OAUTH_STATE_EXPIRATION = timedelta(minutes=10)
 GUEST_ID_PATTERN = re.compile(r'^guest_[a-f0-9]{32}$')
+
+# Native Google sign-in (mobile) token verification.
+# Mobile apps (iOS/Android) sign in with the native Google SDK, which hands the
+# app a Google ID token rather than running the server-side redirect flow. The
+# /api/auth/google/native endpoint verifies that token directly. We validate the
+# RS256 signature against Google's published JWKS and check issuer/audience
+# ourselves so the same code path works for every platform's client ID.
+GOOGLE_CERTS_URL = 'https://www.googleapis.com/oauth2/v3/certs'
+GOOGLE_ISSUERS = frozenset({'https://accounts.google.com', 'accounts.google.com'})
+
+# Lazily-built, self-caching JWKS client (PyJWT caches signing keys internally
+# for `lifespan` seconds, so we don't refetch Google's certs on every sign-in).
+_google_jwks_client: Optional['jwt.PyJWKClient'] = None
+
+
+def _get_google_jwks_client() -> 'jwt.PyJWKClient':
+    """Return a process-wide cached PyJWKClient for Google's signing keys."""
+    global _google_jwks_client
+    if _google_jwks_client is None:
+        _google_jwks_client = jwt.PyJWKClient(GOOGLE_CERTS_URL, cache_keys=True, lifespan=3600)
+    return _google_jwks_client
+
+
+def verify_google_id_token(id_token: str, allowed_audiences) -> Dict[str, Any]:
+    """Verify a Google-issued ID token from a native mobile sign-in.
+
+    Validates the RS256 signature against Google's JWKS and enforces issuer,
+    audience, expiry, and a verified email. ``allowed_audiences`` is the list of
+    accepted OAuth client IDs (one per platform) — the token is accepted if its
+    ``aud`` matches any of them.
+
+    Returns the decoded claims on success. Raises ValueError on any failure
+    (kept narrow so callers translate it to a single 401).
+    """
+    if not allowed_audiences:
+        raise ValueError("No allowed Google audiences configured")
+    if not id_token:
+        raise ValueError("Missing id_token")
+
+    try:
+        signing_key = _get_google_jwks_client().get_signing_key_from_jwt(id_token)
+        claims = jwt.decode(
+            id_token,
+            signing_key.key,
+            algorithms=['RS256'],
+            audience=list(allowed_audiences),
+            options={'require': ['exp', 'iat', 'aud', 'iss', 'sub']},
+        )
+    except jwt.PyJWTError as e:
+        raise ValueError(f"ID token validation failed: {e}") from e
+
+    if claims.get('iss') not in GOOGLE_ISSUERS:
+        raise ValueError(f"Untrusted issuer: {claims.get('iss')}")
+    if not claims.get('email'):
+        raise ValueError("ID token missing email")
+    # Google sets email_verified=False for unverified addresses; reject those so
+    # an attacker can't claim someone else's email via an unverified account.
+    if claims.get('email_verified') is False:
+        raise ValueError("Google email not verified")
+
+    return claims
 
 
 class AuthManager:
@@ -351,73 +420,27 @@ class AuthManager:
                     logger.error("Missing required user info from Google")
                     return redirect(f"{config.FRONTEND_URL}/?auth=error&message=missing_user_info")
 
-                # Check if user already exists by email
-                existing_user = self.user_repo.get_user_by_email(email)
-
-                # Get guest_id if this was a linking attempt
+                # Get guest_id if this was a linking attempt, then resolve
+                # (find-or-create) the user. Shared with the native sign-in path
+                # so the two flows can't drift apart.
                 guest_id = session.pop('oauth_guest_id', None)
-
-                if existing_user:
-                    # User already exists
-                    if guest_id and not existing_user.get('linked_guest_id'):
-                        # Guest trying to link to existing Google account
-                        # Check if guest has games to transfer
-                        games_transferred = self.user_repo.transfer_game_ownership(
-                            guest_id, existing_user['id'], existing_user['name']
-                        )
-                        if games_transferred > 0:
-                            logger.info(
-                                f"Transferred {games_transferred} games from {guest_id} to {existing_user['id']}"
-                            )
-
-                    # Update last login
-                    self.user_repo.update_user_last_login(existing_user['id'])
-                    user_data = existing_user
-
-                else:
-                    # Create new user
-                    try:
-                        user_data = self.user_repo.create_google_user(
-                            google_sub=google_sub,
-                            email=email,
-                            name=name,
-                            picture=picture,
-                            linked_guest_id=guest_id,
-                        )
-
-                        # Transfer games from guest if linking
-                        if guest_id:
-                            games_transferred = self.user_repo.transfer_game_ownership(
-                                guest_id, user_data['id'], user_data['name']
-                            )
-                            if games_transferred > 0:
-                                logger.info(
-                                    f"Transferred {games_transferred} games from {guest_id} to {user_data['id']}"
-                                )
-
-                    except sqlite3.IntegrityError as e:
-                        # Email already exists (race condition)
-                        logger.warning(f"Race condition creating user: {e}")
-                        existing_user = self.user_repo.get_user_by_email(email)
-                        if existing_user:
-                            user_data = existing_user
-                        else:
-                            return redirect(
-                                f"{config.FRONTEND_URL}/?auth=error&message=user_creation_failed"
-                            )
+                user_data = self._resolve_google_user(
+                    google_sub=google_sub,
+                    email=email,
+                    name=name,
+                    picture=picture,
+                    guest_id=guest_id,
+                )
+                if not user_data:
+                    return redirect(
+                        f"{config.FRONTEND_URL}/?auth=error&message=user_creation_failed"
+                    )
 
                 # Security: Regenerate session before setting authenticated user
                 session.clear()
 
                 # Set session
-                session['user'] = {
-                    'id': user_data['id'],
-                    'email': user_data.get('email'),
-                    'name': user_data['name'],
-                    'picture': user_data.get('picture'),
-                    'is_guest': False,
-                    'created_at': user_data.get('created_at', datetime.utcnow().isoformat()),
-                }
+                session['user'] = self._google_session_user(user_data)
                 session.permanent = True
 
                 logger.info(f"User {user_data['id']} logged in via Google OAuth")
@@ -428,6 +451,118 @@ class AuthManager:
             except Exception as e:
                 logger.exception(f"Google OAuth callback error: {e}")
                 return redirect(f"{config.FRONTEND_URL}/?auth=error&message=oauth_failed")
+
+        @self.app.route('/api/auth/google/native', methods=['POST'])
+        def google_native_login():
+            """Sign in a native (mobile) client from a Google ID token.
+
+            Mobile apps run Google sign-in with the native SDK and POST the
+            resulting ID token here. We verify it server-side, find-or-create the
+            user (sharing logic with the web callback), and return a JWT the app
+            stores in the Keychain/Keystore and sends as ``Authorization: Bearer``
+            (also as the Socket.IO connect auth). This path is stateless: no
+            session cookie is set, so it works identically across iOS/Android
+            without any cookie-jar bridging.
+
+            Body: ``{"id_token": "...", "guest_id": "guest_..."?}``
+            (guest_id is optional and only used to migrate a guest's games.)
+            """
+            from flask_app import config
+
+            data = request.get_json(silent=True) or {}
+            id_token = data.get('id_token')
+            if not id_token:
+                return jsonify({'success': False, 'error': 'id_token is required'}), 400
+
+            allowed_audiences = getattr(config, 'GOOGLE_ALLOWED_AUDIENCES', None) or []
+            if not allowed_audiences:
+                return (
+                    jsonify(
+                        {
+                            'success': False,
+                            'error': 'Native Google sign-in is not configured',
+                        }
+                    ),
+                    503,
+                )
+
+            try:
+                claims = verify_google_id_token(id_token, allowed_audiences)
+            except ValueError as e:
+                logger.warning(f"Native Google ID token rejected: {e}")
+                return jsonify({'success': False, 'error': 'Invalid Google token'}), 401
+
+            # verify_google_id_token guarantees 'sub' (required) and 'email'
+            # (explicitly checked), so these are present here.
+            email = claims['email']
+            google_sub = claims['sub']
+            name = claims.get('name') or (email.split('@')[0] if '@' in email else 'User')
+            picture = claims.get('picture')
+
+            # The app passes the guest_id it currently holds so an anonymous
+            # session's games migrate on first real sign-in. Ignore anything that
+            # isn't a well-formed guest id.
+            guest_id = data.get('guest_id')
+            if guest_id is not None and not self._is_valid_guest_id(guest_id):
+                guest_id = None
+
+            user_data = self._resolve_google_user(
+                google_sub=google_sub,
+                email=email,
+                name=name,
+                picture=picture,
+                guest_id=guest_id,
+            )
+            if not user_data:
+                return (
+                    jsonify({'success': False, 'error': 'Could not resolve user'}),
+                    500,
+                )
+
+            session_user = self._google_session_user(user_data)
+            logger.info(f"User {user_data['id']} logged in via Google native sign-in")
+            return jsonify(
+                {
+                    'success': True,
+                    'user': session_user,
+                    'token': self.generate_access_token(session_user),
+                    'refresh_token': self.generate_refresh_token(session_user['id']),
+                    'expires_in': int(ACCESS_TOKEN_EXPIRATION.total_seconds()),
+                }
+            )
+
+        @self.app.route('/api/auth/token/refresh', methods=['POST'])
+        def refresh_token():
+            """Exchange a valid refresh token for a fresh access token.
+
+            Stateless and bearer-only (no cookies), so it carries no CSRF
+            requirement (exempted in flask_app.csrf). The refresh token is
+            rotated on every use; identity is re-read from the DB so name /
+            permission changes take effect on the next refresh.
+            """
+            data = request.get_json(silent=True) or {}
+            user_id = self.decode_refresh_token(data.get('refresh_token'))
+            if not user_id:
+                return (
+                    jsonify({'success': False, 'error': 'Invalid refresh token'}),
+                    401,
+                )
+
+            user_row = self.user_repo.get_user_by_id(user_id) if self.user_repo else None
+            # Refresh tokens are only issued to real (non-guest) accounts.
+            if not user_row or user_row.get('is_guest'):
+                return jsonify({'success': False, 'error': 'User not found'}), 401
+
+            session_user = self._google_session_user(user_row)
+            return jsonify(
+                {
+                    'success': True,
+                    'user': session_user,
+                    'token': self.generate_access_token(session_user),
+                    'refresh_token': self.generate_refresh_token(user_id),
+                    'expires_in': int(ACCESS_TOKEN_EXPIRATION.total_seconds()),
+                }
+            )
 
     @staticmethod
     def _is_valid_guest_id(guest_id: Optional[str]) -> bool:
@@ -612,11 +747,7 @@ class AuthManager:
             auth_header = request.headers.get('Authorization')
             if auth_header and auth_header.startswith('Bearer '):
                 token = auth_header.split(' ')[1]
-                try:
-                    payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-                    user = payload.get('user')
-                except jwt.InvalidTokenError as e:
-                    logger.debug(f"Invalid JWT token: {e}")
+                user = self.get_user_from_token(token)
 
                 # Check for guest_id cookie and restore session if valid.
                 # The cookie is signed (T1-26); _unsign_guest_id returns
@@ -650,10 +781,165 @@ class AuthManager:
 
         return user
 
+    def _resolve_google_user(
+        self,
+        *,
+        google_sub: str,
+        email: str,
+        name: str,
+        picture: Optional[str],
+        guest_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Find-or-create the user behind a verified Google identity.
+
+        Shared by the web OAuth callback and the native sign-in endpoint. When a
+        ``guest_id`` is supplied (anonymous session linking into a real account),
+        the guest's games are transferred to the resolved user.
+
+        Returns the user record, or ``None`` if creation failed unrecoverably
+        (callers translate that to their own error response).
+        """
+        existing_user = self.user_repo.get_user_by_email(email)
+
+        if existing_user:
+            if guest_id and not existing_user.get('linked_guest_id'):
+                # Guest linking into an existing Google account: move their games.
+                games_transferred = self.user_repo.transfer_game_ownership(
+                    guest_id, existing_user['id'], existing_user['name']
+                )
+                if games_transferred > 0:
+                    logger.info(
+                        f"Transferred {games_transferred} games from {guest_id} to {existing_user['id']}"
+                    )
+            self.user_repo.update_user_last_login(existing_user['id'])
+            return existing_user
+
+        try:
+            user_data = self.user_repo.create_google_user(
+                google_sub=google_sub,
+                email=email,
+                name=name,
+                picture=picture,
+                linked_guest_id=guest_id,
+            )
+            if guest_id:
+                games_transferred = self.user_repo.transfer_game_ownership(
+                    guest_id, user_data['id'], user_data['name']
+                )
+                if games_transferred > 0:
+                    logger.info(
+                        f"Transferred {games_transferred} games from {guest_id} to {user_data['id']}"
+                    )
+            return user_data
+        except sqlite3.IntegrityError as e:
+            # Lost a create race against a concurrent sign-in — fall back to the
+            # row the winner inserted.
+            logger.warning(f"Race condition creating user: {e}")
+            return self.user_repo.get_user_by_email(email)
+
+    @staticmethod
+    def _google_session_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Canonical authenticated-user dict for a Google account.
+
+        Used both for the web session and as the JWT payload's ``user`` so the
+        cookie and bearer-token paths carry identical identity. Permissions are
+        resolved per-request from the user id (see ``/api/auth/me``), not baked
+        in here.
+        """
+        return {
+            'id': user_data['id'],
+            'email': user_data.get('email'),
+            'name': user_data['name'],
+            'picture': user_data.get('picture'),
+            'is_guest': False,
+            'created_at': user_data.get('created_at', datetime.utcnow().isoformat()),
+        }
+
     def generate_token(self, user_data: Dict[str, Any]) -> str:
-        """Generate a JWT token for the user."""
+        """Generate a long-lived JWT (legacy API-client token)."""
         payload = {'user': user_data, 'exp': datetime.utcnow() + JWT_EXPIRATION_DELTA}
         return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+    def generate_access_token(self, user_data: Dict[str, Any]) -> str:
+        """Generate a short-lived access token (native sign-in)."""
+        payload = {
+            'user': user_data,
+            'type': 'access',
+            'exp': datetime.utcnow() + ACCESS_TOKEN_EXPIRATION,
+        }
+        return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+    def generate_refresh_token(self, user_id: str) -> str:
+        """Generate a long-lived refresh token bound to a user id.
+
+        Carries only the user id (not the full user dict) so a refresh always
+        re-reads fresh identity/permissions from the DB rather than trusting a
+        stale snapshot baked into the token.
+        """
+        payload = {
+            'sub': user_id,
+            'type': 'refresh',
+            'exp': datetime.utcnow() + REFRESH_TOKEN_EXPIRATION,
+        }
+        return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+    def get_user_from_token(self, token: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Decode a bearer access (or legacy) token into a user dict.
+
+        Returns None for missing/invalid/expired tokens, and explicitly rejects
+        a refresh token being presented for access.
+        """
+        if not token:
+            return None
+        try:
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        except jwt.InvalidTokenError as e:
+            logger.debug(f"Invalid JWT token: {e}")
+            return None
+        if payload.get('type') == 'refresh':
+            logger.debug("Refresh token presented as access token; rejecting")
+            return None
+        return payload.get('user')
+
+    def decode_refresh_token(self, token: Optional[str]) -> Optional[str]:
+        """Return the user id from a valid refresh token, else None."""
+        if not token:
+            return None
+        try:
+            payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        except jwt.InvalidTokenError as e:
+            logger.debug(f"Invalid refresh token: {e}")
+            return None
+        if payload.get('type') != 'refresh':
+            return None
+        return payload.get('sub')
+
+    def authenticate_socket(self, auth: Any) -> Optional[Dict[str, Any]]:
+        """Resolve (and persist) the user for a Socket.IO connection.
+
+        Browser clients authenticate via the handshake session cookie, which
+        ``get_current_user`` already sees. Native clients can't set custom
+        headers on a WebSocket upgrade, so they pass their access token in the
+        Socket.IO ``auth`` payload (``{'token': '...'}``). When that's how the
+        socket authenticates, we stash the user in the socket session so every
+        later event's ``get_current_user()`` resolves it without re-decoding.
+
+        Returns the user dict if authenticated, else None.
+        """
+        user = self.get_current_user()
+        if user:
+            return user
+
+        token = auth.get('token') if isinstance(auth, dict) else None
+        if isinstance(token, str) and token.startswith('Bearer '):
+            token = token.split(' ', 1)[1]
+
+        user = self.get_user_from_token(token)
+        if user:
+            # Persist into the socket session for subsequent events.
+            session['user'] = user
+            session.permanent = True
+        return user
 
     def require_auth(self, f):
         """Decorator to require authentication for a route."""

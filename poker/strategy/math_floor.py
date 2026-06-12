@@ -94,8 +94,7 @@ def apply_pot_odds_floor(
             layer_order=layer_order,
         )
 
-    # Short-circuit: nothing to do when we're not facing a call, or call
-    # isn't even on the table (e.g. all-in already locked, action closed).
+    # Short-circuit: nothing to do when we're not facing a call.
     if cost_to_call <= 0:
         return strategy, make_no_op_trace(
             layer='math_floor',
@@ -103,7 +102,16 @@ def apply_pot_odds_floor(
             layer_order=layer_order,
             reason_code='no_call_facing',
         )
-    if 'call' not in legal_actions:
+    # Bail only when continuing is genuinely impossible — neither a flat
+    # call NOR an all-in call-off is legal (action closed). When the bet
+    # exceeds our stack the engine offers ['fold', 'all_in'] (no 'call'):
+    # that is a call-off, not a closed action, and it is *exactly* the
+    # pot-committed / short-stack spot this floor exists to rescue. The
+    # downstream resolver (resolve_postflop_sizing) translates an abstract
+    # 'call' into all_in when 'call' is illegal but 'all_in' is legal, so
+    # the rules below can emit 'call' here unchanged. Mirrors the call-off
+    # handling in _facing_all_in_preflop_veto.
+    if 'call' not in legal_actions and 'all_in' not in legal_actions:
         return strategy, make_no_op_trace(
             layer='math_floor',
             rule_id='default',

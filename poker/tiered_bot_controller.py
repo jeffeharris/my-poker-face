@@ -39,6 +39,7 @@ from .strategy.exploitation import (
     compute_multiway_cbet_intensity,
     compute_value_vs_station_intensity,
     is_value_vs_station_enabled,
+    reshove_fold_equity_ok,
     select_primary_aggressor,
 )
 from .strategy.expression_context import ExpressionContext
@@ -54,8 +55,13 @@ from .strategy.multiway import apply_multiway_adjustment
 from .strategy.personality_modifier import apply_river_bluff_guardrail, modify_strategy
 from .strategy.postflop_classifier import build_postflop_node
 from .strategy.postflop_commit import apply_postflop_commit
-from .strategy.preflop_classifier import build_preflop_node
-from .strategy.push_fold import PUSH_FOLD_THRESHOLD_BB, lookup_push_fold_action
+from .strategy.preflop_classifier import build_preflop_node, get_6max_position
+from .strategy.push_fold import (
+    PUSH_FOLD_THRESHOLD_BB,
+    lookup_push_fold_action,
+    lookup_push_fold_action_6max,
+    reshove_action_6max,
+)
 from .strategy.short_stack import apply_short_stack_heuristics
 from .strategy.sizing_tendencies import (
     SizeContext,
@@ -309,6 +315,59 @@ def _tilt_erratic_enabled() -> bool:
         return is_enabled('TILT_ERRATIC_READS_ENABLED')
     except Exception:
         return False
+
+
+def _reshove_6max_enabled() -> bool:
+    """Live read of PUSH_FOLD_6MAX_RESHOVE_ENABLED; False if the registry is
+    unavailable so the off-path falls through (byte-identical to no reshove)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('PUSH_FOLD_6MAX_RESHOVE_ENABLED')
+    except Exception:
+        return False
+
+
+# ── Bluff-aware vs_3bet exploit (per-persona `vs3bet_exploit` knob) ─────────────
+# Facing a 3-bet, defending to MDF (the base chart) is unexploitable but leaves EV
+# on the table vs a villain whose 3-bet range is value-heavy. This runtime layer
+# reads the villain's bluff fraction β from vs_open and, when the villain
+# under-bluffs (β < the balanced reference), folds more of hero's MARGINAL continue
+# — the thin calls at the bottom of the range — while leaving value 4-bets and core
+# flats. The base chart stays the GTO/MDF baseline; this is the per-player dial.
+VS3BET_EXPLOIT_DEFAULT = 0.5  # moderate — the field default for every tiered persona
+VS3BET_BLUFF_REF = 0.40  # balanced 3-bet bluff fraction; at/above this → no exploit
+VS3BET_EXPLOIT_SCALE = 0.6  # maps (ref − β)·knob to a per-hand call→fold shift
+VS3BET_VALUE_CLIFF = 0.50  # villain raise_3x ≥ this = value (mirrors build_vs3bet_defense)
+
+
+def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
+    """β = bluff combos / total combos of the villain's 3-bet range, read from
+    ``vs_open[villain_vs_hero].raise_3x`` (a hand is a bluff when its 3-bet weight
+    is < VS3BET_VALUE_CLIFF). Returns None when the villain's vs_open node isn't
+    populated (e.g. HU tables or a chart without that matchup)."""
+    from .strategy.lints import _combos, canonical_hands
+    from .strategy.nodes import PreflopNode
+
+    total = bluff = 0.0
+    found = False
+    for h in canonical_hands():
+        prof = preflop_table.lookup_preflop(
+            PreflopNode(hand=h, position=villain, scenario='vs_open', opener_position=hero)
+        )
+        if prof is None:
+            continue
+        w = prof.action_probabilities.get('raise_3x', 0.0)
+        if w <= 0:
+            continue
+        found = True
+        c = _combos(h) * w
+        total += c
+        if w < VS3BET_VALUE_CLIFF:
+            bluff += c
+    if not found or total <= 0:
+        return None
+    return bluff / total
 
 
 class TieredBotController(AIPlayerController):
@@ -594,6 +653,37 @@ class TieredBotController(AIPlayerController):
                     _skill,
                     player_name,
                 )
+
+        # Per-personality opt-in for the short-stack Nash push/fold charts (HU +
+        # 6max). The charts are GTO-perfect open-jam / call-off ranges below
+        # PUSH_FOLD_THRESHOLD_BB; handing them to the whole tiered field makes
+        # even the donors (calling_station / weak_fish) play a flawless 15bb
+        # game, which contradicts fish-as-donor and reads as unbelievable. So
+        # the weapon is opt-in: only personas carrying `"push_fold_nash": true`
+        # use it; everyone else falls through to the deep-stack / short_stack.py
+        # heuristic (jam-or-fold mass suppression — leaky but human). Skill tier
+        # is the wrong proxy (flavour-assigned, postflop-aggression axis, ~half
+        # the cast is "shark"), so this is a dedicated flag on a curated few.
+        # Default OFF on the live path. Sims/tests bypass __init__ (build via
+        # __new__) and never set this attribute, so the gate reads a default of
+        # True for them — existing push/fold routing tests stay byte-identical.
+        self.push_fold_nash_enabled: bool = bool(
+            isinstance(_pcfg, dict) and _pcfg.get('push_fold_nash')
+        )
+
+        # Per-personality bluff-aware vs_3bet exploit knob (0=off/GTO, ~0.5=moderate
+        # default, 1.0=strong). The base vs_3bet chart is the GTO/MDF baseline; this
+        # runtime layer (see _apply_vs3bet_bluff_exploit) is the per-player dial that
+        # folds more of the marginal continue vs a value-heavy 3-bettor. Default
+        # MODERATE for the whole field; a persona sets "vs3bet_exploit": <0..1> in
+        # personalities.json to deviate. Sims/tests bypass __init__ (build via
+        # __new__); the live path reads getattr(..., 0.0) so they no-op unless set.
+        self.vs3bet_exploit: float = (
+            float(_pcfg['vs3bet_exploit'])
+            if isinstance(_pcfg, dict) and 'vs3bet_exploit' in _pcfg
+            else VS3BET_EXPLOIT_DEFAULT
+        )
+        self._vs3bet_beta_cache: Dict = {}
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1016,6 +1106,10 @@ class TieredBotController(AIPlayerController):
             num_seated,
         )
         if push_fold_action is not None:
+            # push_fold_action is an abstract token ('jam'/'fold'/'call'). A
+            # caller-table 'call' that is a call-off (engine offers only
+            # 'all_in') is resolved to all_in centrally in resolve_preflop_sizing
+            # (it's passed valid_actions) — no per-producer pre-translation here.
             base_strategy = StrategyProfile(action_probabilities={push_fold_action: 1.0})
             if self.debug_logging:
                 logger.info(
@@ -1026,6 +1120,7 @@ class TieredBotController(AIPlayerController):
         else:
             base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
             self._last_pipeline_snapshot['push_fold_routed'] = False
+            base_strategy = self._apply_vs3bet_bluff_exploit(base_strategy, node, preflop_table)
 
         if self.debug_logging:
             logger.info(
@@ -1061,7 +1156,7 @@ class TieredBotController(AIPlayerController):
             self._last_pipeline_snapshot['sampled_abstract_action'] = veto_action
 
             game_action, raise_to = resolve_preflop_sizing(
-                veto_action, game_state, player_idx, rng=self.rng
+                veto_action, game_state, player_idx, rng=self.rng, valid_actions=valid_actions
             )
             if game_action not in valid_actions:
                 game_action, raise_to = self._validate_action(game_action, raise_to, valid_actions)
@@ -1259,6 +1354,7 @@ class TieredBotController(AIPlayerController):
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
             size_multiplier=size_multiplier,
+            valid_actions=valid_actions,
         )
 
         if game_action not in valid_actions:
@@ -1748,6 +1844,7 @@ class TieredBotController(AIPlayerController):
             player_idx,
             rng=self.rng,
             sizing_jitter=getattr(self, 'sizing_jitter', 0.0),
+            valid_actions=valid_actions,
         )
 
         # 9. Validate action is legal
@@ -3957,15 +4054,17 @@ class TieredBotController(AIPlayerController):
         back toward a jam.
 
         Returns `(profile, abstract_action, equity, required_equity)` when it
-        fires — a pure `{action: 1.0}` profile where `action` is `'call'`,
-        `'jam'`, or `'fold'`. Returns None when not facing an all-in, when the
+        fires — a pure `{action: 1.0}` profile where `action` is `'call'` or
+        `'fold'`. Returns None when not facing an all-in, when the
         pot-odds/equity can't be computed, or when neither call nor fold is
         legal (caller keeps the normal chart path).
 
-        Never emits a *voluntary* re-jam: 'jam' is returned only when calling
-        the shove already commits hero's whole stack (call is illegal, so
-        jam == call mechanically). When hero covers the shove, the continue
-        action stays a flat 'call' — exactly the over-commit the stub got wrong.
+        Never emits a *voluntary* re-jam. The continue action is always the
+        abstract `'call'`; `resolve_preflop_sizing` (passed valid_actions) turns
+        it into all_in only when calling the shove is itself a call-off (call
+        illegal, only all_in legal) — i.e. jam == call mechanically. When hero
+        covers the shove it stays a flat 'call' — the over-commit the stub got
+        wrong.
         """
         ctx = self._build_decision_context(game_state, player_idx)
         if not (ctx.is_preflop and ctx.facing_all_in):
@@ -3984,15 +4083,12 @@ class TieredBotController(AIPlayerController):
             return None
 
         if equity >= required:
-            # Continue. Flat-call when hero covers; if calling the shove is
-            # itself all-in (engine drops 'call', offers only 'all_in'), the
-            # continue IS a jam mechanically — no extra chips at risk.
-            if 'call' in valid_actions:
-                action = 'call'
-            elif 'all_in' in valid_actions:
-                action = 'jam'
-            else:
+            # Continue. Emit the abstract 'call'; resolve_preflop_sizing turns
+            # it into all_in iff calling is a call-off (call illegal, only
+            # all_in legal). Bail only if neither continue action is legal.
+            if 'call' not in valid_actions and 'all_in' not in valid_actions:
                 return None
+            action = 'call'
         else:
             if 'fold' not in valid_actions:
                 return None
@@ -4187,6 +4283,54 @@ class TieredBotController(AIPlayerController):
             required_equity=bet_class.required_equity,
         )
 
+    def _vs3bet_bluff_fraction(self, hero: str, villain: str, preflop_table):
+        """Villain's 3-bet bluff fraction β for this node, cached per
+        (table, hero, villain). See _compute_vs3bet_bluff_fraction."""
+        cache = getattr(self, '_vs3bet_beta_cache', None)
+        if cache is None:
+            cache = self._vs3bet_beta_cache = {}
+        key = (id(preflop_table), hero, villain)
+        if key not in cache:
+            cache[key] = _compute_vs3bet_bluff_fraction(preflop_table, hero, villain)
+        return cache[key]
+
+    def _apply_vs3bet_bluff_exploit(self, strategy, node, preflop_table):
+        """Per-persona bluff-aware vs_3bet exploit (see __init__ `vs3bet_exploit`).
+
+        Against a value-heavy 3-bettor (bluff fraction β below the balanced
+        reference) shift `s = (BLUFF_REF − β)·knob·SCALE` of hero's `call` mass to
+        `fold`. The shift is a per-hand absolute subtraction, so it folds the thin
+        marginal continues (the bottom of the range, at the junk-call floor) almost
+        entirely while barely touching core flats, and never touches the value
+        4-bet (`raise_2.2x`). No-op outside vs_3bet, with knob 0, or vs a villain
+        at/above the balanced bluff reference (don't over-fold vs a polarized
+        3-bettor). The base chart stays the GTO/MDF baseline."""
+        if getattr(node, 'scenario', '') != 'vs_3bet':
+            return strategy
+        knob = getattr(self, 'vs3bet_exploit', 0.0)
+        if knob <= 0:
+            return strategy
+        beta = self._vs3bet_bluff_fraction(node.position, node.opener_position, preflop_table)
+        if beta is None or beta >= VS3BET_BLUFF_REF:
+            return strategy
+        s = (VS3BET_BLUFF_REF - beta) * knob * VS3BET_EXPLOIT_SCALE
+        probs = dict(strategy.action_probabilities)
+        call = probs.get('call', 0.0)
+        new_call = max(0.0, call - s)
+        moved = call - new_call
+        if moved <= 0:
+            return strategy
+        probs['call'] = new_call
+        probs['fold'] = probs.get('fold', 0.0) + moved
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if isinstance(snap, dict):
+            snap['vs3bet_bluff_exploit'] = {
+                'beta': round(beta, 4),
+                'knob': knob,
+                'call_to_fold_shift': round(moved, 4),
+            }
+        return StrategyProfile(action_probabilities=probs)
+
     def _try_push_fold_lookup(
         self,
         canonical_hand: str,
@@ -4199,21 +4343,27 @@ class TieredBotController(AIPlayerController):
 
         Returns the abstract action ('jam', 'fold', or 'call') when the
         situation is in scope for push/fold; None when the deep-stack
-        table should handle it (deep stacks, multi-way, not HU, etc.).
+        table should handle it (deep stacks, out-of-scope spot, etc.).
 
-        v1 scope: HU only (num_seated == 2), stack <= 15 BB effective.
-        Multi-way short-stack falls through to the existing short_stack.py
-        heuristic which suppresses medium raises rather than enforcing
-        a strict push/fold.
+        Scope: effective stack <= 15 BB.
+          - HU (num_seated == 2)        -> HU chart (SB open / BB call-vs-jam).
+          - 3-6 handed (num_seated > 2) -> 6max chart (per-position unopened
+            jams + the bb_vs_sb / bb_vs_late caller tables). 7+ handed is out of
+            the chart's calibration and falls through (the lookup gates it).
+        Spots not covered (a non-blind hero facing a non-all-in raise, a BB
+        walk, etc.) fall through to the deep-stack / short_stack.py path.
+
+        Gated on the per-persona `push_fold_nash` opt-in (see __init__): only
+        blessed "skilled" characters use the Nash charts; everyone else falls
+        through so the donors keep their leaky-but-human short game. Sims/tests
+        build via __new__ and don't set the attribute, so they default to True.
         """
-        # HU-only for v1
-        if num_seated != 2:
+        if not getattr(self, 'push_fold_nash_enabled', True):
             return None
 
-        # Effective stack in big blinds. Routed through the shared stack_utils
-        # helper (total = stack + committed bet) — previously an inline copy
-        # that was the *correct* version while stack_utils omitted `bet`; the
-        # two are now one path so they cannot drift.
+        # Effective stack in big blinds (shared by both paths). Routed through
+        # the shared stack_utils helper (total = stack + committed bet) so the
+        # HU and multi-way paths can't drift from the deep-stack accounting.
         try:
             big_blind = game_state.current_ante or 0
             if big_blind <= 0:
@@ -4232,7 +4382,21 @@ class TieredBotController(AIPlayerController):
         if eff_bb > PUSH_FOLD_THRESHOLD_BB:
             return None
 
-        # Determine hero position (SB or BB only for HU)
+        if num_seated == 2:
+            return self._try_push_fold_hu(canonical_hand, game_state, player_idx, big_blind, eff_bb)
+        return self._try_push_fold_6max(
+            canonical_hand, game_state, player_idx, num_seated, big_blind, eff_bb
+        )
+
+    def _try_push_fold_hu(
+        self,
+        canonical_hand: str,
+        game_state,
+        player_idx: int,
+        big_blind: float,
+        eff_bb: float,
+    ) -> Optional[str]:
+        """HU short-stack push/fold (SB open / BB call-vs-SB-jam)."""
         try:
             if player_idx == game_state.small_blind_idx:
                 position = 'SB'
@@ -4243,11 +4407,10 @@ class TieredBotController(AIPlayerController):
         except AttributeError:
             return None
 
-        # Is hero facing a jam? BB facing an SB all-in is the only
-        # situation where the push/fold chart's bb_vs_jam scenario fires.
+        # Is hero facing a jam? BB facing an SB all-in is the only HU spot
+        # where the chart's bb_vs_jam scenario fires.
         facing_jam = False
         if position == 'BB':
-            # Check if SB has gone all-in on this street
             sb_idx = game_state.small_blind_idx
             sb_player = game_state.players[sb_idx]
             sb_stack_remaining = getattr(sb_player, 'stack', 1)
@@ -4264,6 +4427,153 @@ class TieredBotController(AIPlayerController):
             num_opponents=1,
             facing_jam=facing_jam,
         )
+
+    def _try_push_fold_6max(
+        self,
+        canonical_hand: str,
+        game_state,
+        player_idx: int,
+        num_seated: int,
+        big_blind: float,
+        eff_bb: float,
+    ) -> Optional[str]:
+        """Multi-way short-stack push/fold via the 6max chart.
+
+        Three in-scope spots:
+          1. Unopened, truly first-in (folded to hero, no raise AND no limper):
+             hero (UTG/HJ/CO/BTN/SB) jams or folds from the `unopened` chart.
+             BB unopened (a walk) isn't in the chart -> None.
+          2. BB facing a SINGLE all-in with no larger live raise on top of it:
+             call or fold from the caller tables -- bb_vs_sb when the jammer is
+             the SB, else bb_vs_late. The caller tables are BB-vs-jam only, so a
+             non-BB hero facing a jam falls through.
+          3. Reshove: hero facing a SINGLE non-all-in open jams or folds from the
+             `reshove` table. Gated behind PUSH_FOLD_6MAX_RESHOVE_ENABLED (the
+             ranges are [L]); detection lives in the shared, controller-agnostic
+             `reshove_action_6max`, which fail-closes on 3-bet+ wars, cold-caller
+             multiway, and limped pots.
+
+        Returns None for any other multi-way short-stack spot (limped / iso
+        pots, a 3-bet+ war, a short all-in under a larger live raise, 2+
+        opponents already all-in, or reshove with the flag off) so the
+        deep-stack / short_stack.py path keeps handling them.
+        """
+        position = get_6max_position(game_state, player_idx)
+
+        active_opps = [
+            (i, p)
+            for i, p in enumerate(game_state.players)
+            if i != player_idx and not getattr(p, 'is_folded', False)
+        ]
+
+        # All-in opponents to face on this street: active opponents with 0 stack
+        # remaining whose committed bet exceeds the big blind.
+        jammer_indices = [
+            i
+            for i, p in active_opps
+            if getattr(p, 'stack', 1) == 0 and getattr(p, 'bet', 0) > big_blind
+        ]
+
+        # The caller tables (bb_vs_sb / bb_vs_late) model a SINGLE jammer. A
+        # multi-way all-in (2+ opponents already jammed) is a distinct, tighter
+        # spot the v1 chart doesn't represent — applying a single-jammer range
+        # there would over-call. Defer it (like reshove) to the deep-stack /
+        # short_stack.py path rather than return a wrong range.
+        if len(jammer_indices) > 1:
+            return None
+
+        if jammer_indices:
+            jammer_idx = jammer_indices[0]
+            jammer_bet = getattr(game_state.players[jammer_idx], 'bet', 0)
+            # If a LIVE (non-all-in) raise tops the all-in, hero is facing that
+            # raise — the short all-in is just a covered side-pot, not the jam
+            # the caller table models. That's a facing-a-raise / reshove spot
+            # (v2) → fall through.
+            highest_opp_bet = max((getattr(p, 'bet', 0) for _, p in active_opps), default=0)
+            if highest_opp_bet > jammer_bet:
+                return None
+            opener_position = get_6max_position(game_state, jammer_idx)
+            return lookup_push_fold_action_6max(
+                hand=canonical_hand,
+                position=position,
+                effective_stack_bb=eff_bb,
+                num_players=num_seated,
+                facing_jam=True,
+                opener_position=opener_position,
+            )
+
+        # Unopened = truly first-in (folded to hero). Two things break that and
+        # must fall through, since the unopened chart assumes no prior action:
+        #   - a raise (raises_this_round > 0), or
+        #   - a limper: a non-blind opponent who voluntarily matched the BB
+        #     without raising. A call doesn't bump raises_this_round (see
+        #     poker_game.player_call), so over-limp / iso spots would otherwise
+        #     wrongly get first-in jam ranges.
+        if getattr(game_state, 'raises_this_round', 0) != 0:
+            # Facing a live (non-all-in) raise — not first-in. Reshove (jam over
+            # a single open) is the in-scope spot here, gated behind
+            # PUSH_FOLD_6MAX_RESHOVE_ENABLED; reshove_action_6max fail-closes on
+            # 3-bet wars / cold-callers / multiway (returns None → fall through).
+            # The fold-equity gate declines reshoves vs openers who won't fold
+            # (stations/maniacs) — reshoving them is pure spew (-EV, validated).
+            if _reshove_6max_enabled():
+                return reshove_action_6max(
+                    canonical_hand,
+                    game_state,
+                    player_idx,
+                    num_seated,
+                    big_blind,
+                    eff_bb,
+                    opener_fold_equity_ok=lambda oi: self._reshove_opener_fold_equity_ok(
+                        oi, game_state
+                    ),
+                )
+            return None
+        for i, p in active_opps:
+            # The BB is the only opponent legitimately in for the big blind when
+            # first-in; any OTHER opponent who has matched/exceeded it without
+            # raising is a limper (no all-in here — those took the jam branch).
+            if get_6max_position(game_state, i) != 'BB' and getattr(p, 'bet', 0) >= big_blind:
+                return None  # a limper sits in front → not first-in
+
+        return lookup_push_fold_action_6max(
+            hand=canonical_hand,
+            position=position,
+            effective_stack_bb=eff_bb,
+            num_players=num_seated,
+            facing_jam=False,
+        )
+
+    def _reshove_opener_fold_equity_ok(self, opener_idx: int, game_state) -> bool:
+        """Read-based fold-equity gate for a reshove vs the opener at
+        `opener_idx`. True only when this hero has a confident read that the
+        opener folds enough for the jam to carry fold equity (see
+        exploitation.reshove_fold_equity_ok). No opponent model, no read, or a
+        station/maniac opener → False (decline the reshove → fall through).
+
+        Conservative by design: reshoving into an opener who won't fold is
+        ~-35 bb/100 (validated), while declining is ~neutral, so the no-read
+        default is False.
+        """
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return False
+        try:
+            opener_name = game_state.players[opener_idx].name
+        except (AttributeError, IndexError):
+            return False
+        model = manager.get_model(self.player_name, opener_name)
+        t = getattr(model, 'tendencies', None)
+        if t is None:
+            return False
+        # Only the fields reshove_fold_equity_ok actually reads: hands_observed,
+        # vpip_per_voluntary_opportunity, all_in_frequency (the rest default).
+        stats = AggregatedOpponentStats(
+            hands_observed=t.hands_observed,
+            all_in_frequency=t.all_in_frequency,
+            vpip_per_voluntary_opportunity=getattr(t, 'vpip_per_voluntary_opportunity', 0.5),
+        )
+        return reshove_fold_equity_ok(stats)
 
     def _zone_to_tilt_factor(self, emotional_state) -> float:
         """Map emotional_state -> exploitation-strength multiplier (0..1).

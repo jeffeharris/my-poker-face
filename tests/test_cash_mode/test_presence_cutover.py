@@ -41,7 +41,6 @@ def conn(tmp_path):
 
 def _authority(monkeypatch):
     monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", True)
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False)
 
 
 def _table(table_id, seats):
@@ -73,7 +72,6 @@ def _emit(conn, new_table, old_blob=None, idle_metadata=None):
 
 def test_flag_off_writes_nothing(conn, monkeypatch):
     monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False)
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", False)
     _emit(conn, _table(TID, [ai_slot("a", 100)]))
     assert conn.execute("SELECT COUNT(*) FROM entity_presence").fetchone()[0] == 0
 
@@ -229,14 +227,6 @@ def test_apply_integrity_raises_in_authority_swallows_in_shadow(conn):
         raise_on_integrity=False,
     )
     assert _state(conn, ai_entity_id("alice")) is None  # swallowed
-
-
-def test_shadow_mode_never_raises(conn, monkeypatch):
-    monkeypatch.setattr(economy_flags, "PRESENCE_AUTHORITY_ENABLED", False)
-    monkeypatch.setattr(economy_flags, "PRESENCE_SHADOW_WRITE_ENABLED", True)
-    # even a degenerate table shouldn't raise in shadow mode
-    _emit(conn, _table(TID, [ai_slot("a", 1)]))
-    assert _state(conn, ai_entity_id("a")) == ("seated", TID, 0)
 
 
 def test_apply_illegal_transition_raises_under_authority(conn):

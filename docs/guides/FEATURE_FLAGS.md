@@ -2,7 +2,7 @@
 purpose: How to declare, read, resolve, and retire feature flags via the central registry
 type: guide
 created: 2026-06-07
-last_updated: 2026-06-08
+last_updated: 2026-06-10
 ---
 
 # Feature Flags
@@ -76,6 +76,11 @@ register(FeatureFlag(
 Do **not** add a new `os.environ.get("MY_FEATURE_ENABLED")` anywhere else —
 `tests/test_feature_flags.py::test_flags_are_only_read_through_the_registry`
 fails if a registered flag is read via a raw env construct outside the registry.
+And do **not** wrap env reads in a local boolean helper (`_bool_env(name)` etc.):
+a variable-name read slips the per-flag guard, so
+`test_no_adhoc_bool_env_helpers` bans defining one — boolean toggles go through
+`is_enabled`. (Integer/string env helpers like `_int_env` for numeric tunables
+are fine.)
 
 If the flag is an EXPERIMENTAL **economy** flag, also add it to
 `tests/conftest.py::RESET_ECONOMY_FLAGS` (the drift guard
@@ -161,8 +166,8 @@ prod (read from the dev `.env` and the running prod container, 2026-06-07):
   split makes this real drift visible: **dev does not run the prod economy.**
   Flip `dev=True` on these to close the drift and exercise the prod economy
   locally.
-- **Locked**: `RAKE_ENABLED`, `PRESENCE_AUTHORITY_ENABLED` (`GRADUATED`),
-  `PRESENCE_SHADOW_WRITE_ENABLED` (`RETIRED`).
+- **Locked**: `RAKE_ENABLED`, `PRESENCE_AUTHORITY_ENABLED` (`GRADUATED`). (The
+  `RETIRED` `PRESENCE_SHADOW_WRITE_ENABLED` flag was removed on 2026-06-10.)
 
 Because the defaults now produce the correct value on their own
 (`scripts/flags.py status --env prod` shows `source: default:prod`), the
@@ -174,20 +179,42 @@ briefly loses a flag during the transition.)
 Change stages/defaults deliberately by editing `core/feature_flags.py` — never by
 flipping a value silently.
 
-## Not yet migrated (backlog)
+## The non-registry catalog (what's left outside)
 
-The registry currently owns the `cash_mode.economy` boolean flags. Still read
-directly elsewhere (candidates for the next pass):
+The registry owns the boolean flags (44 as of 2026-06-10, across nine owners).
+The 12 app/infrastructure booleans that were formerly scattered
+`os.environ.get(...)` reads (Flask config, ticker, moderation, decision-analysis,
+sarcasm, leave-narrative) were **migrated into the registry on 2026-06-10** — see
+the inventory in [`../technical/FEATURE_FLAGS.md`](../technical/FEATURE_FLAGS.md).
+Everything below is what intentionally stays *out* of the registry, kept here so
+"all flags" lives in one place.
 
-- **Flask config** (`flask_app/config.py`): `ENABLE_AI_DEBUG`,
-  `ENABLE_AVATAR_GENERATION`, `ENABLE_AI_COMMENTARY`, `CSRF_PROTECTION_ENABLED`
-  (the last is security-sensitive — migrate carefully).
-- **Cross-module booleans**: `SARCASM_DETECTION_ENABLED`
-  (`flask_app/handlers/chat_relationship.py`), `COMMENTARY_ENABLED`
-  (`poker/config.py`).
-- **String/enum modes** (not booleans, so out of scope for this registry):
-  `VICE_MODE`, `LEVER_REFERENCE_MODE`.
-- **LLM model tiers**: already DB-backed via `core/llm/settings.py` + the admin
-  Settings UI — a separate, established mechanism; leave as-is.
-- **React/Vite flags** (`VITE_ENABLE_DEBUG`, `VITE_ENABLE_AI_DEBUG`): build-time
-  client flags, a different system.
+### Backend booleans still out (deliberately)
+
+| Flag | Read at | Why it stays out |
+|---|---|---|
+| `STAKE_SETTLE_GUARD_ENFORCE` | `cash_mode/economy_flags.py:91` | An alarm/enforcement escalation knob, not a feature gate; migrate only if it earns a lifecycle. |
+
+### Backend debug/trace toggles (intentionally out of registry)
+
+Diagnostic-only, no product behaviour — leave as raw env reads:
+
+- `MOVEMENT_TRACE`, `MOVEMENT_TRACE_ALL`, `MOVEMENT_TRACE_FILE` (`cash_mode/movement.py`)
+
+### Not booleans — out of scope for this registry
+
+- **String/enum modes**: `VICE_MODE`, `LEVER_REFERENCE_MODE`
+  (`cash_mode/economy_flags.py`), `SOCKETIO_ASYNC_MODE` (`flask_app/config.py`).
+- **Numeric tunables / kill-switches**: `GENESIS_RESERVE_RATIO`,
+  `LLM_GLOBAL_DAILY_BUDGET_USD`, `LLM_PER_OWNER_DAILY_BUDGET_USD`,
+  `LLM_PROMPT_RETENTION_DAYS`.
+- **LLM model tiers + `LLM_PROMPT_CAPTURE`**: already DB-backed via
+  `core/llm/settings.py` + the admin Settings UI — a separate, established
+  mechanism. Leave as-is.
+
+### Frontend (Vite) — a separate build-time system
+
+Read via `import.meta.env.*`, baked at build time (not runtime-resolvable, so
+not registry candidates): `VITE_ENABLE_DEBUG`, `VITE_ENABLE_AI_DEBUG`,
+`VITE_FORCE_GUEST`, plus config/wiring vars (`VITE_API_URL`, `VITE_SOCKET_URL`,
+`VITE_BACKEND_PORT`, `VITE_SENTRY_DSN`, `VITE_SENTRY_RELEASE`).
