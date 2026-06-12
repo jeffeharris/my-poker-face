@@ -248,6 +248,44 @@ def credit_ai_cash_out(
     if now is None:
         now = datetime.utcnow()
     effective_stack = max(0, player_stack)
+
+    # Conservation law (the structural kill for the seat double-drain): a seat
+    # cash-out can NEVER remove more chips than the seat actually holds —
+    # `balance_of(seat:ai)`. Because every hand's P&L is ledgered
+    # (`record_hand_pnl`), that balance equals the AI's live stack, so this bound
+    # is INERT in correct operation. It bites only when a SECOND vacate path
+    # tries to drain an already-settled seat (the prod double-drain): the seat
+    # balance is 0, so the credit is bounded to 0 and nothing is minted. A drain
+    # that genuinely EXCEEDS the seat balance is an unledgered-table-path bug, so
+    # we warn loudly rather than silently mint. Only for real seat cash-outs
+    # (`from_seat`); stake/carry payoffs (`from_seat=False`) have no seat.
+    from cash_mode import economy_flags as _economy_flags
+
+    if (
+        from_seat
+        and chip_ledger_repo is not None
+        and sandbox_id is not None
+        and _economy_flags.CHIP_CUSTODY_ENABLED
+    ):
+        from core.economy.ledger import ai_seat as _ai_seat
+
+        seat_balance = chip_ledger_repo.balance_of(
+            _ai_seat(sandbox_id, personality_id), sandbox_id=sandbox_id
+        )
+        if effective_stack > seat_balance:
+            if seat_balance < player_stack:
+                logger.warning(
+                    "[CASH] seat cash-out bounded to ledger balance: pid=%s "
+                    "sandbox=%s requested=%d seat_balance=%d (excess=%d BLOCKED "
+                    "— double-drain or unledgered table path)",
+                    personality_id,
+                    sandbox_id,
+                    effective_stack,
+                    seat_balance,
+                    effective_stack - max(0, seat_balance),
+                )
+            effective_stack = max(0, seat_balance)
+
     try:
         stored = bankroll_repo.load_ai_bankroll(
             personality_id,
@@ -355,6 +393,69 @@ def credit_ai_cash_out(
         new_chips,
     )
     return new_state
+
+
+def settle_ai_seat(
+    *,
+    bankroll_repo,
+    chip_ledger_repo,
+    sandbox_id: str,
+    personality_id: str,
+    now: Optional[datetime] = None,
+    ledger_context: Optional[dict] = None,
+) -> int:
+    """Cash an AI's seat out by its AUTHORITATIVE ledger balance — the ONE way a
+    seat is drained. Mint-proof and idempotent by construction.
+
+    The double-drain leak existed because the three vacate paths each cashed out
+    a *game-state guess* (`player.stack` / `bankroll_changes.amount`) with no
+    single-settle guard, so an AI crossing the human-table↔lobby boundary got
+    credited more than once per funding. This helper removes the guess: it reads
+    `balance_of(seat:ai)` — which equals the live stack continuously because every
+    hand's P&L is ledgered (`record_hand_pnl`) — and drains exactly that, leaving
+    the seat at exactly 0.
+
+    Idempotency is therefore structural, not flagged: a second caller (the other
+    vacate path) reads a 0 balance and no-ops. There is no amount to double. The
+    seat's ledger balance IS the settle latch.
+
+    Drains via `credit_ai_cash_out(player_stack=balance)` so the AI bankroll is
+    credited (int cache + `ai_cash_out` ledger row, `seat:ai → ai`) in one place,
+    exactly as before — only the AMOUNT changed from a guess to the ledger truth.
+    Returns the chips settled (0 when the seat was already empty/settled).
+
+    Note: this drains ONLY the seat (the AI's own at-table chips). Stake
+    settlement — moving a staker's profit share out of the borrower's bankroll —
+    is a separate bankroll→staker transfer that the caller still runs; it is not a
+    seat drain and does not mint.
+    """
+    if chip_ledger_repo is None or not sandbox_id or not personality_id:
+        return 0
+    from core.economy.ledger import ai_seat
+
+    balance = chip_ledger_repo.balance_of(
+        ai_seat(sandbox_id, personality_id),
+        sandbox_id=sandbox_id,
+    )
+    if balance <= 0:
+        # Already settled (or never funded) — the idempotent no-op that makes a
+        # second vacate path harmless. This is the structural kill for the
+        # double-drain: nothing to credit twice.
+        return 0
+    ctx = {'site': 'settle_ai_seat'}
+    if ledger_context:
+        ctx.update(ledger_context)
+    credit_ai_cash_out(
+        bankroll_repo,
+        personality_id,
+        balance,
+        sandbox_id=sandbox_id,
+        now=now,
+        chip_ledger_repo=chip_ledger_repo,
+        ledger_context=ctx,
+        from_seat=True,
+    )
+    return balance
 
 
 def settle_ai_bankroll_to_pool_on_delete(

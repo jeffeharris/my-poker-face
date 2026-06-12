@@ -26,7 +26,7 @@ def built():
     vs_open = {}
     for nn in chart["vs_open"]:
         opener, d, thr, vs, pool, merged = bvo._node_plan(nn, chart["vs_open"])
-        vs_open[nn] = bvo.build_node(opener, rfi, matrix, d, thr, vs, pool, merged)
+        vs_open[nn] = bvo.build_node(opener, rfi, matrix, d, thr, vs, pool, merged)[0]
     nodes = {nn: b3.build_node(*nn.split("_vs_"), rfi, vs_open, matrix) for nn in chart["vs_3bet"]}
     return rfi, nodes
 
@@ -66,3 +66,37 @@ def test_bluff_4bets_fold_above_depth_gate(built):
 def test_generated_vs3bet_is_not_a_copied_range(built):
     _, nodes = built
     assert lints.lint_anti_clone({"vs_3bet": nodes}, branches=("vs_3bet",)) == []
+
+
+def test_squeeze_section_is_per_opener_20_nodes():
+    """vs_squeeze is keyed {caller}_vs_{opener}_vs_{squeezer} (20 nodes), and the
+    opener differentiates the cold-call range (the per-opener-key upgrade)."""
+    with open(b3._BASE) as f:
+        chart = json.load(f)
+    b3._build_squeeze_section(chart)
+    sq = chart["vs_squeeze"]
+    assert len(sq) == 20
+    assert all(len(k.split("_vs_")) == 3 for k in sq), "squeeze keys must be 3-part"
+    # Same caller (CO) + squeezer (BTN), different opener (UTG vs HJ) → distinct
+    # ranges: a CO flat vs a tight UTG open ≠ vs a wider HJ open.
+    assert sq["CO_vs_UTG_vs_BTN"] != sq["CO_vs_HJ_vs_BTN"]
+
+
+def test_squeeze_defense_widens_vs_a_wider_squeezer():
+    """MDF-lite: facing a WIDER squeeze range hero continues wider (folds less).
+    Same caller+opener (BTN_vs_CO), a BB squeeze (wide, closes the action) must
+    fold LESS than an SB squeeze (tighter)."""
+    with open(b3._BASE) as f:
+        chart = json.load(f)
+    b3._build_squeeze_section(chart)
+    vs_open = chart["vs_open"]
+    fold_vs_sb, _ = b3._squeeze_metrics(
+        "BTN", "CO", chart["vs_squeeze"]["BTN_vs_CO_vs_SB"], vs_open
+    )
+    fold_vs_bb, _ = b3._squeeze_metrics(
+        "BTN", "CO", chart["vs_squeeze"]["BTN_vs_CO_vs_BB"], vs_open
+    )
+    assert fold_vs_bb < fold_vs_sb - 1e-6, (
+        f"defense should widen vs the wider BB squeeze: "
+        f"fold vs BB {fold_vs_bb:.3f} should be < fold vs SB {fold_vs_sb:.3f}"
+    )

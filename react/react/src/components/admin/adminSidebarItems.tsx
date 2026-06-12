@@ -15,6 +15,7 @@ import {
   GraduationCap,
   Target,
   DollarSign,
+  ScanSearch,
 } from 'lucide-react';
 import type { SidebarItem } from './AdminSidebar';
 
@@ -114,5 +115,11 @@ export const SIDEBAR_ITEMS: SidebarItem[] = [
     label: 'Cost Analytics',
     icon: <DollarSign size={24} />,
     description: 'LLM + image-gen spend by owner, call type, and model',
+  },
+  {
+    id: 'chart-census',
+    label: 'Chart Census',
+    icon: <ScanSearch size={24} />,
+    description: 'Where preflop decisions land + chart fall-through opportunities',
   },
 ];

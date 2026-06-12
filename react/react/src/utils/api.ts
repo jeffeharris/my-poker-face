@@ -37,6 +37,71 @@ function parseComposedPrompt(
 }
 
 /**
+ * On-device prompt prefetch (targeted quick chat). The server's batch `render_only`
+ * builds every tone|length|intensity variant for the current spot in one call; we
+ * cache it so the click-time generation runs on-device with zero network. Keyed by
+ * game + target + last action, so it self-invalidates when the hand moves.
+ */
+interface PrefetchEntry {
+  system: string;
+  variants: Record<string, string>;
+  count?: number;
+}
+const prefetchCache = new Map<string, PrefetchEntry>();
+const PREFETCH_CACHE_MAX = 24;
+
+type LastAction = { type: string; player: string; amount?: number };
+
+function actionSig(a?: LastAction): string {
+  return a ? `${a.player}:${a.type}:${a.amount ?? ''}` : 'none';
+}
+function prefetchKey(gameId: string, target: string | null, a?: LastAction): string {
+  return `${gameId}|${target ?? 'table'}|${actionSig(a)}`;
+}
+
+/**
+ * Warm the prompt cache for the current spot. Call when the quick-chat options are
+ * presented (and on target / action change). Best-effort and on-device-gated; a hit
+ * later lets the suggestion generate on-device without a network round-trip.
+ */
+export async function prefetchTargetedChatPrompts(
+  gameId: string,
+  opts: { playerName: string; targetPlayer: string | null; lastAction?: LastAction }
+): Promise<void> {
+  if (!(await isOnDeviceLLMAvailable())) return;
+  const key = prefetchKey(gameId, opts.targetPlayer, opts.lastAction);
+  if (prefetchCache.has(key)) return;
+  try {
+    const r = await fetch(`${config.API_URL}/api/game/${gameId}/targeted-chat-suggestions`, {
+      ...fetchOptions,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        playerName: opts.playerName,
+        targetPlayer: opts.targetPlayer,
+        lastAction: opts.lastAction,
+        render_only: 'batch',
+      }),
+    });
+    if (!r.ok) return;
+    const payload = await r.json();
+    if (payload?.variants && typeof payload.system === 'string') {
+      prefetchCache.set(key, {
+        system: payload.system,
+        variants: payload.variants,
+        count: payload.count,
+      });
+      if (prefetchCache.size > PREFETCH_CACHE_MAX) {
+        const oldest = prefetchCache.keys().next().value;
+        if (oldest) prefetchCache.delete(oldest);
+      }
+    }
+  } catch {
+    // best-effort — the live render_only path still covers a miss
+  }
+}
+
+/**
  * Authenticated fetch wrapper for admin endpoints.
  * Includes credentials for session-based auth.
  */
@@ -169,10 +234,31 @@ export const gameAPI = {
   ): Promise<TargetedSuggestionsResponse> => {
     const body = { playerName, targetPlayer, tone, length, intensity, lastAction };
 
-    // On-device first (server-composes parity): ask the server to compose the
-    // identical prompt (render_only) and run it on Apple Foundation Models. Any
-    // failure falls through to the normal server LLM route below.
     if (await isOnDeviceLLMAvailable()) {
+      // Fastest path: a prefetched variant for this exact spot. Generates on-device
+      // with NO network round-trip.
+      const entry = prefetchCache.get(prefetchKey(gameId, targetPlayer, lastAction));
+      const cachedUser = entry?.variants[`${tone}|${length}|${intensity}`];
+      if (entry && cachedUser) {
+        try {
+          const suggestions = await suggestChatOnDevice({
+            prompt: cachedUser,
+            system: entry.system,
+            tones: [tone],
+            count: entry.count ?? 2,
+          });
+          return {
+            suggestions: suggestions.map((s) => ({ text: s.text, tone })),
+            targetPlayer,
+            fallback: false,
+          };
+        } catch {
+          // fall through to a live compose
+        }
+      }
+
+      // Next: live server-composed prompt (one render_only round-trip), run on-device.
+      // Any failure falls through to the normal server LLM route below.
       try {
         const composed = await fetch(
           `${config.API_URL}/api/game/${gameId}/targeted-chat-suggestions`,

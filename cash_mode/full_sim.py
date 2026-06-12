@@ -596,6 +596,51 @@ def _apply_rake_to_winner(
     )
 
 
+def _record_hand_pnl_transfers(
+    *,
+    starting_chips: Dict[str, int],
+    final_chips_prerake: Dict[str, int],
+    sandbox_id: str,
+    chip_ledger_repo: Optional[Any],
+    table_id: Optional[str],
+) -> None:
+    """Ledger the hand's seat-to-seat chip redistribution (PRE-rake deltas).
+
+    This is what makes `balance_of(seat:ai)` track the live stack CONTINUOUSLY
+    rather than only at buy-in/cash-out: each hand moves `final − starting` chips
+    between seats, and we record the matching `hand_pnl` transfers so the seat's
+    ledger balance equals its post-hand stack. MUST be called with the PRE-rake
+    `final_chips` (the rake is a separate `table_rake` destruction off the
+    winner's seat — see `_apply_rake_to_winner`); the pre-rake deltas sum to 0,
+    so the `hand_pnl` rows net to 0 and the table conserves exactly.
+
+    Greedy match: net-loser seats (delta<0) are sources, net-winner seats
+    (delta>0) are sinks; we drain each source into sinks in ≤(n−1) rows. All
+    seats in the sim are AI, so each is `ai_seat(sandbox, pid)`. No-op unless
+    custody is on and a ledger repo + sandbox are present.
+    """
+    from cash_mode import economy_flags
+    from core.economy import ledger as chip_ledger
+
+    if chip_ledger_repo is None or not sandbox_id or not economy_flags.CHIP_CUSTODY_ENABLED:
+        return
+
+    seat_deltas = {
+        chip_ledger.ai_seat(sandbox_id, pid): int(final_chips_prerake.get(pid, 0))
+        - int(starting_chips.get(pid, 0))
+        for pid in starting_chips
+    }
+    ctx_base = {'site': 'full_sim.play_one_hand'}
+    if table_id:
+        ctx_base['table_id'] = table_id
+    chip_ledger.record_hand_pnl_redistribution(
+        chip_ledger_repo,
+        seat_deltas=seat_deltas,
+        sandbox_id=sandbox_id,
+        context=ctx_base,
+    )
+
+
 def play_one_hand(
     seats: List[dict],
     *,
@@ -1000,6 +1045,19 @@ def _play_one_hand_inner(
     # deltas in absolute value). Equivalent to the actual pot that
     # got awarded across all side pots in a multiway hand.
     pot = sum(max(0, final_chips[pid] - starting_chips[pid]) for pid in starting_chips)
+
+    # Ledger the seat-to-seat redistribution from the PRE-rake deltas, so each
+    # seat's ledger balance tracks its live stack continuously (the substrate
+    # that lets the leave-time settle drain a real, bounded `balance_of(seat)`).
+    # Must run BEFORE the rake skim mutates `final_chips` — the pre-rake deltas
+    # sum to 0; the rake is a separate `table_rake` destruction off the winner.
+    _record_hand_pnl_transfers(
+        starting_chips=starting_chips,
+        final_chips_prerake=final_chips,
+        sandbox_id=sandbox_id,
+        chip_ledger_repo=chip_ledger_repo,
+        table_id=table_id,
+    )
 
     # Apply table rake (destruction sink, paired with `ai_regen` faucet).
     # Skim happens after the engine awards but before we materialize

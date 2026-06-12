@@ -27,6 +27,7 @@ from .strategy.deviation_profiles import DeviationProfile, select_deviation_prof
 from .strategy.exploitation import (
     DEFAULT_MAX_TOTAL_SHIFT,
     GATING_FLOOR,
+    MIN_HANDS_DEFAULT,
     AggregatedOpponentStats,
     DecisionContext,
     OpponentSpot,
@@ -206,6 +207,12 @@ def _exploitation_no_op_traces(
 _ALLIN_VETO_EQUITY_SEED = 20260610
 _ALLIN_VETO_EQUITY_ITERS = 600
 
+# Stop-bluffing-vs-station hard override (see _maybe_stop_bluff_override).
+# Min station-read intensity before the override hard-sets the give-up line.
+# compute_value_vs_station_intensity returns ~1.0 for a clear station; 0.5
+# keeps the override off marginal/ambiguous reads while firing on real ones.
+STOP_BLUFF_MIN_INTENSITY = 0.5
+
 
 def _preflop_allin_equity(hole_cards: List[str], num_opponents: int) -> Optional[float]:
     """Hero's preflop all-in equity vs `num_opponents` random hands.
@@ -328,6 +335,18 @@ def _reshove_6max_enabled() -> bool:
         return False
 
 
+def _iso_over_limper_enabled() -> bool:
+    """Live read of PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED; False if the registry
+    is unavailable so the off-path falls through (the limped pot keeps going to the
+    deep-stack / short_stack.py path, byte-identical to before)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED')
+    except Exception:
+        return False
+
+
 # ── Bluff-aware vs_3bet exploit (per-persona `vs3bet_exploit` knob) ─────────────
 # Facing a 3-bet, defending to MDF (the base chart) is unexploitable but leaves EV
 # on the table vs a villain whose 3-bet range is value-heavy. This runtime layer
@@ -354,6 +373,57 @@ def _resolve_vs3bet_exploit(pcfg, skill) -> float:
         if skill in SKILL_TIERS:
             return SKILL_TIERS[skill].vs3bet_exploit
     return VS3BET_EXPLOIT_DEFAULT
+
+
+# Punish-limpers exploit (LIMP_EXPLOIT.md): iso-raise a weak limper. The MEASURED
+# spot (a single limper folded around to the hero) is ~100% the BB checking its
+# option ({check: 1.0}) — a lone limp stands alone almost only when it folds to the
+# BB. So the exploit converts PASSIVE give-up mass (check, or a folded open) into an
+# iso-raise; the check→raise case is the real one.
+LIMP_EXPLOIT_DEFAULT = 0.5  # field default for an un-tiered persona
+LIMP_GAP_MIN = 0.20  # min (vpip_per_vol − pfr_per_open) to read a habitual limper
+LIMP_EXPLOIT_SCALE = 1.1  # maps knob·foldiness to a per-hand passive→raise shift (capped)
+LIMP_EXPLOIT_MAX_SHIFT = 0.5  # never convert more than this much of a hand's passive mass
+LIMP_ISO_RAISE_KEY = 'raise_2.5bb'  # the open/iso-raise action to inject when none present
+_BROADWAY = frozenset('TJQKA')
+
+
+def _is_iso_hand(hand: str) -> bool:
+    """Hands worth iso-raising a weak limper with: any pair, any suited, and offsuit
+    BROADWAYS (both ranks T+). Excludes offsuit junk (72o) — iso-raising junk is the
+    spew this guards (LIMP_EXPLOIT.md)."""
+    if len(hand) == 2:
+        return True  # pair
+    if len(hand) == 3 and hand[2] == 's':
+        return True  # suited
+    if len(hand) == 3 and hand[2] == 'o':
+        return hand[0] in _BROADWAY and hand[1] in _BROADWAY  # offsuit broadway only
+    return False
+
+
+def _resolve_limp_exploit(pcfg, skill) -> float:
+    """Resolve a persona's limp_exploit knob. Precedence: explicit
+    ``limp_exploit`` in config wins; else the skill tier grades it (shark 0.85 …
+    rec 0.0); else LIMP_EXPLOIT_DEFAULT for an un-tiered persona."""
+    if isinstance(pcfg, dict) and 'limp_exploit' in pcfg:
+        return float(pcfg['limp_exploit'])
+    if skill:
+        from poker.strategy.skill_tiers import SKILL_TIERS
+
+        if skill in SKILL_TIERS:
+            return SKILL_TIERS[skill].limp_exploit
+    return LIMP_EXPLOIT_DEFAULT
+
+
+def _limp_exploit_enabled() -> bool:
+    """Live read of LIMP_EXPLOIT_ENABLED; False if the registry is unavailable so
+    the off-path is byte-identical (no widening)."""
+    try:
+        from core.feature_flags import is_enabled
+
+        return is_enabled('LIMP_EXPLOIT_ENABLED')
+    except Exception:
+        return False
 
 
 def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
@@ -698,6 +768,13 @@ class TieredBotController(AIPlayerController):
         # the live path reads getattr(..., 0.0) so they no-op unless set.
         self.vs3bet_exploit: float = _resolve_vs3bet_exploit(_pcfg, _skill)
         self._vs3bet_beta_cache: Dict = {}
+
+        # Per-player punish-limpers knob (0=off … 1.0=hammer): iso-raise wider over
+        # a weak limper to attack its dead money + capped range (_apply_limp_exploit,
+        # LIMP_EXPLOIT.md). EXPLOITATION behaviour → grades with skill (shark 0.85 …
+        # rec 0.0), like vs3bet_exploit. Gated behind LIMP_EXPLOIT_ENABLED. Live path
+        # only (sims/tests bypass __init__ → getattr default 0.0 → no-op unless set).
+        self.limp_exploit: float = _resolve_limp_exploit(_pcfg, _skill)
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1100,6 +1177,18 @@ class TieredBotController(AIPlayerController):
         # Record WHICH base chart fed this decision (e.g. '6max:loose_mid', '50bb',
         # 'HU') so decision analysis can show the chart the line started from.
         self._last_pipeline_snapshot['chart_label'] = chart_label
+        # Chart-opportunity census instrumentation: the exact node served and
+        # whether push/fold is even enabled for this persona (most prod donors
+        # have it off). chart_source is finalized below once we know which layer
+        # produced the line. Record money context (pot/cost/stack/big_blind) up
+        # front so the early-returning veto path also carries it for the census's
+        # bb-at-risk metric — the later call (post-sample) is an idempotent
+        # overwrite with the same values.
+        self._last_pipeline_snapshot['node_key'] = node.key
+        self._last_pipeline_snapshot['push_fold_enabled'] = bool(
+            getattr(self, 'push_fold_nash_enabled', True)
+        )
+        self._snapshot_math_floor_inputs(game_state, player_idx)
 
         if self.debug_logging:
             logger.info(
@@ -1131,10 +1220,21 @@ class TieredBotController(AIPlayerController):
                     f"push_fold={push_fold_action} hand={canonical_hand}"
                 )
             self._last_pipeline_snapshot['push_fold_routed'] = True
+            self._last_pipeline_snapshot['chart_source'] = 'push_fold'
         else:
-            base_strategy = preflop_table.lookup_with_fallback(node, valid_actions)
+            base_strategy, chart_lookup_source = preflop_table.lookup_with_fallback_traced(
+                node, valid_actions
+            )
             self._last_pipeline_snapshot['push_fold_routed'] = False
+            # chart_lookup_source ∈ {hit, squeeze_degrade, masked_out, miss}.
+            # masked_out/miss both land on the conservative default = a true
+            # chart fall-through; the census buckets the rest as a chart hit.
+            self._last_pipeline_snapshot['chart_lookup_source'] = chart_lookup_source
+            self._last_pipeline_snapshot['chart_source'] = (
+                'chart_fallback' if chart_lookup_source in ('miss', 'masked_out') else 'chart_hit'
+            )
             base_strategy = self._apply_vs3bet_bluff_exploit(base_strategy, node, preflop_table)
+            base_strategy = self._apply_limp_exploit(base_strategy, node, game_state, player_idx)
 
         if self.debug_logging:
             logger.info(
@@ -1165,6 +1265,7 @@ class TieredBotController(AIPlayerController):
                 veto_profile.action_probabilities
             )
             self._last_pipeline_snapshot['facing_all_in_veto'] = True
+            self._last_pipeline_snapshot['chart_source'] = 'facing_all_in_veto'
             self._last_pipeline_snapshot['veto_equity'] = veto_equity
             self._last_pipeline_snapshot['veto_required_equity'] = veto_required
             self._last_pipeline_snapshot['sampled_abstract_action'] = veto_action
@@ -2448,7 +2549,76 @@ class TieredBotController(AIPlayerController):
             legal_actions=valid_actions,
             max_total_shift=clamp_value,
         )
+
+        # Stop-bluffing-vs-station HARD OVERRIDE (the behavioral half).
+        # The bluff_reduction OFFSET above is a soft logit nudge; measured
+        # behaviorally it does NOT change the sampled action even at full
+        # intensity vs a pure station (bluff rate 59.9%→59.8% — see
+        # STRATEGY_REVALIDATION_MATRIX.md). The canonical exploit "a station
+        # never folds, so stop bluffing them" needs a REAL range change, like
+        # value_override / the all-in veto: hard-set the give-up line rather
+        # than nudge it.
+        updated_strategy = self._maybe_stop_bluff_override(
+            updated_strategy,
+            valid_actions=valid_actions,
+            hand_strength=hand_strength,
+            bluff_reduction_intensity=bluff_reduction_intensity_used,
+            tilt_factor=tilt_factor,
+            adaptation_bias=anchors.adaptation_bias,
+            exploitation_strength=exploitation_strength,
+        )
         return updated_strategy, exploitation_traces
+
+    def _maybe_stop_bluff_override(
+        self,
+        strategy: 'StrategyProfile',
+        *,
+        valid_actions: List[str],
+        hand_strength,
+        bluff_reduction_intensity: float,
+        tilt_factor: float,
+        adaptation_bias: float,
+        exploitation_strength: float,
+    ) -> 'StrategyProfile':
+        """Hard 'stop bluffing vs a station' override — the behavioral half of
+        the bluff_reduction offset.
+
+        Replaces the strategy with a pure give-up line (check if free, else
+        fold) when hero holds *pure air* against a confidently-read station
+        while composed. Unlike the offset it does not nudge — it removes all
+        bet/raise/all-in mass, the only thing that actually moves the sampled
+        action (proven: the offset alone leaves the bluff rate unchanged).
+
+        Gates (all required):
+          - hand_strength == 'air_no_draw' — pure air, no equity. A draw
+            (air_strong_draw) can still legitimately semi-bluff / value-bet a
+            station, so it is deliberately excluded.
+          - bluff_reduction_intensity >= STOP_BLUFF_MIN_INTENSITY — a confident
+            station read (same spot signal the offset uses).
+          - exploitation enabled: exploitation_strength > 0 AND
+            adaptation_bias > GATING_FLOOR (a recreational persona barely
+            adapts; an exploit-OFF twin never does).
+          - COMPOSED: tilt_factor >= 1.0. You can't be on tilt and out-
+            levelling someone — a tilted bot reverts to its base line.
+        """
+        if hand_strength != 'air_no_draw':
+            return strategy
+        if bluff_reduction_intensity < STOP_BLUFF_MIN_INTENSITY:
+            return strategy
+        if exploitation_strength <= 0.0 or adaptation_bias <= GATING_FLOOR:
+            return strategy
+        if tilt_factor < 1.0:  # not composed → stop adapting, keep base line
+            return strategy
+        if 'check' in valid_actions:
+            give_up = 'check'
+        elif 'fold' in valid_actions:
+            give_up = 'fold'
+        else:
+            return strategy  # no give-up line available (shouldn't happen on air)
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is not None:
+            snap['stop_bluff_override'] = give_up
+        return StrategyProfile(action_probabilities={give_up: 1.0})
 
     def _apply_relationship_modifier_to_offsets(
         self,
@@ -3716,6 +3886,8 @@ class TieredBotController(AIPlayerController):
                             aggression_factor_postflop=t.aggression_factor_postflop,
                             all_in_per_facing_bet=t.all_in_per_facing_bet,
                             facing_bet_opportunities=t._facing_bet_opportunities,
+                            call_rate_facing_bet=getattr(t, 'call_rate_facing_bet', 0.0),
+                            wtsd=getattr(t, 'wtsd', 0.0),
                             postflop_jam_open_rate=t.postflop_jam_open_rate,
                             postflop_open_opportunities=t._postflop_open_opportunities,
                             # Opportunity-normalized preflop fields.
@@ -4345,6 +4517,105 @@ class TieredBotController(AIPlayerController):
             }
         return StrategyProfile(action_probabilities=probs)
 
+    def _foldy_limper_read(self, game_state, player_idx) -> float:
+        """Foldiness ∈ [0,1] of a SINGLE weak limper in front, else 0.0 (no-op).
+
+        Limper = a non-blind, non-all-in opponent who matched the BB without raising
+        (raises_this_round == 0). Returns 0 unless there is exactly ONE, with a
+        sufficient read, that is a habitual limper (vpip−pfr gap ≥ LIMP_GAP_MIN) and
+        NOT a station/jammer — those call the iso, so no fold equity (LIMP_EXPLOIT.md).
+        Foldiness = the limp gap (more passive entry → more fold equity to attack).
+        """
+        if getattr(game_state, 'raises_this_round', 0) != 0:
+            return 0.0
+        big_blind = getattr(game_state, 'current_ante', 0) or 0
+        if big_blind <= 0:
+            return 0.0
+        limpers = [
+            i
+            for i, p in enumerate(game_state.players)
+            if i != player_idx
+            and not getattr(p, 'is_folded', False)
+            and get_6max_position(game_state, i) != 'BB'
+            and getattr(p, 'bet', 0) >= big_blind
+            and getattr(p, 'stack', 1) > 0
+        ]
+        if len(limpers) != 1:
+            return 0.0  # v1 models a single limper
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return 0.0
+        try:
+            limper_name = game_state.players[limpers[0]].name
+        except (AttributeError, IndexError):
+            return 0.0
+        model = manager.get_model(self.player_name, limper_name)
+        t = getattr(model, 'tendencies', None)
+        if t is None or getattr(t, 'hands_observed', 0) < MIN_HANDS_DEFAULT:
+            return 0.0
+        stats = AggregatedOpponentStats(
+            hands_observed=t.hands_observed,
+            all_in_frequency=getattr(t, 'all_in_frequency', 0.0),
+            vpip_per_voluntary_opportunity=getattr(t, 'vpip_per_voluntary_opportunity', 0.5),
+            pfr_per_open_opportunity=getattr(t, 'pfr_per_open_opportunity', 0.5),
+            aggression_factor=getattr(t, 'aggression_factor', 1.0),
+        )
+        if classify_opponent_archetype(stats) in ('pure_station', 'sticky_jammer'):
+            return 0.0  # calls the iso → no fold equity → value-only (v1 no-op)
+        gap = stats.vpip_per_voluntary_opportunity - stats.pfr_per_open_opportunity
+        if gap < LIMP_GAP_MIN:
+            return 0.0  # not a habitual limper
+        return max(0.0, min(1.0, gap))
+
+    def _apply_limp_exploit(self, strategy, node, game_state, player_idx):
+        """Punish-limpers: iso-RAISE a single weak foldy limper.
+
+        No-op unless: flag on, knob>0, scenario rfi (a limped pot classifies as rfi),
+        the hand is worth iso-raising (`_is_iso_hand` — pair / suited / offsuit
+        broadway; NEVER iso junk), and `_foldy_limper_read` finds one foldy habitual
+        limper. Converts a capped slice of PASSIVE give-up mass — `check` (the BB
+        checking its option, the measured ~100% spot) OR a folded open — into the
+        iso-raise (`raise_2.5bb`, injected if the node has no raise), scaled by
+        knob·foldiness. vs a sticky limper the read gate no-ops (no fold equity).
+        Base chart stays the baseline. See LIMP_EXPLOIT.md."""
+        knob = getattr(self, 'limp_exploit', 0.0)
+        if knob <= 0 or getattr(node, 'scenario', '') != 'rfi':
+            return strategy
+        if not _limp_exploit_enabled():
+            return strategy
+        if not _is_iso_hand(getattr(node, 'hand', '')):
+            return strategy
+        foldiness = self._foldy_limper_read(game_state, player_idx)
+        if foldiness <= 0:
+            return strategy
+        probs = dict(strategy.action_probabilities)
+        # Passive give-up mass: check (BB option) and/or a folded open. Convert a
+        # slice into the iso-raise — reuse an existing raise action, else inject one.
+        passive = probs.get('check', 0.0) + probs.get('fold', 0.0)
+        if passive <= 0:
+            return strategy
+        raise_key = next(
+            (a for a in probs if a.startswith('raise') or a == 'jam'),
+            LIMP_ISO_RAISE_KEY,
+        )
+        s = min(LIMP_EXPLOIT_MAX_SHIFT, knob * LIMP_EXPLOIT_SCALE * foldiness)
+        moved = passive * s
+        if moved <= 0:
+            return strategy
+        for k in ('check', 'fold'):  # drain proportionally from the passive actions
+            if probs.get(k, 0.0) > 0:
+                probs[k] = probs[k] - moved * (probs[k] / passive)
+        probs[raise_key] = probs.get(raise_key, 0.0) + moved
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if isinstance(snap, dict):
+            snap['limp_exploit'] = {
+                'knob': knob,
+                'foldiness': round(foldiness, 3),
+                'passive_to_raise_shift': round(moved, 4),
+                'raise_action': raise_key,
+            }
+        return StrategyProfile(action_probabilities=probs)
+
     def _try_push_fold_lookup(
         self,
         canonical_hand: str,
@@ -4538,17 +4809,40 @@ class TieredBotController(AIPlayerController):
                     num_seated,
                     big_blind,
                     eff_bb,
-                    opener_fold_equity_ok=lambda oi: self._reshove_opener_fold_equity_ok(
-                        oi, game_state
-                    ),
+                    opener_fold_equity_ok=lambda oi: self._opponent_fold_equity_ok(oi, game_state),
                 )
             return None
-        for i, p in active_opps:
-            # The BB is the only opponent legitimately in for the big blind when
-            # first-in; any OTHER opponent who has matched/exceeded it without
-            # raising is a limper (no all-in here — those took the jam branch).
-            if get_6max_position(game_state, i) != 'BB' and getattr(p, 'bet', 0) >= big_blind:
-                return None  # a limper sits in front → not first-in
+        # Limpers: non-blind opponents who matched the BB without raising. The BB
+        # is legitimately in for its blind; any OTHER such opponent is a limper
+        # (no all-in here — those took the jam branch).
+        limpers = [
+            i
+            for i, p in active_opps
+            if get_6max_position(game_state, i) != 'BB' and getattr(p, 'bet', 0) >= big_blind
+        ]
+        if limpers:
+            # Not truly first-in. With exactly ONE limper (and the flag on) this is
+            # a short-stack ISO jam: route to the over-limper range (the unopened
+            # jam range in v1 — a conservative, low-spew proxy, far better than the
+            # deep-stack chart this spot falls to today). 2+ limpers is a multiway
+            # limped field the v1 range doesn't model → fall through.
+            # Fold-equity gate (mirrors the reshove): only iso-jam over a limper
+            # we read as foldy. A sticky limp-call-wide fish never folds → the jam
+            # has zero fold equity (validated -4 to -8 bb/100), so decline and let
+            # the deep-stack path play it. No read → decline (conservative).
+            if (
+                len(limpers) == 1
+                and _iso_over_limper_enabled()
+                and self._opponent_fold_equity_ok(limpers[0], game_state)
+            ):
+                return lookup_push_fold_action_6max(
+                    hand=canonical_hand,
+                    position=position,
+                    effective_stack_bb=eff_bb,
+                    num_players=num_seated,
+                    over_limper=True,
+                )
+            return None  # multi-limper, flag off, or no fold equity → deep-stack path
 
         return lookup_push_fold_action_6max(
             hand=canonical_hand,
@@ -4558,25 +4852,27 @@ class TieredBotController(AIPlayerController):
             facing_jam=False,
         )
 
-    def _reshove_opener_fold_equity_ok(self, opener_idx: int, game_state) -> bool:
-        """Read-based fold-equity gate for a reshove vs the opener at
-        `opener_idx`. True only when this hero has a confident read that the
-        opener folds enough for the jam to carry fold equity (see
-        exploitation.reshove_fold_equity_ok). No opponent model, no read, or a
-        station/maniac opener → False (decline the reshove → fall through).
+    def _opponent_fold_equity_ok(self, opp_idx: int, game_state) -> bool:
+        """Read-based fold-equity gate for a preflop ALL-IN over the opponent at
+        `opp_idx` (the opener for a reshove, the limper for an iso-over-limp). True
+        only when this hero has a confident read that the opponent folds enough for
+        the jam to carry fold equity (see exploitation.reshove_fold_equity_ok — the
+        question is the same: loose-VPIP/station opponents never fold to the jam).
+        No opponent model, no read, or a station/maniac → False (decline the jam →
+        fall through).
 
-        Conservative by design: reshoving into an opener who won't fold is
-        ~-35 bb/100 (validated), while declining is ~neutral, so the no-read
-        default is False.
+        Conservative by design: jamming into an opponent who won't fold is heavily
+        -EV (validated: reshove ~-35 bb/100, iso-over-limper ~-4 to -8 bb/100),
+        while declining is ~neutral, so the no-read default is False.
         """
         manager = getattr(self, 'opponent_model_manager', None)
         if manager is None:
             return False
         try:
-            opener_name = game_state.players[opener_idx].name
+            opp_name = game_state.players[opp_idx].name
         except (AttributeError, IndexError):
             return False
-        model = manager.get_model(self.player_name, opener_name)
+        model = manager.get_model(self.player_name, opp_name)
         t = getattr(model, 'tendencies', None)
         if t is None:
             return False

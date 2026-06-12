@@ -2,7 +2,7 @@
 purpose: Build plan for a multi-way (6-max) short-stack push/fold lookup table for the tiered bot, plus the short-stack sim harness needed to validate it
 type: design
 created: 2026-05-24
-last_updated: 2026-06-11
+last_updated: 2026-06-12
 ---
 
 # Multi-way Push/Fold Table (`push_fold_6max.json`) — Build Scope
@@ -438,6 +438,99 @@ After it, in priority order:
   chart/sizing tweaks keep chipping; **positive bb/100 likely needs the
   structural fixes** (multi-street layer and/or the solver program). Make an
   explicit go/no-go on those as the next phase.
+
+## Over-a-limper ISO (v1, flag `PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED`, off)
+
+The chart-opportunity census flagged this as the #1 short-stack gap: a ≤15bb hero
+first-in-*to-raise* with a single **limper** in front used to bail (the limped pot
+isn't "unopened", so `_try_push_fold_6max` returned None) and the spot fell to the
+**deep-stack** chart — wrong at 10-15bb.
+
+v1 routes that spot (exactly one limper; multi-limper still falls through) to a new
+`over_limper` lookup path. There is **no dedicated `iso_over_limper` chart section
+yet**, so it resolves to the **`unopened` jam range** as a conservative proxy: those
+ranges are tight at 10-15bb, so jamming them over a limper is low-spew and a strict
+improvement over the deep-stack fallback. `_resolve_6max_over_limper_scenario` reads
+an `iso_over_limper[pos][depth]` section first if one is ever added, so a sim-tuned
+table drops in with no caller change.
+
+Gated **off** pending a bb/100 sim. Heed the reshove lesson: short-stack jams into a
+call-happy (limp-call-wide) field can be badly −EV without fold equity — evaluate a
+fold-equity gate (à la `reshove_fold_equity_ok`) and a dead-money-aware widen before
+turn-on. The dedicated `iso_over_limper` ranges are the sim-tuned follow-up.
+
+### Sim result (`experiments.iso_over_limper_probe`, 2026-06-12)
+
+A/B (flag OFF vs ON), `TAG` hero vs a single-limper field (one `LIMPS_EVERY_HAND`
+fish + four rocks → frequent one-limper spots), 2×2000 hands/arm:
+
+| depth | OFF bb/100 | ON bb/100 | delta | iso fires (jam) |
+|---|---|---|---|---|
+| 10BB | +22.6 | +14.9 | **−7.7** | 6522 (1291) |
+| 12BB | +23.3 | +19.4 | **−3.9** | 7000 (1064) |
+
+- **Coverage is strong** — the path fires thousands of times (unlike the reshove,
+  which barely fired in the rule-bot field). The mechanism reaches the spot.
+- **Naive turn-on LOSES** ~4-8 bb/100, worse at shallower stacks. Cause: the fish
+  **never folds**, so the iso-jam has **zero fold equity** — it gets called by any
+  two and the limper realizes its equity. The textbook no-fold-equity leak.
+- CIs overlap at 4k hands (short-stack bb/100 is noisy), but the sign is consistent
+  across both depths and the quick run. The conclusion is direction + mechanism, not
+  the exact magnitude.
+
+**Verdict:** confirms gate-off. Turn-on REQUIRES a fold-equity gate (suppress the
+iso-jam vs a limper read as sticky — `limp_call_wide`/loose-VPIP, the same signal
+the reshove gate uses). This worst case (a never-folder) bounds the downside; a
+foldy limper is where the iso wins, but there is no limp-FOLD fish leak to measure
+that arm — it needs a `Jeff_clone`-style foldy limper or a synthetic limp-fold leak.
+
+### Fold-equity gate (shipped)
+
+Added the gate: the iso-jam now fires only when `TieredBotController.
+_opponent_fold_equity_ok(limper_idx, …)` reads the limper as foldy — the **same
+read-based gate the reshove uses, generalized** (the question "is this opponent too
+loose to fold to my preflop jam?" is identical whether they opened or limped, so
+`_reshove_opener_fold_equity_ok` became `_opponent_fold_equity_ok`, reusing
+`exploitation.reshove_fold_equity_ok`). No opponent model / no read / loose-VPIP
+limper → decline → fall through (conservative).
+
+Re-ran the probe with the gate live: vs the never-folding fish the gate declines
+the iso (VPIP=1.0 → no fold equity), so **iso fires collapse 3288 → ~0 and the
+bb/100 delta goes −7.7 → +0.0** — the leak is closed, the feature is bb/100-neutral
+vs a sticky field (exactly the reshove outcome). `FORCE_FE=1` on the probe bypasses
+the gate to reproduce the −7.7 ungated number.
+
+### Upside arm (foldy limper) — NO EDGE (2026-06-12)
+
+Built the missing opponent: `FishLeak.LIMP_FOLD` (`Limper-Foldy` archetype) — a
+tight weak-passive limper that limps the top ~45% and **folds the bottom of its
+range to a jam** (real fold equity, unlike `LIMPS_EVERY_HAND`). `LIMPER=foldy` on
+the probe seats it.
+
+Measured the upside **ceiling** — gate bypassed (`FORCE_FE=1`) so the iso fires on
+every single-limper spot, vs a *generous* folder — 2×2000 hands/arm:
+
+| depth | OFF bb/100 | ON bb/100 | delta | iso fires (jam) |
+|---|---|---|---|---|
+| 10BB | +6.8 | +4.0 | **−2.8** | 2441 (451) |
+| 12BB | +3.7 | +2.0 | **−1.7** | 2628 (362) |
+
+**There is no upside.** Even at the ungated ceiling vs a limper that folds a lot,
+the iso is **neutral-to-slightly-negative** (−1.7/−2.8, within noise but negative in
+all four runs). The limp's dead money (~2.5bb) doesn't pay for jamming the wide
+unopened range into a field that wakes up — the limper's top-10 continues, and the
+rocks/BB behind cooler the wide late-position jams. (Two separate misfits: the
+unopened proxy is too wide for the spot, and the VPIP gate *also* over-blocks the
+foldy limper — but since the ceiling itself is negative, neither is worth fixing.)
+
+**Verdict: keep `PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED` off — permanently, barring
+a reason to revisit.** The census's #1 short-stack gap does **not** convert into an
+edge with a push/fold iso range; a dedicated tuned `iso_over_limper` table + a
+fold-to-raise gate might claw back to ~neutral but the spot is small and the ceiling
+says the ceiling is ~0. The shipped code stands as a safe, gated no-op + the
+measurement that retired the idea. Lesson (cf. the strategy-revalidation overfit
+findings): a census-flagged "gap" is a hypothesis, not an edge — measure before
+building the chart.
 
 ## Sources
 Published Nash chip-EV (ICM-off) push/fold references: Mathematics of Poker

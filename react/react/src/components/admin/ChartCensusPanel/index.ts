@@ -1,0 +1,1 @@
+export { ChartCensusPanel } from './ChartCensusPanel';

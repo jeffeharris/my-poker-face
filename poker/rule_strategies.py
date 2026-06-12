@@ -76,6 +76,7 @@ class FishLeak(str, Enum):
     CHASES_ANY_DRAW = "chases_any_draw"  # medium bets: FD/OESD → call
     DOESNT_BELIEVE_BIG_BETS = "doesnt_believe_big_bets"  # large bets: weakened threshold
     LIMPS_EVERY_HAND = "limps_every_hand"  # preflop: never folds
+    LIMP_FOLD = "limp_fold"  # preflop: limps the top ~45%, folds the rest to a raise/jam
     POT_COMMITTED_EARLY = "pot_committed_early"  # once ≥30% in, can't fold
     OVERVALUES_FACE_CARDS = "overvalues_face_cards"  # medium bets: any face card → call
     CALLS_RIVER_LIGHT = "calls_river_light"  # river specifically: weak call threshold
@@ -1588,6 +1589,19 @@ def _strategy_fish(context: Dict) -> Dict:
         rng = context.get('_rng') or random
         if rng.random() < SPITE_RAISE_PROBABILITY:
             return {'action': 'raise', 'raise_to': context['min_raise']}
+
+    # --- LIMP_FOLD: a TIGHT weak-passive limper. Limps only the top ~45% (so its
+    #     VPIP reads foldy, unlike the never-folding LIMPS_EVERY_HAND), and folds
+    #     the bottom of that range to a raise/jam — giving a short-stack iso-jammer
+    #     real fold equity. The realistic limper the casino's fish catalogue lacked. ---
+    if leak == FishLeak.LIMP_FOLD and street == 'preflop' and cost_to_call > 0:
+        if cost_in_bb <= 1.0:
+            keep = canonical in TOP_45_HANDS or equity >= 0.50  # limp the top ~45%
+        else:
+            keep = canonical in TOP_10_HANDS or equity >= 0.68  # vs a raise/jam: top ~10%
+        if keep and 'call' in context['valid_actions']:
+            return {'action': 'call', 'raise_to': 0}
+        return {'action': 'fold', 'raise_to': 0}
 
     if cost_to_call == 0:
         # --- LIMPS_EVERY_HAND: preflop, never folds OR raises — just limps ---

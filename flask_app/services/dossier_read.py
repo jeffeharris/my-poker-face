@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 # Archetype badge labels, keyed by what `classify_opponent_archetype` emits.
 _ARCHETYPE_BADGES: Dict[str, Dict[str, str]] = {
     'pure_station': {'id': 'pure_station', 'label': 'Calling Station'},
+    'loose_passive': {'id': 'loose_passive', 'label': 'Calling Station'},
     'sticky_jammer': {'id': 'sticky_jammer', 'label': 'Sticky Jammer'},
     'hyper_aggressive': {'id': 'hyper_aggressive', 'label': 'Maniac'},
 }
@@ -33,6 +34,8 @@ _ARCHETYPE_BADGES: Dict[str, Dict[str, str]] = {
 _PATTERN_TIPS: Dict[str, str] = {
     'high_fold_to_cbet': 'Folds to c-bets — barrel relentlessly, ' 'give up far less than usual.',
     'hyper_passive': 'Calls too much and rarely raises — value-bet thin '
+    'and stop bluffing into them.',
+    'loose_passive': 'Plays loose and calls down passively — value-bet thin '
     'and stop bluffing into them.',
     'passive_with_jams': 'Passive but jam-happy — keep value-betting, but '
     "treat their raise as the real thing; don't bluff-raise.",

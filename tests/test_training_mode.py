@@ -401,6 +401,13 @@ class TestTrainingStartRoute(unittest.TestCase):
             patch('flask_app.routes.game_routes._evaluate_coach_progression', return_value=canned),
             patch('flask_app.routes.game_routes.progress_game'),
             patch('flask_app.routes.game_routes.send_message'),
+            # The action route now defers the AI orbit to a background task;
+            # run it inline so the patched progress_game stays a no-op and no
+            # thread outlives this block.
+            patch(
+                'flask_app.routes.game_routes.socketio.start_background_task',
+                side_effect=lambda fn, *a, **k: fn(*a, **k),
+            ),
         ):
             body = None
             for act in ('fold', 'check', 'call'):

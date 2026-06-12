@@ -90,17 +90,26 @@ def test_vs3bet_fold_to_3bet_relative_to_open_range():
     assert lints.lint_vs3bet_fold_to_3bet(ok) == []
 
 
-def test_cliff_band_guard():
-    chart = {"vs_open": {"BB_vs_SB": _node({"AA": {"raise_3x": 0.47, "fold": 0.53}})}}
-    assert lints.lint_cliff_band(chart)  # 0.47 is in (0.45, 0.50)
-    clean = {
-        "vs_open": {
-            "BB_vs_SB": _node(
-                {"AA": {"raise_3x": 0.85, "fold": 0.15}, "A5s": {"raise_3x": 0.35, "fold": 0.65}}
-            )
-        }
+def test_vs_open_intent_presence_and_validity():
+    node = _node({"AA": {"raise_3x": 0.85, "fold": 0.15}, "A5s": {"raise_3x": 0.35, "fold": 0.65}})
+    # A 3-bet cell with no tag in the side-car → fires (AA tagged, A5s missing).
+    missing = {"vs_open": {"BB_vs_SB": node}, "vs_open_intent": {"BB_vs_SB": {"AA": "value"}}}
+    fails = lints.lint_vs_open_intent(missing)
+    assert any("A5s" in f and "missing intent" in f for f in fails)
+    # Both 3-bet cells tagged with valid values → passes.
+    ok = {
+        "vs_open": {"BB_vs_SB": node},
+        "vs_open_intent": {"BB_vs_SB": {"AA": "value", "A5s": "bluff"}},
     }
-    assert lints.lint_cliff_band(clean) == []
+    assert lints.lint_vs_open_intent(ok) == []
+    # An invalid tag value → fires.
+    bad = {
+        "vs_open": {"BB_vs_SB": node},
+        "vs_open_intent": {"BB_vs_SB": {"AA": "value", "A5s": "semibluff"}},
+    }
+    assert any("A5s" in f and "invalid intent" in f for f in lints.lint_vs_open_intent(bad))
+    # Legacy chart with no side-car section at all → skipped (falls back to weight).
+    assert lints.lint_vs_open_intent({"vs_open": {"BB_vs_SB": node}}) == []
 
 
 def test_depth_rfi_passthrough():
@@ -122,3 +131,31 @@ def test_base_runner_executes_over_live_chart():
     report = lints.lint_base_chart(base)
     assert set(report) == {fn.__name__ for fn in lints.BASE_LINTS}
     assert all(isinstance(v, list) for v in report.values())
+
+
+def test_postflop_lints_pass_on_live_charts():
+    """The shipped postflop charts must pass the (previously absent) postflop
+    structural lints — weights sum to 1, legal vocab, non-empty leaves."""
+    import json
+    import os
+
+    for fname in ("postflop_strategies.json", "postflop_strategies_low_spr.json"):
+        path = os.path.join(lints._DATA, fname)
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            chart = json.load(f)
+        for fn in lints.POSTFLOP_LINTS:
+            assert fn(chart) == [], f"{fname}: {fn.__name__} failed"
+
+
+def test_postflop_lints_catch_bad_nodes():
+    bad = {
+        "meta": {"x": 1},
+        "flop|IP|SRP|dry_high|air|no_draw|unopened|high": {"check": 0.7, "bet_67": 0.1},  # sums 0.8
+        "flop|IP|SRP|dry_high|value|made|facing_bet|high": {"shove": 1.0},  # illegal action
+        "turn|OOP|SRP|wet|air|no_draw|unopened|low": {},  # empty
+    }
+    assert any("≠ 1.0" in m for m in lints.lint_postflop_weights_sum(bad))
+    assert any("illegal" in m for m in lints.lint_postflop_legal_vocab(bad))
+    assert any("empty" in m for m in lints.lint_postflop_nonempty(bad))

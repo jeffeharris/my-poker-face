@@ -57,9 +57,9 @@ runs on text the server generated mid-hand. All server work.
 
 The one feature that passes the test is quick-chat suggestions. When you are about to
 needle Blackbeard after he folds, the app offers you a couple of lines to send. Those
-suggestions are shown to exactly one person, you, and you pick one or ignore them. No
-shared state, no persistence, no fairness question. That is the whole eligible surface,
-and it is worth being honest that it is small.
+suggestions are ephemeral, shown to exactly one person, on exactly one device, and you
+pick one or ignore them. No shared state, no persistence, no fairness question. That is
+the whole eligible surface, and it is worth being honest that it is small.
 
 The durable lesson, which I have written on the wall now: **the server owns the
 context, the device runs the inference.** Anything that breaks that rule does not belong
@@ -115,9 +115,112 @@ signal that you are about to chat. By the time you have read the options and pic
 tone, the model is already loaded. Generation dropped to about 1.5 seconds, and every
 suggestion after the first stays warm.
 
+That fixed the on-device half. The other half was the network call. Remember the design:
+the phone asks the server for the composed prompt, then runs it. That fetch was usually
+quick, but every so often it spiked to about 4 seconds, a cold server moment or a slow
+query, and the whole suggestion stalled behind it.
+
+Here is the useful observation: the expensive part of the prompt, the hand context and
+the read on the opponent, is identical no matter which tone or length the player picks.
+The only thing that changes per tap is small. So instead of fetching one prompt at click
+time, I fetch all of them once, the moment the chat options appear, the same trigger as
+the prewarm. The server builds the shared context a single time and renders every
+variant, a few dozen short prompts, a few kilobytes of text, and the phone caches them.
+When the player taps a tone there is no network at all: it reads the matching prompt from
+the cache and generates on device. From the moment the options are on screen, the feature
+works with no connection, and the occasional 4 second stall is gone. The cache is keyed
+to the last action, so when the hand moves on it quietly refetches.
+
+This is the same "compose on the server, run on the phone" idea from before, just moved
+earlier in time. The server still owns every prompt. The device picks the right one and
+runs it.
+
 There is a further lever I have not pulled: trimming the prompt for the on-device path
 to cut the prefill cost, at the price of a little of that hard-won context parity. I did
 not need it. 1.5 seconds for a free, private, on-device suggestion is a fine trade.
+
+## How it looks in code
+
+These examples use a generic "welcome the user back" greeting instead of the poker
+specifics, so they drop into any app. The shapes are the same ones I shipped.
+`[VERIFY: API surface is iOS 26 Foundation Models; re-check names against the current
+SDK before publishing.]`
+
+**Guided generation.** You describe the output as a Swift type and the model fills it
+in. No parsing, no "please return JSON" and hoping.
+
+```swift
+import FoundationModels
+
+@Generable
+struct Greeting {
+    @Guide(description: "A short, warm welcome-back line, under 12 words")
+    var text: String
+    @Guide(description: "One emoji that fits the tone")
+    var emoji: String
+}
+
+func makeGreeting(for name: String, lastSeen: String) async throws -> Greeting {
+    let session = LanguageModelSession(
+        instructions: "You write short, friendly welcome-back lines for an app."
+    )
+    let prompt = "Greet \(name), who was last seen \(lastSeen). One warm line."
+    let reply = try await session.respond(to: prompt, generating: Greeting.self)
+    return reply.content
+}
+```
+
+**Check availability, and keep a fallback.** The model is only present on recent
+hardware with Apple Intelligence turned on. Treat it as a fast path that always needs a
+plain default behind it.
+
+```swift
+switch SystemLanguageModel.default.availability {
+case .available:
+    return try await makeGreeting(for: name, lastSeen: lastSeen)
+case .unavailable:
+    return Greeting(text: "Welcome back, \(name).", emoji: "")
+}
+```
+
+**Prewarm before you need it.** This was my biggest latency win. Call prewarm when you
+know a generation is coming soon (for a greeting, when the screen that will show it
+starts loading), so the model is resident by the time you actually ask.
+
+```swift
+final class GreetingService {
+    private let session = LanguageModelSession(
+        instructions: "You write short, friendly welcome-back lines for an app."
+    )
+
+    // Call this on screen-will-appear, not at the moment you render.
+    func warmUp() {
+        session.prewarm()
+    }
+
+    func greeting(for name: String, lastSeen: String) async throws -> Greeting {
+        let prompt = "Greet \(name), who was last seen \(lastSeen). One warm line."
+        return try await session.respond(to: prompt, generating: Greeting.self).content
+    }
+}
+```
+
+**Compose on the server, run on the phone (optional).** If the good version of your
+prompt needs data only your server has, let the server build the prompt and return it
+without running a model, then run that prompt on the device. You keep the rich prompt
+and skip the cloud inference bill.
+
+```ts
+// The server route returns the finished prompt, not a model result:
+//   POST /api/greeting/prompt  ->  { system, prompt }
+const { system, prompt } = await fetch('/api/greeting/prompt', {
+  method: 'POST',
+  body: JSON.stringify({ context: 'returning user' }),
+}).then((r) => r.json());
+
+// Hand it to your native bridge, which runs it on the on-device model.
+const greeting = await OnDeviceModel.generate({ system, prompt });
+```
 
 ## What I would tell someone eyeing this framework
 
@@ -138,3 +241,30 @@ builds. Compose on the server, execute on the phone.
 The cost savings will not move your numbers. But a real on-device AI feature, private
 and free to run, generated on the same silicon that runs Apple Intelligence, is a more
 interesting thing to have built than the few cents it saves would suggest.
+
+## What is next
+
+Two follow-ups, one practical and one bigger.
+
+The practical one is Android. Google ships an on-device model too, Gemini Nano, reachable
+through ML Kit's GenAI APIs, and the shape of this work ports almost directly: check
+availability, keep a fallback, compose the prompt on the server, run it on the device,
+prewarm before you need it. I am wiring the same poker chat suggestions through Gemini
+Nano now, and that is its own post once it is working.
+`[VERIFY: confirm the Gemini Nano access path and device coverage before publishing.]`
+
+The bigger one is the part that actually matters for businesses, and it goes well beyond a
+chat box. The real driver, for me and for a lot of teams, is cost predictability. When an
+LLM is core to your product, the bill is genuinely hard to forecast and harder to cap. Spend scales with your users, and so does abuse: someone will
+find the text box and hammer it. You end up building rate limits, quotas, and fraud checks
+just to keep one feature from running up a number you cannot predict. For a small developer
+with no leverage to self-host a model and flatten that curve, the math often just says no,
+and a whole category of features never gets built.
+
+On-device inference changes that calculation. The marginal cost of a generation is zero,
+the spend is bounded by definition, and there is no hole to plug because there is no meter
+running. It will not fit everything, and the eligibility rule from earlier still holds,
+but it quietly opens a long list of use cases that were cost-prohibitive a year ago,
+especially for the people who could least afford the unpredictability. That is the post I
+actually want to write, and this small poker feature is the first proof of it for me. More
+soon.

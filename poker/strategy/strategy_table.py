@@ -156,6 +156,32 @@ class StrategyTable:
         """Look up base strategy for a preflop node. Returns None if not found."""
         return self._preflop.get(node.key)
 
+    def _resolve_preflop_node(
+        self,
+        node: PreflopNode,
+    ) -> "tuple[Optional[StrategyProfile], str]":
+        """Resolve a preflop node to ``(profile_or_None, source)``.
+
+        ``source`` is one of ``'hit'`` (exact node found), ``'squeeze_degrade'``
+        (a ``vs_squeeze`` miss routed to the matching ``vs_3bet`` node), or
+        ``'miss'`` (no node). Shared by :meth:`lookup_with_fallback` and
+        :meth:`lookup_with_fallback_traced` so the chart-coverage census can't
+        drift from the live lookup semantics.
+        """
+        profile = self.lookup_preflop(node)
+        if profile is not None:
+            return profile, "hit"
+        if node.scenario == "vs_squeeze":
+            # Degrade to the SQUEEZER's vs_3bet range — the squeezer is the last
+            # token of the composite opener_position ({opener}_vs_{squeezer}).
+            squeezer = node.opener_position.split("_vs_")[-1]
+            degraded = self.lookup_preflop(
+                replace(node, scenario="vs_3bet", opener_position=squeezer)
+            )
+            if degraded is not None:
+                return degraded, "squeeze_degrade"
+        return None, "miss"
+
     def lookup_with_fallback(
         self,
         node: PreflopNode,
@@ -167,19 +193,42 @@ class StrategyTable:
         2. If found: mask illegal actions, renormalize.
         3. If not found or all masked out: return conservative default.
 
-        A ``vs_squeeze`` miss degrades to the matching ``vs_3bet`` node (the
-        pre-split behavior: a cold-caller facing a squeeze was routed to the
-        opener's vs_3bet range). So adding the classifier split before the
-        vs_squeeze chart data lands is behaviour-preserving.
+        A ``vs_squeeze`` miss degrades to the matching ``vs_3bet`` node keyed by
+        the SQUEEZER (the pre-split behavior: a cold-caller facing a squeeze was
+        routed to the squeezer's vs_3bet range). The squeezer is the last token of
+        the composite opener_position (``{opener}_vs_{squeezer}``). So a chart
+        without vs_squeeze data — e.g. the depth/archetype charts — stays
+        behaviour-preserving.
         """
-        profile = self.lookup_preflop(node)
-        if profile is None and node.scenario == "vs_squeeze":
-            profile = self.lookup_preflop(replace(node, scenario="vs_3bet"))
+        profile, _ = self._resolve_preflop_node(node)
         if profile is not None:
             masked = _mask_and_renormalize(profile, legal_actions)
             if masked is not None:
                 return masked
         return _conservative_default(legal_actions)
+
+    def lookup_with_fallback_traced(
+        self,
+        node: PreflopNode,
+        legal_actions: List[str],
+    ) -> "tuple[StrategyProfile, str]":
+        """Like :meth:`lookup_with_fallback` but also returns the source
+        category, for the chart-opportunity census.
+
+        Returns ``(profile, source)`` where ``source`` is:
+          - ``'hit'``            exact chart node served the decision.
+          - ``'squeeze_degrade'`` cold-call squeeze routed to the vs_3bet node.
+          - ``'masked_out'``     node existed but no action survived the legal
+            mask -> conservative default (a true fall-through).
+          - ``'miss'``           no node -> conservative default (fall-through).
+        """
+        profile, source = self._resolve_preflop_node(node)
+        if profile is not None:
+            masked = _mask_and_renormalize(profile, legal_actions)
+            if masked is not None:
+                return masked, source
+            return _conservative_default(legal_actions), "masked_out"
+        return _conservative_default(legal_actions), "miss"
 
     # ── Postflop lookup ─────────────────────────────────────────────
 
@@ -264,11 +313,19 @@ class StrategyTable:
 
 
 def _parse_position_matchup(matchup: str):
-    """Parse 'BB_vs_UTG' into (position='BB', opener_position='UTG')."""
+    """Parse a node matchup into (position, opener_position).
+
+    Two-part 'BB_vs_UTG' → ('BB', 'UTG'). Three-part vs_squeeze matchup
+    'BTN_vs_CO_vs_SB' (hero cold-called CO's open, SB squeezed) → ('BTN',
+    'CO_vs_SB'): the opener_position carries the {opener}_vs_{squeezer} composite
+    so the parsed node key matches preflop_classifier's vs_squeeze key.
+    """
     parts = matchup.split('_vs_')
-    if len(parts) != 2:
-        raise ValueError(f"Invalid matchup format: {matchup!r} (expected 'POS_vs_POS')")
-    return parts[0], parts[1]
+    if len(parts) == 2:
+        return parts[0], parts[1]
+    if len(parts) == 3:
+        return parts[0], f"{parts[1]}_vs_{parts[2]}"
+    raise ValueError(f"Invalid matchup format: {matchup!r} (expected 'POS_vs_POS[_vs_POS]')")
 
 
 def _parse_json_to_preflop_data(data: dict) -> Dict[str, StrategyProfile]:

@@ -434,7 +434,16 @@ register(
     )
 )
 
-# --- Chip-custody machine ---
+# --- Chip-custody machine (the Presence twin) ---
+# Both STABLE and on in dev + prod: the ledger is the authoritative record of
+# every chip — AI at-table chips are ledgered (buy-in / per-hand `hand_pnl` /
+# settle) and bankroll reads derive from it. Conservation (no negative seat,
+# Σseat==Σstacks, global Σ==−central_bank) is enforced by construction at the
+# cash-out chokepoint (`credit_ai_cash_out` bounds the drain to `balance_of(seat)`)
+# and proven by `make validate-economy-conservation`. STABLE (not GRADUATED): the
+# env kill switch is retained as an operational safety valve — the always-taken
+# call-site branches are not yet ripped out (a separate 33-site refactor of the
+# stake/carry paths).
 register(
     FeatureFlag(
         "CHIP_CUSTODY_ENABLED",
@@ -595,6 +604,44 @@ register(
         # this flag gates the sharp bot's call site — other controllers can opt in.
         Stage.STABLE,
         "6-max short-stack RESHOVE (jam-or-fold over a single non-all-in open) via the push_fold_6max 'reshove' chart, fold-equity-gated. Off => the spot falls through to the deep-stack / short_stack.py path.",
+        owner=_STRAT,
+        dev=True,
+        prod=True,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED",
+        # EXPERIMENTAL / off everywhere: closes the census's #1 short-stack gap — a
+        # ≤15bb hero first-in-to-raise with a single LIMPER in front currently bails
+        # to the (wrong) deep-stack chart. On, that spot routes to a short-stack ISO
+        # jam (the unopened jam range in v1 — tight, low-spew, a strict improvement).
+        # OFF until a bb/100 sim validates it (cf. the reshove story: short-stack jams
+        # into a call-happy field can be badly -EV without fold equity — a fold-equity
+        # gate may be needed before turn-on). Multi-limper spots still fall through.
+        Stage.EXPERIMENTAL,
+        "6-max short-stack ISO jam over a single limper (first-in-to-raise, a limper in front, ≤15bb) via the push_fold_6max over-limper range. Off => the limped pot falls through to the deep-stack / short_stack.py path (byte-identical to before).",
+        owner=_STRAT,
+        dev=False,
+        prod=False,
+        db_overridable=True,
+    )
+)
+register(
+    FeatureFlag(
+        "LIMP_EXPLOIT_ENABLED",
+        # ON 2026-06-12 after validation (LIMP_EXPLOIT.md). The "punish limpers"
+        # detect/exploit pair: a tiered hero with a read on a single FOLDY habitual
+        # limper ISO-RAISES it (converts the BB's check / an opener's fold → a
+        # 2.5bb raise), graded by the per-persona limp_exploit knob (shark 0.85 …
+        # rec 0.0). The MEASURED spot is the BB facing a lone limp (143/143). The
+        # LIMP_FOLD foldy-limper folds 88% to the iso → +1.1 bb/fire (worst case);
+        # vs a LIMPS_EVERY_HAND station the detect gate excludes it → 0 fires, no
+        # spew. Small/situational (~1% of hands), reversible via DB. Sims/tests
+        # bypass __init__ → knob 0.0 → no-op, so this can't move the bands.
+        Stage.STABLE,
+        "Punish-limpers exploit: a tiered hero iso-raises a single foldy habitual limper (read-gated, skill-graded limp_exploit knob). Off => the limped-pot rfi strategy is byte-identical.",
         owner=_STRAT,
         dev=True,
         prod=True,

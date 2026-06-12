@@ -1,0 +1,139 @@
+"""Short-stack bb/100 + ROUTING-COVERAGE A/B for the over-a-limper ISO jam
+(PUSH_FOLD_FIRST_IN_OVER_LIMPER_ENABLED; PUSH_FOLD_6MAX_SCOPE.md "Over-a-limper").
+
+The iso path only fires when hero is first-in-to-raise with EXACTLY ONE limper in
+front, so the field is one LIMPS_EVERY_HAND fish + four tight folders (the rocks
+fold most hands → single-limper spots arise). Primary gate = does the path FIRE
+(coverage + action mix); bb/100 is direction-only (noisy at short stacks, and the
+spot is rare so the pooled delta is mostly non-iso hands).
+
+With the fold-equity gate live, the ON arm should DECLINE the never-folding fish
+(high VPIP → no fold equity) → iso fires ~0 and bb/100 neutral (the gate closing
+the leak). FORCE_FE=1 bypasses the gate to reproduce the ungated -EV leak.
+
+Run: docker compose exec -T backend python -m experiments.iso_over_limper_probe
+     QUICK=1 ...  (1 seed, depth 10 only — fast)
+     FORCE_FE=1 ... (bypass the fold-equity gate → the ungated before-number)
+"""
+
+import os
+import sys
+
+import experiments.simulate_bb100 as sim
+import poker.tiered_bot_controller as tbc
+
+DEPTHS = [10, 12]
+HERO = "TAG"
+SEEDS = [42, 142]
+HANDS_PER_SEED = 2000
+BB = 100
+
+# One limper + four tight folders → hero frequently faces a single limper.
+#   LIMPER=sticky (default): a never-folding fish (LIMPS_EVERY_HAND) — the SAFETY
+#     arm; the fold-equity gate should DECLINE it → iso ~0 fires, bb/100 neutral.
+#   LIMPER=foldy: a tight limper (LIMP_FOLD) that limps the top ~45% and folds the
+#     rest to the jam — the UPSIDE arm; the gate should ALLOW it (VPIP ~0.45) and
+#     the iso should fire +EV (hero takes the dead money + folds out the bottom).
+sim.ARCHETYPES.setdefault(
+    "Limper", {"kind": "rule_bot", "strategy": "fish", "fish_leak": "limps_every_hand"}
+)
+sim.ARCHETYPES.setdefault(
+    "Limper-Foldy", {"kind": "rule_bot", "strategy": "fish", "fish_leak": "limp_fold"}
+)
+_LIMPER = "Limper-Foldy" if os.environ.get("LIMPER") == "foldy" else "Limper"
+FIELD = [_LIMPER, "Rock", "Rock", "Rock", "Rock"]
+
+# ── iso-fire instrumentation ────────────────────────────────────────────────
+_real_lookup = tbc.lookup_push_fold_action_6max
+
+
+class _Counter:
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.total = 0
+        self.iso = 0
+        self.iso_jam = 0
+        self.iso_fold = 0
+
+
+_C = _Counter()
+
+
+def _counting_lookup(*args, **kwargs):
+    _C.total += 1
+    action = _real_lookup(*args, **kwargs)
+    if kwargs.get("over_limper"):
+        _C.iso += 1
+        if action == "jam":
+            _C.iso_jam += 1
+        elif action == "fold":
+            _C.iso_fold += 1
+    return action
+
+
+tbc.lookup_push_fold_action_6max = _counting_lookup
+
+
+# FORCE_FE=1 bypasses the fold-equity gate (forces it True) so the ON arm
+# reproduces the UNGATED behavior — the before/after for the gate. Default = the
+# real read-based gate, which should decline the never-folding fish → neutral.
+_FORCE_FE = bool(os.environ.get("FORCE_FE"))
+_real_fe = tbc.TieredBotController._opponent_fold_equity_ok
+
+
+def _run_arm(depth, iso_on):
+    tbc._iso_over_limper_enabled = lambda: iso_on
+    tbc.TieredBotController._opponent_fold_equity_ok = (
+        (lambda self, idx, gs: True) if _FORCE_FE else _real_fe
+    )
+    _C.reset()
+    st = sim.load_strategy_table()
+    deltas = []
+    for seed in SEEDS:
+        deltas += sim.run_6max_matchup(
+            HERO,
+            HANDS_PER_SEED,
+            st,
+            big_blind=BB,
+            starting_stack=depth * BB,
+            base_seed=seed,
+            opponents=FIELD,
+        )
+    return sim.compute_stats(deltas, BB), (_C.iso, _C.iso_jam, _C.iso_fold, _C.total)
+
+
+def main():
+    quick = os.environ.get("QUICK")
+    depths = [10] if quick else DEPTHS
+    seeds_n = 1 if quick else len(SEEDS)
+    if quick:
+        del SEEDS[1:]
+    hands = seeds_n * HANDS_PER_SEED
+    print(
+        f"ISO-OVER-LIMPER A/B — hero={HERO}, field={FIELD}, "
+        f"{seeds_n}x{HANDS_PER_SEED} ({hands}) hands/arm"
+    )
+    print(
+        f"{'depth':>5}  {'OFF bb/100 (CI)':>22}  {'ON bb/100 (CI)':>22}  {'delta':>7}  "
+        f"{'iso fires (jam/fold)':>22}"
+    )
+    for d in depths:
+        off, _ = _run_arm(d, False)
+        on, cov = _run_arm(d, True)
+        iso, jam, fold, total = cov
+        delta = on.bb100 - off.bb100
+        print(
+            f"{d:>4}BB  "
+            f"{off.bb100:>8.1f} [{off.ci_lo:>5.0f},{off.ci_hi:>5.0f}]  "
+            f"{on.bb100:>8.1f} [{on.ci_lo:>5.0f},{on.ci_hi:>5.0f}]  "
+            f"{delta:>+7.1f}  "
+            f"{iso:>5} ({jam}/{fold}) of {total} pf",
+            flush=True,
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

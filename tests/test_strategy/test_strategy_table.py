@@ -290,6 +290,54 @@ class TestParseHelpers:
         assert data == {}
 
 
+class TestSqueezePerOpenerKey:
+    """vs_squeeze nodes are keyed {caller}_vs_{opener}_vs_{squeezer}; the composite
+    opener_position carries both the open hero flatted and the squeezer."""
+
+    def test_parse_three_part_squeeze_matchup(self):
+        data = _parse_json_to_preflop_data(
+            {"vs_squeeze": {"BTN_vs_CO_vs_SB": {"AA": {"raise_2.2x": 0.8, "call": 0.2}}}}
+        )
+        assert "vs_squeeze|BTN|CO_vs_SB|AA" in data
+
+    def test_squeeze_lookup_is_opener_specific(self):
+        # Same caller (BTN) + squeezer (SB), different opener → distinct nodes.
+        table = StrategyTable(
+            _parse_json_to_preflop_data(
+                {
+                    "vs_squeeze": {
+                        "BTN_vs_UTG_vs_SB": {"AA": {"call": 1.0}},
+                        "BTN_vs_CO_vs_SB": {"AA": {"raise_2.2x": 1.0}},
+                    }
+                }
+            )
+        )
+        vs_utg = table.lookup_preflop(
+            PreflopNode(
+                hand="AA", position="BTN", scenario="vs_squeeze", opener_position="UTG_vs_SB"
+            )
+        )
+        vs_co = table.lookup_preflop(
+            PreflopNode(
+                hand="AA", position="BTN", scenario="vs_squeeze", opener_position="CO_vs_SB"
+            )
+        )
+        assert vs_utg.action_probabilities == {"call": 1.0}
+        assert vs_co.action_probabilities == {"raise_2.2x": 1.0}
+
+    def test_squeeze_miss_degrades_to_vs3bet_keyed_by_squeezer(self):
+        # No vs_squeeze section (depth/archetype charts): the cold-caller routes to
+        # the SQUEEZER's vs_3bet node (BTN_vs_SB), not the opener's.
+        table = StrategyTable(
+            _parse_json_to_preflop_data({"vs_3bet": {"BTN_vs_SB": {"AA": {"call": 1.0}}}})
+        )
+        node = PreflopNode(
+            hand="AA", position="BTN", scenario="vs_squeeze", opener_position="CO_vs_SB"
+        )
+        result = table.lookup_with_fallback(node, ["fold", "call"])
+        assert result.action_probabilities == {"call": 1.0}
+
+
 # ---------------------------------------------------------------------------
 # Postflop SPR fallback (the chart is populated only at spr_bucket='high')
 # ---------------------------------------------------------------------------
@@ -383,3 +431,52 @@ class TestSPRFallbackToggle:
         # Degrades to the high entry — never folds the nuts.
         assert out.action_probabilities.get('raise_67', 0) > 0
         assert out.action_probabilities.get('fold', 0) == pytest.approx(0.0)
+
+
+class TestLookupWithFallbackTraced:
+    """The chart-coverage variant returns the source category alongside the
+    profile and stays byte-identical to lookup_with_fallback on the profile."""
+
+    @pytest.fixture
+    def table(self):
+        prof = StrategyProfile({'raise_3bb': 0.8, 'fold': 0.2})
+        return StrategyTable(
+            {
+                'rfi|UTG||AKs': prof,
+                'vs_3bet|BB|CO|AKs': prof,
+            },
+            {},
+        )
+
+    def test_exact_hit(self, table):
+        node = PreflopNode(hand='AKs', position='UTG', scenario='rfi', opener_position='')
+        prof, src = table.lookup_with_fallback_traced(node, ['raise', 'fold', 'call'])
+        assert src == 'hit'
+        assert prof.action_probabilities == {'raise_3bb': 0.8, 'fold': 0.2}
+
+    def test_miss_falls_to_conservative_default(self, table):
+        node = PreflopNode(hand='72o', position='UTG', scenario='rfi', opener_position='')
+        prof, src = table.lookup_with_fallback_traced(node, ['raise', 'fold', 'call'])
+        assert src == 'miss'
+        assert prof.action_probabilities == {'fold': 1.0}
+
+    def test_masked_out_when_no_action_survives(self, table):
+        # Node exists but only 'check' is legal → raise/fold masked out.
+        node = PreflopNode(hand='AKs', position='UTG', scenario='rfi', opener_position='')
+        prof, src = table.lookup_with_fallback_traced(node, ['check'])
+        assert src == 'masked_out'
+        assert prof.action_probabilities == {'check': 1.0}
+
+    def test_squeeze_degrades_to_vs_3bet(self, table):
+        node = PreflopNode(hand='AKs', position='BB', scenario='vs_squeeze', opener_position='CO')
+        prof, src = table.lookup_with_fallback_traced(node, ['raise', 'fold', 'call'])
+        assert src == 'squeeze_degrade'
+        assert prof.action_probabilities == {'raise_3bb': 0.8, 'fold': 0.2}
+
+    @pytest.mark.parametrize('hand', ['AKs', '72o'])
+    def test_profile_parity_with_untraced(self, table, hand):
+        node = PreflopNode(hand=hand, position='UTG', scenario='rfi', opener_position='')
+        legal = ['raise', 'fold', 'call']
+        untraced = table.lookup_with_fallback(node, legal)
+        traced, _ = table.lookup_with_fallback_traced(node, legal)
+        assert untraced.action_probabilities == traced.action_probabilities

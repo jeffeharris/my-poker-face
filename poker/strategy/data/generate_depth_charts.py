@@ -34,18 +34,20 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Dict
+from typing import Dict, Optional
 
 # ── Calibration knobs ───────────────────────────────────────────────
 # All fractions are of the *original 100bb* probability mass for that
 # action. They are the hand-authored surface; tuning = edit + re-run.
 
-# A hand is "value" (jam-worthy when shallow) only when the 100bb chart
-# RAISES it at high frequency — a polarized value-raise, not the thin
-# 3-bet/4-bet *bluff* frequency the chart sprinkles on speculative hands.
-# Gating on mere raise-presence would turn 76s's 0.15 bluff-3bet into a
-# 25bb jam (−EV, and badly so vs a calling-station eval). 0.5 cleanly
-# separates premiums/strong-broadways (jam) from bluff-raises (fold).
+# A hand is "value" (jam-worthy when shallow) when the 100bb vs_open chart 3-bets
+# it for value rather than as a bluff. That intent is read from the explicit
+# per-hand tag in the chart's vs_open_intent section (build_vs_open emits it).
+# This THRESHOLD is only the legacy FALLBACK for a cell with no tag (charts that
+# predate vs_open_intent): a 3-bet weight ≥ 0.5 is value, below is a bluff.
+# Gating on mere raise-presence would turn 76s's 0.15 bluff-3bet into a 25bb jam
+# (−EV vs a station); 0.5 cleanly separates premiums from bluff-raises.
+# (DEPTH_INTENT_TAG_TECHDEBT.md)
 VALUE_RAISE_THRESHOLD = 0.50
 
 # 25bb — commit-or-fold regime.
@@ -110,16 +112,22 @@ def t_rfi(p: Dict[str, float], depth: int) -> Dict[str, float]:
     return dict(p)
 
 
-def t_vs_open(p: Dict[str, float], depth: int, is_bb: bool = False) -> Dict[str, float]:
+def t_vs_open(
+    p: Dict[str, float], depth: int, is_bb: bool = False, intent: Optional[str] = None
+) -> Dict[str, float]:
     """Hero faces an open; decides 3-bet (raise_3x) / call / fold.
 
     ``is_bb`` flags a BB-defends node: the BB closes the action, so short-stacked
     it commits its defense by jamming rather than over-folding (see the 25bb branch).
+
+    ``intent`` is the explicit value/bluff tag for this hand (from vs_open_intent).
+    When given it decides jam-vs-fold directly; when ``None`` (a legacy cell with
+    no tag) we fall back to the weight threshold. See DEPTH_INTENT_TAG_TECHDEBT.md.
     """
     raise_, call, fold = p.get("raise_3x", 0.0), p.get("call", 0.0), p.get("fold", 0.0)
     if _is_pure_fold(p):
         return dict(p)
-    is_value = raise_ >= VALUE_RAISE_THRESHOLD
+    is_value = (intent == "value") if intent is not None else (raise_ >= VALUE_RAISE_THRESHOLD)
 
     if depth == 25:
         if is_value:
@@ -209,13 +217,22 @@ def build_depth_chart(base: dict, depth: int) -> dict:
             ),
         }
     }
+    intent_section = base.get("vs_open_intent", {})
     for scenario in ("rfi", "vs_open", "vs_3bet", "vs_4bet"):
         fn = _TRANSFORMS[scenario]
         nodes = {}
         for group, hands in base.get(scenario, {}).items():
-            # vs_open BB-defends nodes commit by jamming short-stacked (t_vs_open).
-            extra = {"is_bb": group.startswith("BB_")} if scenario == "vs_open" else {}
-            nodes[group] = {hand: fn(profile, depth, **extra) for hand, profile in hands.items()}
+            if scenario == "vs_open":
+                # BB-defends nodes commit by jamming short-stacked; the per-hand
+                # value/bluff intent tag drives jam-vs-fold (t_vs_open).
+                is_bb = group.startswith("BB_")
+                node_intent = intent_section.get(group, {})
+                nodes[group] = {
+                    hand: fn(profile, depth, is_bb=is_bb, intent=node_intent.get(hand))
+                    for hand, profile in hands.items()
+                }
+            else:
+                nodes[group] = {hand: fn(profile, depth) for hand, profile in hands.items()}
         out[scenario] = nodes
     return out
 

@@ -70,9 +70,12 @@ _MATRIX = os.path.join(_HERE, "push_fold_equity_matrix.json")
 
 TOTAL_COMBOS = float(sum(COMBO_COUNT[h] for h in CANONICAL_HANDS))  # 1326
 
-# Value/bluff 3-bet weights straddle the 0.50 cliff generate_depth_charts uses
-# (its VALUE_RAISE_THRESHOLD): value sits ABOVE it (jams at 25bb), bluff BELOW it
-# (dropped at 25bb). lints.CLIFF_BAND guards the ambiguous gap in between.
+# Value/bluff 3-bet weights. Depth derivation reads the explicit per-hand intent
+# tag (emitted into vs_open_intent), NOT these weights, so they are free to be any
+# frequency — kept bimodal here only because that's the current believable shape.
+# (Historically value had to sit ≥ 0.50 and bluff < 0.50 so the 25bb derivation
+# could tell them apart from the weight alone; the tag retired that constraint —
+# DEPTH_INTENT_TAG_TECHDEBT.md.)
 VALUE_RAISE_W = 0.85  # raise_3x weight on a value 3-bet hand (rest flats/folds)
 BLUFF_RAISE_W = 0.35  # raise_3x weight on a suited bluff 3-bet (rest folds)
 CALL_CORE_W = 0.85    # call weight in the core of the flat range (§3 weight discipline)
@@ -165,8 +168,16 @@ def build_node(
     value_share: float,
     bluff_pool: List[str],
     merged: bool,
-) -> Dict[str, Dict[str, float]]:
+) -> Tuple[Dict[str, Dict[str, float]], Dict[str, str]]:
     """Generate one vs_open node from the opener's range + defend/3bet targets.
+
+    Returns ``(node, intent)``: the per-hand action distribution and a parallel
+    ``{hand: "value"|"bluff"}`` map covering exactly the 3-bet hands. Intent is
+    **recorded at placement** (value pass vs bluff pass), not inferred from the
+    final weight — it's the explicit signal the depth derivation reads instead of
+    the `raise_3x >= 0.50` cliff (DEPTH_INTENT_TAG_TECHDEBT.md). The chart's
+    `vs_open` section carries the node; a sibling `vs_open_intent` section carries
+    the map.
 
     Mass-budget fill: value 3-bets off the top by the blend, suited bluffs, then
     flats by (equity + playability). 3-bet weights are **bimodal** — value snaps
@@ -193,6 +204,7 @@ def build_node(
     bluff_budget = (1 - value_share) * threebet_total * TOTAL_COMBOS
 
     dist: Dict[str, Dict[str, float]] = {}
+    intent: Dict[str, str] = {}
 
     # 1. Value 3-bets: top by the blend, fixed weight. Offsuit hands reach the
     #    3-bet only here (value) — AKo always, AQo/KQo/AJo on merged nodes.
@@ -206,6 +218,7 @@ def build_node(
         dist[h] = {"raise_3x": VALUE_RAISE_W,
                    "call": round((1 - VALUE_RAISE_W) * 0.6, 4),
                    "fold": round((1 - VALUE_RAISE_W) * 0.4, 4)}
+        intent[h] = "value"
         spent += COMBO_COUNT[h] * VALUE_RAISE_W
 
     # 2. Suited bluff 3-bets: named pool first (designated blockers), then backfill
@@ -221,6 +234,7 @@ def build_node(
         if h in dist:
             continue
         dist[h] = {"raise_3x": BLUFF_RAISE_W, "fold": round(1 - BLUFF_RAISE_W, 4)}
+        intent[h] = "bluff"
         spent += COMBO_COUNT[h] * BLUFF_RAISE_W
 
     # 3. Flats: fill the calling range up to the node's DEFEND-WIDTH target. The
@@ -250,19 +264,19 @@ def build_node(
     for h in CANONICAL_HANDS:
         dist.setdefault(h, {"fold": 1.0})
 
-    return {h: _norm(dist[h]) for h in CANONICAL_HANDS}
+    return {h: _norm(dist[h]) for h in CANONICAL_HANDS}, intent
 
 
-def _lint(node_name: str, node: Dict[str, Dict[str, float]]) -> None:
+def _lint(node_name: str, node: Dict[str, Dict[str, float]], intent: Dict[str, str]) -> None:
     """Refuse to write a node that fails a shared structural lint.
 
-    The cliff-band guard and BB defend floors are delegated to
+    The intent-presence guard and BB defend floors are delegated to
     `poker.strategy.lints` — the single source of truth, also run as the CI chart
     lints — so write-time refusal and the audit suite can't diverge. The merged
     value-top composition below is vs_open-merged-specific and stays here.
     """
-    mini = {"vs_open": {node_name: node}}
-    fails = lints.lint_cliff_band(mini) + lints.lint_bb_defend_floors(mini)
+    mini = {"vs_open": {node_name: node}, "vs_open_intent": {node_name: intent}}
+    fails = lints.lint_vs_open_intent(mini) + lints.lint_bb_defend_floors(mini)
     if fails:
         raise SystemExit("; ".join(fails))
 
@@ -348,7 +362,7 @@ def diff_report() -> None:
         od, ot = _current_masses(nodes[node_name])
         opener, defend_total, threebet_total, value_share, bluff_pool, merged = _node_plan(node_name, nodes)
         nd, nt = _current_masses(build_node(opener, rfi, matrix, defend_total,
-                                            threebet_total, value_share, bluff_pool, merged))
+                                            threebet_total, value_share, bluff_pool, merged)[0])
         print(f"  {node_name:<14} {100 * od:>6.1f} → {100 * nd:<6.1f}   {100 * ot:>6.1f} → {100 * nt:<6.1f}")
 
 
@@ -366,13 +380,15 @@ def patch_base() -> None:
     print(f"patching {_BASE}")
     print(f"  {'node':<14} {'defend%':>8} {'3bet%':>7}  {'shape':>9}")
     built: Dict[str, Dict[str, Dict[str, float]]] = {}
+    built_intent: Dict[str, Dict[str, str]] = {}
     for node_name in nodes:
         opener, defend_total, threebet_total, value_share, bluff_pool, merged = _node_plan(node_name, nodes)
-        node = build_node(opener, rfi, matrix, defend_total, threebet_total,
-                          value_share, bluff_pool, merged)
-        _lint(node_name, node)
+        node, intent = build_node(opener, rfi, matrix, defend_total, threebet_total,
+                                  value_share, bluff_pool, merged)
+        _lint(node_name, node, intent)
         _assert_masses(node_name, node, defend_total, threebet_total)
         built[node_name] = node
+        built_intent[node_name] = intent
 
         d, t = _current_masses(node)
         shape = "merged" if merged else "polarized"
@@ -387,6 +403,11 @@ def patch_base() -> None:
         print(f"  value 3-bet top [{nn}]: {' '.join(top)}")
 
     chart["vs_open"] = built
+    # Sibling section (not a scenario): {node: {hand: "value"|"bluff"}} for the
+    # 3-bet hands. generate_depth_charts reads it instead of inferring intent from
+    # the raise weight; the runtime loader and lints key off an explicit scenario
+    # allow-list, so this top-level key is invisible to them.
+    chart["vs_open_intent"] = built_intent
     with open(_BASE, "w") as f:
         json.dump(chart, f, indent=2)
         f.write("\n")

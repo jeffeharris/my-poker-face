@@ -18,7 +18,8 @@ export type AdminTab =
   | 'range-explorer'
   | 'archetype-review'
   | 'coach-metrics'
-  | 'cost-analytics';
+  | 'cost-analytics'
+  | 'chart-census';
 
 export interface SidebarItem {
   id: AdminTab;

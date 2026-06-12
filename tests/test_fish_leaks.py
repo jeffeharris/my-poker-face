@@ -220,6 +220,62 @@ class TestLimpsEveryHand:
         assert _strategy_fish(ctx)['action'] == 'fold'
 
 
+class TestLimpFold:
+    leak = FishLeak.LIMP_FOLD
+
+    def test_limp_decision_limps_top_45(self):
+        # Facing only the BB (cost_in_bb = 1.0): a top-45% hand limps in.
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            street='preflop',
+            cost_to_call=2,
+            big_blind=2,
+            canonical_hand='KJs',
+            equity=0.55,
+        )
+        assert _strategy_fish(ctx)['action'] == 'call'
+
+    def test_limp_decision_folds_trash(self):
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            street='preflop',
+            cost_to_call=2,
+            big_blind=2,
+            canonical_hand='72o',
+            equity=0.20,
+        )
+        assert _strategy_fish(ctx)['action'] == 'fold'
+
+    def test_facing_jam_folds_bottom_of_range(self):
+        # KJs would limp, but folds the bottom of its range to a 9bb jam
+        # (not top-10) — the fold equity the never-folding limper lacks.
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            street='preflop',
+            cost_to_call=900,
+            big_blind=100,
+            canonical_hand='KJs',
+            equity=0.55,
+        )
+        assert _strategy_fish(ctx)['action'] == 'fold'
+
+    def test_facing_jam_calls_premium(self):
+        ctx = _fish_context(
+            fish_leak=self.leak,
+            street='preflop',
+            cost_to_call=900,
+            big_blind=100,
+            canonical_hand='AA',
+            equity=0.85,
+        )
+        assert _strategy_fish(ctx)['action'] == 'call'
+
+    def test_postflop_unaffected(self):
+        # Preflop-only leak; postflop the base fold runs (87o air vs a large bet).
+        ctx = _fish_context(fish_leak=self.leak, street='turn')
+        assert _strategy_fish(ctx)['action'] == 'fold'
+
+
 class TestPotCommittedEarly:
     leak = FishLeak.POT_COMMITTED_EARLY
 
