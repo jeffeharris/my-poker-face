@@ -57,9 +57,9 @@ runs on text the server generated mid-hand. All server work.
 
 The one feature that passes the test is quick-chat suggestions. When you are about to
 needle Blackbeard after he folds, the app offers you a couple of lines to send. Those
-suggestions are shown to exactly one person, you, and you pick one or ignore them. No
-shared state, no persistence, no fairness question. That is the whole eligible surface,
-and it is worth being honest that it is small.
+suggestions are ephemeral, shown to exactly one person, on exactly one device, and you
+pick one or ignore them. No shared state, no persistence, no fairness question. That is
+the whole eligible surface, and it is worth being honest that it is small.
 
 The durable lesson, which I have written on the wall now: **the server owns the
 context, the device runs the inference.** Anything that breaks that rule does not belong
@@ -118,6 +118,89 @@ suggestion after the first stays warm.
 There is a further lever I have not pulled: trimming the prompt for the on-device path
 to cut the prefill cost, at the price of a little of that hard-won context parity. I did
 not need it. 1.5 seconds for a free, private, on-device suggestion is a fine trade.
+
+## How it looks in code
+
+These examples use a generic "welcome the user back" greeting instead of the poker
+specifics, so they drop into any app. The shapes are the same ones I shipped.
+`[VERIFY: API surface is iOS 26 Foundation Models; re-check names against the current
+SDK before publishing.]`
+
+**Guided generation.** You describe the output as a Swift type and the model fills it
+in. No parsing, no "please return JSON" and hoping.
+
+```swift
+import FoundationModels
+
+@Generable
+struct Greeting {
+    @Guide(description: "A short, warm welcome-back line, under 12 words")
+    var text: String
+    @Guide(description: "One emoji that fits the tone")
+    var emoji: String
+}
+
+func makeGreeting(for name: String, lastSeen: String) async throws -> Greeting {
+    let session = LanguageModelSession(
+        instructions: "You write short, friendly welcome-back lines for an app."
+    )
+    let prompt = "Greet \(name), who was last seen \(lastSeen). One warm line."
+    let reply = try await session.respond(to: prompt, generating: Greeting.self)
+    return reply.content
+}
+```
+
+**Check availability, and keep a fallback.** The model is only present on recent
+hardware with Apple Intelligence turned on. Treat it as a fast path that always needs a
+plain default behind it.
+
+```swift
+switch SystemLanguageModel.default.availability {
+case .available:
+    return try await makeGreeting(for: name, lastSeen: lastSeen)
+case .unavailable:
+    return Greeting(text: "Welcome back, \(name).", emoji: "")
+}
+```
+
+**Prewarm before you need it.** This was my biggest latency win. Call prewarm when you
+know a generation is coming soon (for a greeting, when the screen that will show it
+starts loading), so the model is resident by the time you actually ask.
+
+```swift
+final class GreetingService {
+    private let session = LanguageModelSession(
+        instructions: "You write short, friendly welcome-back lines for an app."
+    )
+
+    // Call this on screen-will-appear, not at the moment you render.
+    func warmUp() {
+        session.prewarm()
+    }
+
+    func greeting(for name: String, lastSeen: String) async throws -> Greeting {
+        let prompt = "Greet \(name), who was last seen \(lastSeen). One warm line."
+        return try await session.respond(to: prompt, generating: Greeting.self).content
+    }
+}
+```
+
+**Compose on the server, run on the phone (optional).** If the good version of your
+prompt needs data only your server has, let the server build the prompt and return it
+without running a model, then run that prompt on the device. You keep the rich prompt
+and skip the cloud inference bill.
+
+```ts
+// The server route returns the finished prompt, not a model result:
+//   POST /api/greeting/prompt  ->  { system, prompt }
+const { system, prompt } = await fetch('/api/greeting/prompt', {
+  method: 'POST',
+  body: JSON.stringify({ context: 'returning user' }),
+}).then((r) => r.json());
+
+// Hand it to your native bridge, which runs it on the on-device model.
+const greeting = await OnDeviceModel.generate({ system, prompt });
+```
 
 ## What I would tell someone eyeing this framework
 
