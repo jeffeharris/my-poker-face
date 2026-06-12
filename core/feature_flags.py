@@ -641,28 +641,6 @@ register(
 )
 register(
     FeatureFlag(
-        "VS_SQUEEZE_DEFENSE_ENABLED",
-        # The blinds have no vs_squeeze chart node (BB 100% / SB 95% miss), so a
-        # sharp hero folds its WHOLE range — incl. AA/KK — to an open+3-bet squeeze.
-        # vs_squeeze_ev_probe measured the over-fold: ~0 leak vs a tight squeeze
-        # (folding is correct, MDF high OOP) but 3.8–5.3 bb/100 vs a wide/maniac
-        # squeeze (after an OOP realization haircut). This flag turns on the
-        # detect/exploit fix: a value-continue FLOOR (stop folding AA/KK/QQ/AK to any
-        # squeeze) that WIDENS into a tiered blind-defense range as the squeezer's
-        # VPIP reads wider, graded by the per-persona vs_squeeze_defense knob (shark
-        # 0.85 … rec 0.0). Read-gated + position-gated (BB/SB on a chart miss only),
-        # so off => the conservative-fold is byte-identical. Sims/tests bypass
-        # __init__ → knob 0.0 → no-op, so this can't move the calibration bands.
-        Stage.EXPERIMENTAL,
-        "Blind squeeze-defense: a tiered hero continues a value-floor (AA/KK/QQ/AK) that widens vs a read-wide squeezer, instead of folding its whole range to an open+3-bet. Off => the blind vs_squeeze conservative-fold is byte-identical.",
-        owner=_STRAT,
-        dev=False,
-        prod=False,
-        db_overridable=True,
-    )
-)
-register(
-    FeatureFlag(
         "EMOTIONAL_REBALANCE_ENABLED",
         Stage.EXPERIMENTAL,
         "Emotional-system rebalance (EMOTIONAL_SYSTEM_BALANCE.md §3/§6.1): decouple conviction (confidence) from chip-winning — re-derive baseline_confidence from self_belief+ego (drop aggression/risk) and cut the UP event-pumps while concentrating DOWNs on epistemic events, so the fear pole (shaken) becomes reachable. Changes psychology axes; off => current baseline + event table (byte-identical).",

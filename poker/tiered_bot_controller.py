@@ -447,7 +447,7 @@ SQUEEZE_DEFENSE_TIERS = (
 )
 # Squeezer VPIP read → base tier depth (how wide its range is). Tighter squeeze →
 # floor only; a wide/loose squeezer → deeper widen. Knob scales this depth down for
-# weaker tiers, but the floor (tier 0) always applies when the feature is on.
+# weaker tiers, but the floor (tier 0) always applies when knob>0.
 # Cutoffs sit on observed VPIP-per-voluntary (vs_squeeze_defense_validate): the
 # field's loosest squeezers read ~0.40, tight rocks ~0.15. Deliberately stays
 # CONSERVATIVE — flat-calling OOP realizes equity poorly, so over-widening vs a
@@ -460,7 +460,9 @@ VS_SQUEEZE_DEFENSE_DEFAULT = 0.5  # field default for an un-tiered persona
 def _resolve_vs_squeeze_defense(pcfg, skill) -> float:
     """Resolve a persona's vs_squeeze_defense knob. Precedence: explicit
     ``vs_squeeze_defense`` in config wins; else the skill tier grades it (shark
-    0.85 … rec 0.0); else VS_SQUEEZE_DEFENSE_DEFAULT for an un-tiered persona."""
+    0.85 … rec 0.0); else VS_SQUEEZE_DEFENSE_DEFAULT for an un-tiered persona.
+    No feature flag — gated only by knob>0, like vs3bet_exploit (a graded read,
+    not a dormant boolean): sharps defend, recs don't, sims/tests no-op at knob 0."""
     if isinstance(pcfg, dict) and 'vs_squeeze_defense' in pcfg:
         return float(pcfg['vs_squeeze_defense'])
     if skill:
@@ -469,17 +471,6 @@ def _resolve_vs_squeeze_defense(pcfg, skill) -> float:
         if skill in SKILL_TIERS:
             return SKILL_TIERS[skill].vs_squeeze_defense
     return VS_SQUEEZE_DEFENSE_DEFAULT
-
-
-def _vs_squeeze_defense_enabled() -> bool:
-    """Live read of VS_SQUEEZE_DEFENSE_ENABLED; False if the registry is
-    unavailable so the off-path is byte-identical (the conservative-fold)."""
-    try:
-        from core.feature_flags import is_enabled
-
-        return is_enabled('VS_SQUEEZE_DEFENSE_ENABLED')
-    except Exception:
-        return False
 
 
 def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
@@ -837,9 +828,9 @@ class TieredBotController(AIPlayerController):
         # that widens into a tiered defend range vs a read-wide squeezer instead of
         # folding the whole blind range to an open+3-bet (_apply_vs_squeeze_defense,
         # VS_SQUEEZE_DEFENSE_HANDOFF). EXPLOITATION behaviour → grades with skill
-        # (shark 0.85 … rec 0.0), like limp_exploit. Gated behind
-        # VS_SQUEEZE_DEFENSE_ENABLED. Live path only (sims/tests bypass __init__ →
-        # getattr default 0.0 → no-op unless set).
+        # (shark 0.85 … rec 0.0), like vs3bet_exploit. NO feature flag — gated only by
+        # knob>0, so it's live for the tiered field (a graded read, not a dormant
+        # boolean). Live path only (sims/tests bypass __init__ → default 0.0 → no-op).
         self.vs_squeeze_defense: float = _resolve_vs_squeeze_defense(_pcfg, _skill)
 
         # Sim-mode performance flag. When True, decision_analyzer
@@ -4724,14 +4715,14 @@ class TieredBotController(AIPlayerController):
         """Blind squeeze-defense: continue a value-floor that widens vs a read-wide
         squeezer instead of folding the whole blind range to an open+3-bet.
 
-        No-op unless: flag on, knob>0, scenario vs_squeeze, hero in the blinds
-        (BB/SB), and the chart MISSED (conservative-fold — `chart_lookup_source` in
-        miss/masked_out; never overrides a real squeeze node). Continue depth = a
-        value FLOOR (tier 0: AA/KK/QQ/AK) that widens through SQUEEZE_DEFENSE_TIERS as
-        the squeezer's VPIP reads wider, scaled by the skill-graded knob. A qualifying
-        hand flat-calls; everything else keeps folding. Off / no-read => the floor
-        only (and the floor itself is gated by the flag), so the conservative-fold is
-        byte-identical when disabled. See VS_SQUEEZE_DEFENSE_HANDOFF."""
+        No-op unless: knob>0 (the only gate — skill-graded, no feature flag, like
+        vs3bet_exploit; sims/tests bypass __init__ → knob 0 → no-op), scenario
+        vs_squeeze, hero in the blinds (BB/SB), and the chart MISSED (conservative-fold
+        — `chart_lookup_source` in miss/masked_out; never overrides a real squeeze
+        node). Continue depth = a value FLOOR (tier 0: AA/KK/QQ/AK) that widens through
+        SQUEEZE_DEFENSE_TIERS as the squeezer's VPIP reads wider, scaled by the knob. A
+        qualifying hand flat-calls; everything else keeps folding. knob 0 / no-read =>
+        the conservative-fold is byte-identical. See VS_SQUEEZE_DEFENSE_HANDOFF."""
         knob = getattr(self, 'vs_squeeze_defense', 0.0)
         if knob <= 0 or getattr(node, 'scenario', '') != 'vs_squeeze':
             return strategy
@@ -4739,8 +4730,6 @@ class TieredBotController(AIPlayerController):
             return strategy
         if chart_lookup_source not in ('miss', 'masked_out'):
             return strategy  # a real squeeze node exists — don't stomp the solver
-        if not _vs_squeeze_defense_enabled():
-            return strategy
         # Only convert a conservative-FOLD (the over-fold we're fixing). If the base
         # somehow isn't a pure fold, leave it (defensive — gate already implies fold).
         probs = dict(strategy.action_probabilities)

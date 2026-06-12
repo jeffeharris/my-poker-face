@@ -1,5 +1,5 @@
 ---
-purpose: vs_squeeze over-fold — measured diagnosis, step-1 per-player EV (real but small, opponent-dependent leak), and the BUILT floor + read-gated widen (gated off)
+purpose: vs_squeeze over-fold — measured diagnosis, step-1 per-player EV (real but small, opponent-dependent leak), and the BUILT + SHIPPED-LIVE floor + read-gated widen (skill-graded, no flag)
 type: guide
 created: 2026-06-12
 last_updated: 2026-06-12
@@ -10,10 +10,11 @@ last_updated: 2026-06-12
 The chart-opportunity census's **#2 gap**: the hero "auto-folds to a squeeze,
 concentrated vs maniac fields." Worked end-to-end per
 [[feedback_measure_spot_before_building]]: **measured first** (diagnosis + per-player EV)
-→ **built** the floor + read-gated widen, **gated OFF**. The EV turned out **small per
-player** (≤0.83 bb/100 only vs a maniac field), so the value-floor (stop folding AA/KK/QQ
-to a squeeze) is the real win and the widen is opportunistic. Skip to **Step 1** / **Step
-2** below for the numbers and what shipped.
+→ **built** the floor + read-gated widen → **shipped LIVE** (skill-graded, no feature
+flag, like `vs3bet_exploit`). The EV turned out **small per player** (≤0.83 bb/100 only
+vs a maniac field), so the value-floor (stop folding AA/KK/QQ to a squeeze) is the real
+win and the widen is opportunistic. Skip to **Step 1** / **Step 2** below for the numbers
+and what shipped.
 
 ## Goal
 
@@ -123,44 +124,45 @@ limitation the handoff flagged (a real read may need a `Jeff_clone`-style squeez
   vs wide squeezers, where the read-gated widen captures it without over-defending vs
   tight ones (where flat-calling OOP realizes poorly = −EV).
 
-## Step 2 — BUILT (2026-06-12, gated OFF): the floor + read-gated widen
+## Step 2 — BUILT + SHIPPED LIVE (2026-06-12): the floor + read-gated widen
 
 Implemented as `TieredBotController._apply_vs_squeeze_defense`, a third preflop modifier
 chained after `_apply_limp_exploit` (mirrors that detect/exploit shape exactly). Fires
-ONLY on the conservative-fold case we measured: flag on, knob>0, `scenario==vs_squeeze`,
-hero in BB/SB, and `chart_lookup_source ∈ {miss, masked_out}` (never stomps a real
-squeeze node). Behavior:
+ONLY on the conservative-fold case we measured: knob>0, `scenario==vs_squeeze`, hero in
+BB/SB, and `chart_lookup_source ∈ {miss, masked_out}` (never stomps a real squeeze node).
+Behavior:
 - **Value FLOOR (tier 0: AA/KK/QQ/AKs/AKo)** — continues (flat-call) vs *any* squeeze.
 - **Read-gated WIDEN** — `_squeezer_width_read` reads the last raiser's (largest live
   bet) `vpip_per_voluntary_opportunity` off the hero's opponent model; deeper
   `SQUEEZE_DEFENSE_TIERS` unlock as VPIP crosses `_SQUEEZE_WIDTH_BANDS` (0.28/0.38/0.50),
-  scaled by the skill-graded `vs_squeeze_defense` knob (shark 0.85 … rec 0.0). No read →
-  floor only.
+  scaled by the skill-graded `vs_squeeze_defense` knob. No read → floor only.
 
-Where: flag `VS_SQUEEZE_DEFENSE_ENABLED` (EXPERIMENTAL, off dev+prod, db-overridable,
-`core/feature_flags.py`); knob on `SkillTier.vs_squeeze_defense` (`skill_tiers.py`) +
-`_resolve_vs_squeeze_defense` + `__init__` wiring; constants/tiers/methods in
-`tiered_bot_controller.py`. Off-path is byte-identical (the conservative-fold).
+**No feature flag — gated only by the knob**, exactly like `vs3bet_exploit` (a graded
+read, not a dormant boolean): it's **live for the tiered field**, skill-graded so sharks
+defend (0.85) and recs don't (0.0) — auto-differentiating without a flag to forget to
+flip. Sims/tests bypass `__init__` → knob 0 → no-op (calibration bands unaffected); a
+rec's knob-0 path is byte-identical to the old conservative-fold, so no weak-tier
+regression. Knob on `SkillTier.vs_squeeze_defense` (`skill_tiers.py`) +
+`_resolve_vs_squeeze_defense` + `__init__`; constants/tiers/methods in
+`tiered_bot_controller.py`.
 
 **Validation:**
-- Unit: `tests/test_strategy/test_vs_squeeze_defense.py` (16 tests — floor/widen/knob/
-  flag/position/chart-miss/fold-base gates + the last-raiser read). All green.
-- Behavioral (`experiments/vs_squeeze_defense_validate.py`, OFF vs ON, hero-only): OFF
-  blind-squeeze continue **0%** → ON **continues the value floor 100%** (AA/KK/QQ/AK no
-  longer folded). Widen engages only modestly because the sim's tiered "maniacs" read
+- Unit: `tests/test_strategy/test_vs_squeeze_defense.py` (15 tests — floor/widen/knob/
+  position/chart-miss/fold-base gates + the last-raiser read). All green.
+- Behavioral (`experiments/vs_squeeze_defense_validate.py`, knob OFF vs ON, hero-only):
+  OFF blind-squeeze continue **0%** → ON **continues the value floor 100%** (AA/KK/QQ/AK
+  no longer folded). Widen engages only modestly because the sim's tiered "maniacs" read
   VPIP ~0.40, not the genuinely-wide squeeze the bands' deep tiers target — consistent
   with the small per-player EV and the eval-instrument caveat above.
 
-**Status: gated OFF (EXPERIMENTAL).** Given the corrected per-player EV is small
-(≤0.83 bb/100 only vs a maniac field, ~0 in normal fields), the floor is the clear win
-and the widen is opportunistic. Flip decision (and whether to curate the knob onto
-specific sharks like `push_fold_nash`, vs leave it skill-graded) is open — see below.
+**Status: LIVE (skill-graded, no flag).** The per-player EV is small (≤0.83 bb/100 only
+vs a maniac field, ~0 in normal fields) but the floor is a clear correctness win and the
+risk is low (only continues value hands on a blind squeeze-miss); shipping it live beats
+parking it behind a flag that never gets flipped. The widen is the opportunistic part —
+auto-graded by skill, so it scales itself.
 
 ## Gotchas / open questions
 
-- **Worth flipping on?** The per-player leak is small (floor closes an obvious AA/KK/QQ
-  bug; widen adds ≤0.83 bb/100 only vs wide fields). It ships dormant. Decide: flip the
-  flag for the whole tiered field, curate the knob onto a few sharks, or leave parked.
 - **4-bet the top?** The floor/widen flat-CALLS (matches what the probe priced). Value
   hands (AA/KK) 4-betting OOP would be higher-EV and more natural — a future enhancement.
 - **The BB has no cold-call range**, so this is a *blind-defense-vs-squeeze* concept

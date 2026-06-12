@@ -7,13 +7,14 @@ the question here is purely: with the flag ON + a sharp hero, do the blinds stop
 100% to a squeeze, continue the value FLOOR unconditionally, and WIDEN vs the maniacs?
 
 Two arms over the handoff field ([Maniac, Maniac, LAG, Rock, Rock]):
-  OFF: flag off, knob 0  → blinds fold ~100% of squeeze spots (today's behavior)
-  ON : flag forced on, hero knob 0.85 (shark) → floor continues + read-gated widen
+  OFF: knob 0  → blinds fold ~100% of squeeze spots (the pre-feature behavior)
+  ON : hero knob 0.85 (shark) → floor continues + read-gated widen
 
-Sims bypass __init__ (knob defaults 0), so ON sets the knob at the class level and
-forces `_vs_squeeze_defense_enabled` True — mirroring stop_bluff_probe's
-`exploitation_strength` override. The hero's opponent_model_manager (attached by
-run_6max_matchup) matures the maniacs' VPIP so the widen read fires.
+There is no feature flag — the feature is gated only by the knob (skill-graded, like
+vs3bet_exploit). Sims bypass __init__ (knob defaults 0 → off), so ON sets the knob at
+the class level, mirroring stop_bluff_probe's `exploitation_strength` override. The
+hero's opponent_model_manager (attached by run_6max_matchup) matures the maniacs' VPIP
+so the widen read fires.
 
 Pass criteria:
   - OFF blind-squeeze continue% ≈ 0
@@ -97,17 +98,13 @@ def _wrapped(self, message, **context):
 
 
 def _run_arm(on: bool) -> None:
+    # No feature flag — the feature is gated only by the knob. Sims bypass __init__
+    # (knob defaults 0 → off), so ON sets the shark knob at the class level, OFF clears it.
     _R.reset()
     TieredBotController._get_ai_decision = _wrapped
-    orig_enabled = tbc._vs_squeeze_defense_enabled
     had_attr = "vs_squeeze_defense" in TieredBotController.__dict__
     try:
-        if on:
-            tbc._vs_squeeze_defense_enabled = lambda: True
-            TieredBotController.vs_squeeze_defense = 0.85  # shark, class-level default
-        else:
-            tbc._vs_squeeze_defense_enabled = lambda: False
-            TieredBotController.vs_squeeze_defense = 0.0
+        TieredBotController.vs_squeeze_defense = 0.85 if on else 0.0  # shark / off
         st = sim.load_strategy_table()
         for seed in SEEDS:
             sim.run_6max_matchup(
@@ -121,7 +118,6 @@ def _run_arm(on: bool) -> None:
             )
     finally:
         TieredBotController._get_ai_decision = _orig
-        tbc._vs_squeeze_defense_enabled = orig_enabled
         if not had_attr and "vs_squeeze_defense" in TieredBotController.__dict__:
             del TieredBotController.vs_squeeze_defense
 

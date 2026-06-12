@@ -2,8 +2,8 @@
 
 Two layers, tested in isolation:
   - `_apply_vs_squeeze_defense`: the value-floor / tiered-widen continue logic + the
-    flag / knob / scenario / position / chart-miss / fold-base gates (with
-    `_squeezer_width_read` patched to a fixed VPIP).
+    knob / scenario / position / chart-miss / fold-base gates (no feature flag — gated
+    only by knob>0, like vs3bet_exploit; with `_squeezer_width_read` patched to fixed VPIP).
   - `_squeezer_width_read`: the last-raiser detection + VPIP read (stubbed game state
     + opponent model).
 """
@@ -44,11 +44,8 @@ _FOLD = StrategyProfile(action_probabilities={'fold': 1.0})
 
 
 class TestApplyVsSqueezeDefense:
-    def _apply(self, controller, node, strat=_FOLD, vpip=0.70, flag=True, source='miss'):
-        with (
-            patch('poker.tiered_bot_controller._vs_squeeze_defense_enabled', return_value=flag),
-            patch.object(TieredBotController, '_squeezer_width_read', return_value=vpip),
-        ):
+    def _apply(self, controller, node, strat=_FOLD, vpip=0.70, source='miss'):
+        with patch.object(TieredBotController, '_squeezer_width_read', return_value=vpip):
             return controller._apply_vs_squeeze_defense(
                 strat, node, game_state=None, player_idx=0, chart_lookup_source=source
             )
@@ -82,10 +79,6 @@ class TestApplyVsSqueezeDefense:
         # The floor (tier-0) survives any knob>0.
         out = self._apply(_controller(knob=0.30), _squeeze_node('QQ'), vpip=0.70)
         assert out.action_probabilities == {'call': 1.0}
-
-    def test_no_op_when_flag_off(self):
-        out = self._apply(_controller(), _squeeze_node('AA'), flag=False)
-        assert out.action_probabilities == {'fold': 1.0}
 
     def test_no_op_when_knob_zero(self):
         out = self._apply(_controller(knob=0.0), _squeeze_node('AA'))
