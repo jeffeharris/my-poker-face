@@ -3,6 +3,7 @@ purpose: Design + handoff for unifying the duplicated opponent-stat computation 
 type: design
 created: 2026-06-12
 last_updated: 2026-06-12
+status: Tier 1 + sim showdown feed IMPLEMENTED (2026-06-12) — see §9
 ---
 
 # Opponent-stat source of truth
@@ -170,7 +171,7 @@ start re-deriving live reads. Today they don't. Not justified yet.
   *definitional* part of the authored≠observed gap; the online-vs-offline +
   hero-dependent-sampling part remains and is tracked in the matrix doc.
 
-## 6. First concrete steps for the implementer
+## 6. First concrete steps for the implementer  *(DONE — see §9 for what shipped)*
 
 1. Inventory every inlined formula (grep the four sites for `aggression_factor`,
    `fold_to_cbet`, `wtsd`/`saw_flop`, `_per_voluntary_opportunity`,
@@ -187,7 +188,7 @@ start re-deriving live reads. Today they don't. Not justified yet.
    `jeff` 0.59). That validation was the blocker that motivated this doc.
 5. Then refactor sites #2–#4 to import the same definitions.
 
-## 7. Current state this doc hands off (already on branch `strategy-revalidation`)
+## 7. Current state this doc hands off (already on branch `strategy-revalidation`)  *(pre-implementation snapshot — superseded by §9)*
 
 - WTSD is **already wired on the live model** (`_saw_flop` counter + `wtsd` field +
   persistence + `AggregatedOpponentStats.wtsd` + build-site copy + `_AGG_RATE_FIELDS`).
@@ -206,3 +207,85 @@ start re-deriving live reads. Today they don't. Not justified yet.
   clone-fidelity gap.
 - `poker/archetypes.py` — the canonical 4-quadrant grid (a 5th definition site).
 - `PHASE_7_5_ADJUSTMENT_LAYER_WIDENING.md` — existing stat-definition glossary.
+
+## 9. What was implemented (2026-06-12)
+
+Tier 1 (the core ask) + the sim showdown feed shipped. Tier 2's fuller move
+(deleting `_record_sim_equity_at_actions` as a separate recorder) and Tier 3
+(pub/sub service) remain deferred as designed.
+
+**`poker/memory/stat_definitions.py`** — new pure-function module, the home for
+every stat formula used anywhere (centralized for discoverability, not just the
+ones that drifted). Contents:
+- canonical action/phase vocabularies (`VOLUNTARY_PREFLOP_ACTIONS`, `PFR_ACTIONS`,
+  `AGGRESSIVE_ACTIONS`, `POSTFLOP_PHASES` + `is_*` predicates);
+- core ratios: `safe_ratio`, `aggression_factor` (parameterized `zero_call_cap`
+  unifies global / postflop / per-street AF), `wtsd`, `fold_to_cbet`, `vpip`,
+  `pfr`, `all_in_frequency`, per-opportunity VPIP/PFR, `call_rate_facing_bet`,
+  `all_in_per_facing_bet`, `postflop_jam_open_rate`, `showdown_win_rate`,
+  `limp_rate`;
+- non-ratio shapes: `mean` (running average behind the equity-at-action means),
+  `polarization` (high-bucket − low-bucket, behind `sizing_polarization_score`
+  and the aggression-polarization signal);
+- postflop tendency rates pulled in from the live model (were single-site):
+  `fold_to_big_bet`, `stab_frequency`, `cbet_attempt_rate`, `barrel_frequency`,
+  `third_barrel_frequency`, `flop_check_then_barrel_rate`;
+- **iso-over-limper scaffolding** (`fold_to_iso`, `limp_call_rate`,
+  `limp_reraise_rate`) — pure definitions + the documented counter contract for
+  the sibling-branch exploit; no live feeder yet (functions are inert until wired).
+
+Its docstring is the "add a new tendency stat" contract. Unit + cross-site-agreement
+tests: `tests/test_memory/test_stat_definitions.py`.
+
+**Sites refactored to import it** (all behavior-preserving; the live-model site
+verified **byte-identical** on `detection_fidelity_probe` pre/post, characterization
+green):
+- `poker/memory/opponent_model.py` (`update_from_action` predicates +
+  `_recalculate_stats` / `_recalculate_postflop_stats` formulas) — the canonical
+  reducer.
+- `cash_mode/archetype_stats.py` and `flask_app/routes/archetype_review_routes.py`
+  — their duplicated local action sets (`_VOLUNTARY`/`_AGGRESSIVE`/`_POSTFLOP`)
+  were **drifted**: they omitted `'bet'`. Adopting the canonical superset is a
+  no-op there because both data sources are tiered-bot-only and tiered bots never
+  emit `'bet'` (only `'raise'`); their presentation layer (percent ×100, `99.0`
+  all-agg sentinel, None-for-no-data) is left as-is — that's per-consumer, not drift.
+- `poker/human_clone.py` (`_mine_hand_history` per-street `_af` + `wtsd`) — uses
+  the shared **formula** only.
+- `poker/strategy/exploitation.py` ↔ `poker/archetypes.py` — `archetypes.py` now
+  documents itself as the registry/index of BOTH stat spaces (raw-stat quadrant
+  vs the detector's per-opportunity/postflop space); the one genuinely-shared
+  boundary (`VPIP_TIGHT` 0.30) is imported so it lives in exactly one place. AF
+  boundaries intentionally differ and stay separate.
+
+**Sim showdown feed** — `experiments/simulate_bb100.run_hand` now feeds
+`observe_showdown` on the unconditional hand-end path (gated only on an attached
+`opponent_manager` + `hero_name`; bare bb/100 sims are untouched). WTSD is now
+non-zero in opponent-model sims and deterministic.
+
+### Known follow-ups (separate, measured decisions — NOT done here)
+
+- **WTSD works and discriminates — the open question (swap the sticky axis to it)
+  is moot, for a clone-fidelity reason, not a WTSD reason.** With the feed live,
+  `detection_fidelity_probe` (2000 hands, seed 42):
+
+  | clone | WTSD hu / 6max | call_rate hu / 6max | AF_postflop hu / 6max |
+  |---|---|---|---|
+  | SpewyFolder (authored folder) | 0.71 / 0.81 | 0.86 / 0.68 | 0.23 / 0.53 |
+  | Station | 0.80 / 0.86 | 0.91 / 0.74 | 0.15 / 0.25 |
+  | Jeff | 0.80 / 0.88 | 0.91 / 0.82 | 0.17 / 0.44 |
+  | Punisher (aggressive reg) | **0.46** / 0.79 | 0.79 / 0.69 | 0.85 / 1.30 |
+
+  WTSD cleanly separates the aggressive reg (Punisher 0.46 HU) from the sticky
+  fish (0.71–0.80). It does NOT separate the *authored* folder from the stations —
+  but that's because `spewy_folder_fish` doesn't fold in play (`call_rate` 0.86):
+  its authored `fold_to_cbet=0.70` doesn't manifest (same fidelity gap as
+  Punisher's authored fold_to_cbet → ~0.00). WTSD agrees with `call_rate` — both
+  correctly read it as sticky. **So switching `_is_loose_passive_station`'s sticky
+  axis from `call_rate_facing_bet` to WTSD buys nothing on this clone set (they
+  measure nearly the same thing here); the real gap is a folder clone that doesn't
+  fold, which is a clone-authoring fix, not a stat fix.** WTSD itself is validated.
+- **Clone per-street AF uses a narrower aggression set** (`'raise'` only, not
+  `all_in`/`bet`) than canonical `AGGRESSIVE_ACTIONS`. Left as-is (changing it
+  would move derived clone profiles); flagged in `human_clone.py`. Reconcile as a
+  measured decision if/when clone fidelity work resumes.
+- Tier 2 fuller move + Tier 3 service: deferred as designed.

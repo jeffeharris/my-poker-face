@@ -26,11 +26,9 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Dict, Optional
 
-logger = logging.getLogger(__name__)
+from poker.memory import stat_definitions as sd
 
-_VOLUNTARY = {'call', 'raise', 'all_in'}
-_AGGRESSIVE = {'raise', 'all_in'}
-_POSTFLOP = {'FLOP', 'TURN', 'RIVER'}
+logger = logging.getLogger(__name__)
 
 # Flush cadence: accumulate this many hands before writing deltas. Keeps the
 # write rate trivial even during catch-up bursts.
@@ -90,21 +88,21 @@ class ArchetypeStatRecorder:
             scratch['allin'] = True
         if phase == 'PRE_FLOP':
             t['pf_decisions'] += 1
-            if action in _VOLUNTARY:
+            if sd.is_voluntary_preflop(action):
                 scratch['vpip'] = True
-            if action in _AGGRESSIVE:
+            if sd.is_pfr_action(action):
                 scratch['pfr'] = True
             if node == 'vs_open':
                 t['vs_open'] += 1
-                if action in _AGGRESSIVE:
+                if sd.is_pfr_action(action):
                     t['vs_open_agg'] += 1
             elif node == 'vs_3bet' and is_opener:
                 t['vs_3bet'] += 1
-                if action in _AGGRESSIVE:
+                if sd.is_pfr_action(action):
                     t['vs_3bet_agg'] += 1
                 elif action == 'fold':
                     t['vs_3bet_fold'] += 1
-        elif phase in _POSTFLOP:
+        elif sd.is_postflop_phase(phase):
             # The player saw the flop (≥1 postflop decision) — WTSD denominator.
             scratch['saw_flop'] = True
             street = phase.lower()  # flop / turn / river
@@ -112,7 +110,7 @@ class ArchetypeStatRecorder:
             # (The old aggregate postflop_agg/postflop_call counters were dropped:
             # they predated the per-street fold column by one migration, so mixing
             # them inflated AFq. The review route now sums the per-street columns.)
-            if action in _AGGRESSIVE:
+            if sd.is_aggressive_action(action):
                 t[f'{street}_agg'] += 1
             elif action == 'call':
                 t[f'{street}_call'] += 1

@@ -24,6 +24,7 @@ from ..config import (
     MIN_HANDS_FOR_SUMMARY,
     OPPONENT_SUMMARY_TOKENS,
 )
+from . import stat_definitions as sd
 from .relationship_events import (
     AxisShift,
     RelationshipEvent,
@@ -388,26 +389,26 @@ class OpponentTendencies:
         # WTSD denominator: first postflop action of a hand means the opponent
         # saw the flop. Counted independent of facing-bet context (any postflop
         # action — check/bet/call/fold — implies they reached the flop).
-        if phase in ('FLOP', 'TURN', 'RIVER') and not self._saw_flop_this_hand:
+        if sd.is_postflop_phase(phase) and not self._saw_flop_this_hand:
             self._saw_flop += 1
             self._saw_flop_this_hand = True
 
         # Track VPIP (voluntary pot entry) - only count ONCE per hand.
         # all_in is voluntary chip commitment and counts as VPIP.
         if phase == 'PRE_FLOP' and is_voluntary and not self._vpip_this_hand:
-            if action in ('call', 'raise', 'bet', 'all_in'):
+            if sd.is_voluntary_preflop(action):
                 self._vpip_count += 1
                 self._vpip_this_hand = True
 
         # Track PFR (pre-flop raise) - only count ONCE per hand.
         # A preflop all-in is the most aggressive raise possible; counts as PFR.
-        if phase == 'PRE_FLOP' and action in ('raise', 'all_in') and not self._pfr_this_hand:
+        if phase == 'PRE_FLOP' and sd.is_pfr_action(action) and not self._pfr_this_hand:
             self._pfr_count += 1
             self._pfr_this_hand = True
 
         # Track aggression. all_in is the most aggressive action and contributes
         # to both the general aggression counter and its own dedicated counter.
-        if action in ('bet', 'raise', 'all_in'):
+        if sd.is_aggressive_action(action):
             self._bet_raise_count += 1
             if action == 'all_in':
                 self._all_in_count += 1
@@ -417,7 +418,7 @@ class OpponentTendencies:
         # Phase 7.5 Step 0: postflop-only counters for opportunity-
         # normalized stats. Skipped when was_facing_bet is None
         # (caller couldn't determine context) or when phase is preflop.
-        if phase in ('FLOP', 'TURN', 'RIVER') and was_facing_bet is not None:
+        if sd.is_postflop_phase(phase) and was_facing_bet is not None:
             self._apply_postflop_counters(action, was_facing_bet)
 
         # Opportunity-normalized preflop counters. Bumped on every
@@ -684,20 +685,20 @@ class OpponentTendencies:
         if action == 'bet':
             self._equity_betting_sum += equity
             self._equity_betting_count += 1
-            self.equity_when_betting_postflop = (
-                self._equity_betting_sum / self._equity_betting_count
+            self.equity_when_betting_postflop = sd.mean(
+                self._equity_betting_sum, self._equity_betting_count
             )
         elif action == 'raise':
             self._equity_raising_sum += equity
             self._equity_raising_count += 1
-            self.equity_when_raising_postflop = (
-                self._equity_raising_sum / self._equity_raising_count
+            self.equity_when_raising_postflop = sd.mean(
+                self._equity_raising_sum, self._equity_raising_count
             )
         elif action == 'call':
             self._equity_calling_sum += equity
             self._equity_calling_count += 1
-            self.equity_when_calling_postflop = (
-                self._equity_calling_sum / self._equity_calling_count
+            self.equity_when_calling_postflop = sd.mean(
+                self._equity_calling_sum, self._equity_calling_count
             )
         # action types outside {bet, raise, call} intentionally ignored
 
@@ -718,15 +719,15 @@ class OpponentTendencies:
         if bet_fraction >= SIZING_BIG_BET_POT_RATIO:
             self._equity_betting_big_sum += equity
             self._equity_betting_big_count += 1
-            self.equity_when_betting_big = (
-                self._equity_betting_big_sum / self._equity_betting_big_count
+            self.equity_when_betting_big = sd.mean(
+                self._equity_betting_big_sum, self._equity_betting_big_count
             )
             self._recent_big_bet_equities.append(equity)  # recency kill-switch feed
         else:
             self._equity_betting_small_sum += equity
             self._equity_betting_small_count += 1
-            self.equity_when_betting_small = (
-                self._equity_betting_small_sum / self._equity_betting_small_count
+            self.equity_when_betting_small = sd.mean(
+                self._equity_betting_small_sum, self._equity_betting_small_count
             )
 
     def sizing_tell_is_mixing(self) -> bool:
@@ -748,7 +749,9 @@ class OpponentTendencies:
             or self._equity_betting_big_count < SIZING_MIN_BIN_SAMPLE
         ):
             return False
-        recent_mean = sum(self._recent_big_bet_equities) / len(self._recent_big_bet_equities)
+        recent_mean = sd.mean(
+            sum(self._recent_big_bet_equities), len(self._recent_big_bet_equities)
+        )
         return recent_mean <= self.equity_when_betting_big - SIZING_MIXING_DELTA
 
     def update_fold_to_big_bet(self, folded: bool) -> None:
@@ -764,7 +767,9 @@ class OpponentTendencies:
         self._big_bet_faced_count += 1
         if folded:
             self._fold_to_big_bet_count += 1
-        self.fold_to_big_bet = self._fold_to_big_bet_count / self._big_bet_faced_count
+        self.fold_to_big_bet = sd.fold_to_big_bet(
+            self._fold_to_big_bet_count, self._big_bet_faced_count
+        )
 
     def update_stab(self, stabbed: bool) -> None:
         """Live record of how often this opponent BETS when CHECKED TO postflop
@@ -774,7 +779,7 @@ class OpponentTendencies:
         self._stab_opp_count += 1
         if stabbed:
             self._stab_count += 1
-        self.stab_frequency = self._stab_count / self._stab_opp_count
+        self.stab_frequency = sd.stab_frequency(self._stab_count, self._stab_opp_count)
 
     def _recalculate_stats(self):
         """Recalculate derived statistics.
@@ -785,67 +790,60 @@ class OpponentTendencies:
         """
         denom = self.hands_dealt if self.hands_dealt > 0 else self.hands_observed
         if denom > 0:
-            self.vpip = self._vpip_count / denom
-            self.pfr = self._pfr_count / denom
-            self.all_in_frequency = self._all_in_count / denom
+            self.vpip = sd.vpip(self._vpip_count, denom)
+            self.pfr = sd.pfr(self._pfr_count, denom)
+            self.all_in_frequency = sd.all_in_frequency(self._all_in_count, denom)
 
-        total_actions = self._bet_raise_count + self._call_count
-        if total_actions == 0:
-            # No actions observed yet; use neutral default
-            self.aggression_factor = 1.0
-        elif self._call_count == 0:
-            # All observed actions are bets/raises; pre-Phase-7.5 this was
-            # `float(self._bet_raise_count)`, which let raw count drive
-            # extreme classification on noisy zero-call samples (a player
-            # with 6 raises and 0 calls in 10 hands would show AF=6,
-            # indistinguishable from a real maniac with 60 raises and 10
-            # calls). Phase 7.5 Item 2 caps this at MEDIUM_AF_THRESHOLD
-            # to suppress that noise — the downstream classifier then
-            # correctly says "this opponent might be extreme, but we
-            # don't have call samples to confirm — stay at MEDIUM clamp."
-            from ..strategy.phase_7_5_config import CONFIG
+        # Global AF via the shared formula. The zero-call cap (MEDIUM_AF) keeps a
+        # noisy zero-call sample (e.g. 6 raises, 0 calls in 10 hands → AF 6) from
+        # masquerading as a real maniac; below MEDIUM the downstream classifier
+        # holds "might be extreme, no call samples to confirm." (Phase 7.5 Item 2.)
+        from ..strategy.phase_7_5_config import CONFIG
 
-            self.aggression_factor = min(
-                float(self._bet_raise_count),
-                CONFIG.signal_thresholds.medium_af_postflop,
-            )
-        else:
-            self.aggression_factor = self._bet_raise_count / self._call_count
+        self.aggression_factor = sd.aggression_factor(
+            self._bet_raise_count,
+            self._call_count,
+            zero_call_cap=CONFIG.signal_thresholds.medium_af_postflop,
+        )
 
         if self._cbet_faced_count > 0:
-            self.fold_to_cbet = self._fold_to_cbet_count / self._cbet_faced_count
+            self.fold_to_cbet = sd.fold_to_cbet(self._fold_to_cbet_count, self._cbet_faced_count)
 
         # Phase 8.1a: cbet_attempt_rate. Stays at the 0.5 neutral
         # default until we have at least one observed opportunity —
         # mirrors fold_to_cbet's "no sample = neutral prior" stance.
         if self._postflop_seen_as_pfr_count > 0:
-            self.cbet_attempt_rate = self._cbet_attempt_count / self._postflop_seen_as_pfr_count
+            self.cbet_attempt_rate = sd.cbet_attempt_rate(
+                self._cbet_attempt_count, self._postflop_seen_as_pfr_count
+            )
 
         # Phase B Item 1: barrel rates. Same "neutral prior 0.5 until
         # observed" stance. These are the proper signal that Phase B
         # Item 2's induce_override gate will read.
         if self._barrel_opportunity_count > 0:
-            self.barrel_frequency = self._barrel_count / self._barrel_opportunity_count
+            self.barrel_frequency = sd.barrel_frequency(
+                self._barrel_count, self._barrel_opportunity_count
+            )
         if self._third_barrel_opportunity_count > 0:
-            self.third_barrel_frequency = (
-                self._third_barrel_count / self._third_barrel_opportunity_count
+            self.third_barrel_frequency = sd.third_barrel_frequency(
+                self._third_barrel_count, self._third_barrel_opportunity_count
             )
 
         # Phase B Item 4: flop-check-then-barrel rate. Same neutral-prior
         # 0.5 stance as the other Phase B stats.
         if self._flop_check_barrel_opportunity_count > 0:
-            self.flop_check_then_barrel_rate = (
-                self._flop_check_barrel_count / self._flop_check_barrel_opportunity_count
+            self.flop_check_then_barrel_rate = sd.flop_check_then_barrel_rate(
+                self._flop_check_barrel_count, self._flop_check_barrel_opportunity_count
             )
 
         if self._showdowns > 0:
-            self.showdown_win_rate = self._showdowns_won / self._showdowns
+            self.showdown_win_rate = sd.showdown_win_rate(self._showdowns_won, self._showdowns)
 
         # WTSD: showdowns reached / hands that saw the flop. Clamped to 1.0 to
         # stay defined when a rare all-in-preflop showdown adds to the numerator
         # without a postflop action incrementing _saw_flop.
         if self._saw_flop > 0:
-            self.wtsd = min(1.0, self._showdowns / self._saw_flop)
+            self.wtsd = sd.wtsd(self._showdowns, self._saw_flop)
 
         # Sizing-aware Phase A: polarization score = how much MORE equity this
         # opponent shows on big bets vs small bets. Only meaningful once BOTH
@@ -855,8 +853,8 @@ class OpponentTendencies:
             self._equity_betting_big_count >= SIZING_MIN_BIN_SAMPLE
             and self._equity_betting_small_count >= SIZING_MIN_BIN_SAMPLE
         ):
-            self.sizing_polarization_score = (
-                self.equity_when_betting_big - self.equity_when_betting_small
+            self.sizing_polarization_score = sd.polarization(
+                self.equity_when_betting_big, self.equity_when_betting_small
             )
         else:
             self.sizing_polarization_score = 0.0
@@ -871,18 +869,18 @@ class OpponentTendencies:
         # and would drive pfr_per_open_opportunity > 1.0 for an
         # always-raising opponent.
         if self._preflop_open_opportunities > 0:
-            self.pfr_per_open_opportunity = (
-                self._preflop_open_raise_count / self._preflop_open_opportunities
+            self.pfr_per_open_opportunity = sd.pfr_per_open_opportunity(
+                self._preflop_open_raise_count, self._preflop_open_opportunities
             )
         if self._preflop_voluntary_opportunities > 0:
-            self.vpip_per_voluntary_opportunity = (
-                self._preflop_voluntary_action_count / self._preflop_voluntary_opportunities
+            self.vpip_per_voluntary_opportunity = sd.vpip_per_voluntary_opportunity(
+                self._preflop_voluntary_action_count, self._preflop_voluntary_opportunities
             )
 
         # Limp rate over open opportunities. Stays at the 0.0 prior until an
         # open spot is observed (limping is the exception, not a coin-flip).
         if self._preflop_open_opportunities > 0:
-            self.limp_rate = self._limp_count / self._preflop_open_opportunities
+            self.limp_rate = sd.limp_rate(self._limp_count, self._preflop_open_opportunities)
 
         # Phase 7.5 Step 0: postflop opportunity-normalized stats.
         # Has the AF raw-count cap from day one — this field is new, no
@@ -891,48 +889,32 @@ class OpponentTendencies:
 
     def _recalculate_postflop_stats(self) -> None:
         """Compute the Phase 7.5 postflop-only derived stats."""
-        # Postflop AF, with cap from day one.
-        if self._postflop_call_count == 0:
-            if self._postflop_bet_raise_count == 0:
-                self.aggression_factor_postflop = 1.0
-            else:
-                # No postflop calls observed — cap raw-count at MEDIUM
-                # threshold so a zero-call sample can't trigger EXTREME
-                # tier classification on noisy signal alone.
-                # Import lazily to avoid circular imports at module load.
-                from ..strategy.phase_7_5_config import CONFIG
+        # Postflop AF, with the MEDIUM zero-call cap from day one (same shape as
+        # the global AF above). Import lazily to avoid circular imports at load.
+        from ..strategy.phase_7_5_config import CONFIG
 
-                cap = CONFIG.signal_thresholds.medium_af_postflop
-                self.aggression_factor_postflop = min(
-                    float(self._postflop_bet_raise_count),
-                    cap,
-                )
-        else:
-            self.aggression_factor_postflop = (
-                self._postflop_bet_raise_count / self._postflop_call_count
-            )
+        self.aggression_factor_postflop = sd.aggression_factor(
+            self._postflop_bet_raise_count,
+            self._postflop_call_count,
+            zero_call_cap=CONFIG.signal_thresholds.medium_af_postflop,
+        )
 
         # Response-aggression axis: all-ins per facing-bet opportunity.
-        if self._facing_bet_opportunities > 0:
-            self.all_in_per_facing_bet = self._all_ins_facing_bet / self._facing_bet_opportunities
-        else:
-            self.all_in_per_facing_bet = 0.0
+        self.all_in_per_facing_bet = sd.all_in_per_facing_bet(
+            self._all_ins_facing_bet, self._facing_bet_opportunities
+        )
 
         # Stickiness axis: calls per facing-bet opportunity (the "doesn't fold"
         # signal). A call only happens when facing a bet, so the denominator
         # is the same _facing_bet_opportunities; the remainder is folds + raises.
-        if self._facing_bet_opportunities > 0:
-            self.call_rate_facing_bet = self._postflop_call_count / self._facing_bet_opportunities
-        else:
-            self.call_rate_facing_bet = 0.0
+        self.call_rate_facing_bet = sd.call_rate_facing_bet(
+            self._postflop_call_count, self._facing_bet_opportunities
+        )
 
         # Open-aggression axis: opening jams per postflop open opportunity.
-        if self._postflop_open_opportunities > 0:
-            self.postflop_jam_open_rate = (
-                self._postflop_jam_opens / self._postflop_open_opportunities
-            )
-        else:
-            self.postflop_jam_open_rate = 0.0
+        self.postflop_jam_open_rate = sd.postflop_jam_open_rate(
+            self._postflop_jam_opens, self._postflop_open_opportunities
+        )
 
     def get_play_style_label(self) -> str:
         """Returns play style classification.
