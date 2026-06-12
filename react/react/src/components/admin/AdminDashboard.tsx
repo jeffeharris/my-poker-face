@@ -46,6 +46,9 @@ const CoachEffectivenessPanel = lazy(() =>
 const CostAnalyticsPanel = lazy(() =>
   import('./CostAnalyticsPanel').then((m) => ({ default: m.CostAnalyticsPanel }))
 );
+const ChartCensusPanel = lazy(() =>
+  import('./ChartCensusPanel').then((m) => ({ default: m.ChartCensusPanel }))
+);
 const ArchetypeReviewPanel = lazy(() =>
   import('./ArchetypeReviewPanel').then((m) => ({ default: m.ArchetypeReviewPanel }))
 );
@@ -186,6 +189,7 @@ export function AdminDashboard({
         {activeTab === 'archetype-review' && <ArchetypeReviewPanel embedded />}
         {activeTab === 'coach-metrics' && <CoachEffectivenessPanel embedded />}
         {activeTab === 'cost-analytics' && <CostAnalyticsPanel embedded />}
+        {activeTab === 'chart-census' && <ChartCensusPanel embedded />}
       </Suspense>
     );
   };
