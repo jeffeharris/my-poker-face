@@ -37,7 +37,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 from .preflop_classifier import get_6max_position
 
@@ -327,6 +327,7 @@ def reshove_action_6max(
     num_seated: int,
     big_blind: float,
     effective_stack_bb: float,
+    opener_fold_equity_ok: Optional[Callable[[int], bool]] = None,
 ) -> Optional[str]:
     """Controller-agnostic reshove decision: jam-or-fold over a SINGLE
     non-all-in open. Returns 'jam'/'fold' when in scope, else None.
@@ -343,6 +344,13 @@ def reshove_action_6max(
     (that is the caller-table spot, not a reshove), no cold-caller between, and
     hero is not the opener. Anything else returns None (defer to the caller's
     fallback path).
+
+    `opener_fold_equity_ok`, when given, is called with the opener's seat index
+    once the spot is identified; if it returns False the whole reshove is
+    declined (None → fall through). This is the fold-equity gate — reshoving has
+    no value vs an opener who won't fold, so the caller injects a read-based
+    predicate (see exploitation.reshove_fold_equity_ok). Omitted → no gate
+    (chart always applies; used by the chart-routing unit tests).
     """
     if num_seated <= 2 or num_seated > 6:
         return None
@@ -376,6 +384,12 @@ def reshove_action_6max(
     highest = max((getattr(p, "bet", 0) for _, p in active_opps), default=0)
     if getattr(opener, "bet", 0) != highest:
         return None  # someone outbid the opener without a recorded raise → bail
+
+    # Fold-equity gate: reshoving has no value vs an opener who won't fold, so
+    # decline the whole spot (defer to the caller's fallback) when the injected
+    # read-based predicate says there's no fold equity.
+    if opener_fold_equity_ok is not None and not opener_fold_equity_ok(opener_idx):
+        return None
 
     return lookup_push_fold_action_6max(
         hand=hand,

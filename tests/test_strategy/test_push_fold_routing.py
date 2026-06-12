@@ -250,7 +250,7 @@ class TestMultiwayRouting:
 
     def test_6max_unopened_raise_present_returns_none(self):
         # A non-all-in raise sits in front of hero (the reshove spot). With the
-        # PUSH_FOLD_6MAX_RESHOVE_ENABLED flag OFF (default), it falls through.
+        # PUSH_FOLD_6MAX_RESHOVE_ENABLED flag patched OFF, it falls through.
         gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, raises=1)
         c = _controller()
         with patch('poker.tiered_bot_controller._reshove_6max_enabled', return_value=False):
@@ -304,9 +304,17 @@ class TestMultiwayRouting:
 class TestReshoveRouting:
     """Reshove (jam over a single non-all-in open), flag-gated."""
 
-    def _route(self, gs, hand='AA', hero_idx=0, num_seated=6, flag=True):
+    def _route(self, gs, hand='AA', hero_idx=0, num_seated=6, flag=True, fold_equity=True):
+        # Chart-routing tests patch the fold-equity gate True so they exercise
+        # the reshove chart independent of opponent reads (the gate has its own
+        # tests below + in test_tiered_bot_exploitation).
         c = _controller()
-        with patch('poker.tiered_bot_controller._reshove_6max_enabled', return_value=flag):
+        with (
+            patch('poker.tiered_bot_controller._reshove_6max_enabled', return_value=flag),
+            patch.object(
+                TieredBotController, '_reshove_opener_fold_equity_ok', return_value=fold_equity
+            ),
+        ):
             return c._try_push_fold_lookup(hand, gs, player_idx=hero_idx, num_seated=num_seated)
 
     def test_reshove_premium_jams_with_flag_on(self):
@@ -341,6 +349,20 @@ class TestReshoveRouting:
         )
         assert self._route(gs, 'AA') is None
 
+    def test_reshove_no_fold_equity_returns_none(self):
+        # Even a premium reshove is declined when the gate says the opener won't
+        # fold (station/maniac / no read) — reshoving them is pure spew.
+        gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, opener_pos='CO')
+        assert self._route(gs, 'AA', fold_equity=False) is None
+
+    def test_reshove_no_opponent_model_declines(self):
+        # A bare controller (no opponent_model_manager) has no read → the gate
+        # defaults to False → reshove declined.
+        gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, opener_pos='CO')
+        c = _controller()  # no opponent_model_manager attached
+        with patch('poker.tiered_bot_controller._reshove_6max_enabled', return_value=True):
+            assert c._try_push_fold_lookup('AA', gs, player_idx=0, num_seated=6) is None
+
     def test_reshove_action_6max_pure_detector(self):
         # The shared detector is controller-agnostic and flag-free.
         from poker.strategy.push_fold import reshove_action_6max
@@ -351,6 +373,37 @@ class TestReshoveRouting:
         # An all-in in front is a caller-table spot, not a reshove → None.
         jam_gs = _6max_state(hero_pos='BB', hero_idx=0, hero_stack_bb=8, jammer_pos='SB')
         assert reshove_action_6max('AA', jam_gs, 0, 6, big_blind=100, effective_stack_bb=8) is None
+
+    def test_reshove_fold_equity_gate_injected(self):
+        # The detector honors the injected fold-equity predicate: same spot,
+        # gate False → None, gate True → jam.
+        from poker.strategy.push_fold import reshove_action_6max
+
+        gs = _6max_state(hero_pos='BTN', hero_idx=0, hero_stack_bb=10, opener_pos='CO')
+        assert (
+            reshove_action_6max(
+                'AA',
+                gs,
+                0,
+                6,
+                big_blind=100,
+                effective_stack_bb=10,
+                opener_fold_equity_ok=lambda oi: False,
+            )
+            is None
+        )
+        assert (
+            reshove_action_6max(
+                'AA',
+                gs,
+                0,
+                6,
+                big_blind=100,
+                effective_stack_bb=10,
+                opener_fold_equity_ok=lambda oi: True,
+            )
+            == 'jam'
+        )
 
 
 # ── Snapshot flag wiring sanity (HU path still sets push_fold_routed) ───────

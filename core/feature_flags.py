@@ -583,17 +583,21 @@ register(
 register(
     FeatureFlag(
         "PUSH_FOLD_6MAX_RESHOVE_ENABLED",
-        # EXPERIMENTAL: ranges are [L] (extrapolated, PUSH_FOLD_6MAX_SCOPE.md) but
-        # validation showed facing-a-single-open is the dominant short-stack spot
-        # (~66%), so even approximate reshove ranges beat the deep-stack fall-through.
-        # Gate stays off until a short-stack A/B confirms it. The reshove detector
-        # is controller-agnostic (push_fold.reshove_action_6max); this flag gates
-        # the sharp bot's call site — other controllers can opt in independently.
-        Stage.EXPERIMENTAL,
-        "6-max short-stack RESHOVE (jam-or-fold over a single non-all-in open) via the push_fold_6max 'reshove' chart. Off => the spot falls through to the deep-stack / short_stack.py path (byte-identical).",
+        # ON 2026-06-11 after the bb/100 A/B (PUSH_FOLD_6MAX_SCOPE.md). Unconditional
+        # reshoving was −21/−52 bb/100 vs the call-happy field (no fold equity); the
+        # fold-equity gate (exploitation.reshove_fold_equity_ok — suppress vs openers
+        # who play too many hands to fold, i.e. stations AND maniacs) makes it
+        # bb/100-NEUTRAL (no leak) while still reshoving vs openers who fold. Triple-
+        # gated: this flag + the per-persona push_fold_nash opt-in (8 sharks) + the
+        # fold-equity read. Upside (vs tight openers) is unproven in the rule-bot
+        # sim — no foldy openers exist there — but the downside is gated to ~zero.
+        # The reshove detector is controller-agnostic (push_fold.reshove_action_6max);
+        # this flag gates the sharp bot's call site — other controllers can opt in.
+        Stage.STABLE,
+        "6-max short-stack RESHOVE (jam-or-fold over a single non-all-in open) via the push_fold_6max 'reshove' chart, fold-equity-gated. Off => the spot falls through to the deep-stack / short_stack.py path.",
         owner=_STRAT,
-        dev=False,
-        prod=False,
+        dev=True,
+        prod=True,
         db_overridable=True,
     )
 )

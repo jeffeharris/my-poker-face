@@ -80,8 +80,12 @@ and the push/fold gate decide which chart serves a given spot:
   `preflop_100bb_6max.json` (≈100bb), `preflop_50bb_6max.json` (≈50bb), or
   `preflop_25bb_6max.json` (≈25bb), via `nearest_depth_bucket`.
 - **Short stacks ≤ 15bb** (`PUSH_FOLD_THRESHOLD_BB`, `poker/strategy/push_fold.py`):
-  `push_fold_hu.json` overrides via `lookup_push_fold_action`. **HU only today** —
-  a 6-max push/fold table is future scope (`docs/plans/PUSH_FOLD_6MAX_SCOPE.md`).
+  HU uses `push_fold_hu.json` via `lookup_push_fold_action`. 6-max / multiway uses
+  `push_fold_6max.json` via `lookup_push_fold_action_6max` only when the persona
+  opts into `push_fold_nash` and the spot is in scope: unopened jam, BB
+  call-vs-shove, or reshove over a single non-all-in open. The reshove table is
+  `[L]` extrapolated and separately gated by `PUSH_FOLD_6MAX_RESHOVE_ENABLED`;
+  out-of-scope spots fall through to the depth/width table path.
 - **Postflop** (all stack depths, 6-max and HU — there is no separate HU postflop
   chart): the single `postflop_strategies.json`, looked up via
   `lookup_postflop_with_fallback`. Only `(SRP, high)` is authored; every other
