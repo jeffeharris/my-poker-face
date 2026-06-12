@@ -1,0 +1,18 @@
+{
+  "source_player": "Folder",
+  "hands_observed": 1000,
+  "vpip": 0.48,
+  "pfr": 0.10,
+  "aggression_factor": 0.5,
+  "fold_to_cbet": 0.90,
+  "bluff_frequency": 0.05,
+  "showdown_win_rate": 0.45,
+  "wtsd": 0.20,
+  "threebet_rate": 0.03,
+  "flop_af": 0.4,
+  "turn_af": 0.4,
+  "river_af": 0.4,
+  "bluff_air_freq": 0.0,
+  "overfold_factor": 1.8,
+  "_comment": "A FAITHFUL fit-or-fold fish — the folder bed the detector exclusion needed. Loose preflop (vpip 0.48) + passive (AF 0.5) like spewy_folder_fish, but uses the overfold_factor lever (human_clone.py) to actually OVER-FOLD in play: it lays down hands that are pot-odds-correct to call, so it reaches showdown rarely (target live WtSD < 0.30). spewy_folder_fish reaches showdown ~70% despite its authored fold profile because the legacy fold gate maxes at textbook pot odds and never over-folds. This profile is the test bed proving the loose_passive sticky/WTSD axis EXCLUDES a genuine folder (its counter is bluff-more, the opposite of a station's). overfold_factor calibrated via detection_fidelity_probe."
+}

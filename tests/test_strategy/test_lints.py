@@ -131,3 +131,31 @@ def test_base_runner_executes_over_live_chart():
     report = lints.lint_base_chart(base)
     assert set(report) == {fn.__name__ for fn in lints.BASE_LINTS}
     assert all(isinstance(v, list) for v in report.values())
+
+
+def test_postflop_lints_pass_on_live_charts():
+    """The shipped postflop charts must pass the (previously absent) postflop
+    structural lints — weights sum to 1, legal vocab, non-empty leaves."""
+    import json
+    import os
+
+    for fname in ("postflop_strategies.json", "postflop_strategies_low_spr.json"):
+        path = os.path.join(lints._DATA, fname)
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            chart = json.load(f)
+        for fn in lints.POSTFLOP_LINTS:
+            assert fn(chart) == [], f"{fname}: {fn.__name__} failed"
+
+
+def test_postflop_lints_catch_bad_nodes():
+    bad = {
+        "meta": {"x": 1},
+        "flop|IP|SRP|dry_high|air|no_draw|unopened|high": {"check": 0.7, "bet_67": 0.1},  # sums 0.8
+        "flop|IP|SRP|dry_high|value|made|facing_bet|high": {"shove": 1.0},  # illegal action
+        "turn|OOP|SRP|wet|air|no_draw|unopened|low": {},  # empty
+    }
+    assert any("≠ 1.0" in m for m in lints.lint_postflop_weights_sum(bad))
+    assert any("illegal" in m for m in lints.lint_postflop_legal_vocab(bad))
+    assert any("empty" in m for m in lints.lint_postflop_nonempty(bad))
