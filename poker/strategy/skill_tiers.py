@@ -53,6 +53,12 @@ class SkillTier:
     river_bluff_fraction: float
     stab_defense_intensity: float
     overbet_fraction: float
+    # Disciplined fold-to-3bet vs a value-heavy 3-bettor — the per-player default
+    # for TieredBotController.vs3bet_exploit (over-fold the marginal continue when
+    # the villain under-bluffs). An EXPLOITATION behaviour, so it grades with this
+    # tier (unlike push_fold_nash, a binary elite weapon that's curated per-persona).
+    # A sticky rec doesn't make the read (0.0); a shark folds disciplined (0.85).
+    vs3bet_exploit: float = 0.5
 
 
 # The ladder, sharpest → weakest. `shark` equals the TieredBotController
@@ -68,6 +74,7 @@ SKILL_TIERS = {
         river_bluff_fraction=1.0,
         stab_defense_intensity=0.5,
         overbet_fraction=1.0,
+        vs3bet_exploit=0.85,
     ),
     # solid: softer reads, still balanced + defends.
     'reg': SkillTier(
@@ -76,6 +83,7 @@ SKILL_TIERS = {
         river_bluff_fraction=1.0,
         stab_defense_intensity=0.5,
         overbet_fraction=1.0,
+        vs3bet_exploit=0.55,
     ),
     # half-baked: semi-face-up river, soft adapt, half-hearted defense + sizing.
     'weak_reg': SkillTier(
@@ -84,6 +92,7 @@ SKILL_TIERS = {
         river_bluff_fraction=0.5,
         stab_defense_intensity=0.25,
         overbet_fraction=0.5,
+        vs3bet_exploit=0.3,
     ),
     # rec: face-up river, over-folds to stabs, barely adapts, no overbets.
     'rec': SkillTier(
@@ -92,6 +101,7 @@ SKILL_TIERS = {
         river_bluff_fraction=0.0,
         stab_defense_intensity=0.0,
         overbet_fraction=0.0,
+        vs3bet_exploit=0.0,
     ),
 }
 
