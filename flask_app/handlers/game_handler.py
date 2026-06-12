@@ -3634,7 +3634,6 @@ def _record_player_table_hand_pnl(game_id: str, game_data: dict, game_state) -> 
     if not hand_start:
         return
     cash_pids: Dict[str, str] = game_data.get('cash_personality_ids', {}) or {}
-    owner_id = game_data.get('owner_id')
 
     seat_deltas: Dict[str, int] = {}
     for p in game_state.players:
@@ -3642,8 +3641,11 @@ def _record_player_table_hand_pnl(game_id: str, game_data: dict, game_state) -> 
         if delta == 0:
             continue
         if getattr(p, 'is_human', False):
-            if not owner_id:
-                continue
+            # The human seat is keyed by game_id alone (`seat:<game_id>`, funded
+            # by `player_buy_in`). owner_id is NOT needed and must NOT gate this:
+            # skipping a human with a non-zero delta would drop their leg of the
+            # redistribution, so the remaining AI deltas wouldn't sum to 0 and the
+            # AI seat ledgers would drift from their stacks (a conservation break).
             seat_acct = chip_ledger.seat(game_id)
         else:
             pid = cash_pids.get(p.name)
