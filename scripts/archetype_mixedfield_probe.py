@@ -1,4 +1,12 @@
-"""Mixed-field archetype validation probe (backlog #1, absolute instrument).
+"""Mixed-field archetype validation probe + band GATE (backlog #1, absolute instrument).
+
+Gate semantics: deterministic (seed 4242), N=9000 by default (PROBE_HANDS overrides).
+Scores every archetype's full banded stat set against ARCHETYPE_TARGETS and EXITS
+NON-ZERO on any hard fail — except WARN_ONLY_ARCHETYPES (nit/rock), whose
+out-of-band stats are reported as WARN while believability calibration is in
+progress (their directional checks are green; absolute looseness is tuned down
+gradually). Run via `make validate-archetype-bands`.
+
 
 The controlled probe (`archetype_3bet_probe.py`) seats 1 hero + 5 tight
 BaselineSolverBots. That all-Baseline field is great as a deterministic A/B
@@ -293,6 +301,21 @@ def stats_for(arch):
     }
 
 
+# Archetypes whose out-of-band stats are reported but do NOT hard-fail the gate
+# (believability calibration still in progress — the directional checks are green;
+# nit/rock absolute looseness is being tuned down gradually). Their fails print as
+# WARN so the gate exit code reflects only the archetypes we consider locked.
+WARN_ONLY_ARCHETYPES = {'nit', 'rock'}
+
+# Only these stats can HARD-fail the gate. They are the high-confidence, high-n
+# (n~7000+ at 9000 hands), low-variance entry/aggression-FREQUENCY stats — the
+# core archetype identity. The rest (fourbet/fold_to_3bet are low-n ~100-160;
+# AF/AFq and the showdown family WTSD/W$SD/cbet/fold_to_cbet are high-variance on
+# narrow bands) are reported but kept at WARN so a within-sampling-error wobble
+# (e.g. tag W$SD 49.8 vs band 52-56 at n=434, CI ±~4.7pp) can't redden a
+# deterministic gate on noise. Tune those by reading the report, not the exit code.
+HARD_FAIL_STATS = {'vpip', 'pfr', 'threebet', 'all_in'}
+
 MARK = {'pass': 'ok ', 'warn': 'WARN', 'fail': 'FAIL', 'low_n': 'low-n', 'no_data': '--'}
 
 
@@ -307,7 +330,8 @@ print('Realistic field: each archetype measured vs a rotating mix of the others.
 hdr = f"{'archetype':<16} {'stat':<14} {'actual':>8} {'target band':>14}  result"
 print(hdr)
 print('-' * len(hdr))
-fails = []
+fails = []  # hard fails — gate exit code (HARD_FAIL_STATS on a locked archetype)
+soft_fails = []  # out-of-band but kept at WARN (warn-only archetype OR a non-hard stat)
 for sim_key, target_key in FIELD:
     stats = stats_for(target_key)
     band_table = ARCHETYPE_TARGETS[target_key]
@@ -316,21 +340,39 @@ for sim_key, target_key in FIELD:
         lo, hi = band_table[stat]
         verdict = score_stat(value, (lo, hi), sample)
         band_s = f'{fmt(stat, lo)}-{fmt(stat, hi)}'
+        is_hard = (
+            verdict == 'fail' and stat in HARD_FAIL_STATS and target_key not in WARN_ONLY_ARCHETYPES
+        )
+        # Out-of-band but not gating renders as WARN, not FAIL.
+        display = verdict if is_hard or verdict != 'fail' else 'warn'
         print(
             f'{target_key:<16} {STAT_LABELS[stat]:<14} {fmt(stat, value):>8} '
-            f'{band_s:>14}  {MARK[verdict]}  (n={sample})'
+            f'{band_s:>14}  {MARK[display]}  (n={sample})'
         )
         if verdict == 'fail':
-            fails.append((target_key, stat, value, lo, hi))
+            (fails if is_hard else soft_fails).append((target_key, stat, value, lo, hi))
     print()
 
-if fails:
-    print('==== OUT OF BAND (fail) ====')
-    for arch, stat, value, lo, hi in fails:
+
+def _print_oob(rows):
+    for arch, stat, value, lo, hi in rows:
         direction = 'HIGH' if value > hi else 'LOW'
         print(
             f'  {arch:<16} {stat:<13} {fmt(stat, value)} {direction} '
             f'(band {fmt(stat, lo)}-{fmt(stat, hi)})'
         )
+
+
+if soft_fails:
+    print('==== OUT OF BAND (WARN — calibration / variance-heavy, non-gating) ====')
+    _print_oob(soft_fails)
+    print()
+
+if fails:
+    print('==== OUT OF BAND (HARD FAIL) ====')
+    _print_oob(fails)
+    print(f'\nGATE: {len(fails)} hard fail(s).')
+    sys.exit(1)
 else:
-    print('All scored stats within band or warn. No hard fails.')
+    print('GATE: PASS — no hard fails (locked archetypes all in band/warn).')
+    sys.exit(0)

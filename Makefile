@@ -1,4 +1,4 @@
-.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last clean prod testflight
+.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last validate-archetype-bands clean prod testflight
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -61,6 +61,9 @@ test-llm: ## LLM client/assistant (slow, opt-in)
 
 test-last: ## Re-run last failures only
 	docker compose exec backend python -m pytest --lf
+
+validate-archetype-bands: ## Archetype band gate: deterministic 9000-hand mixed-field probe vs ARCHETYPE_TARGETS (nit/rock = WARN). Exit 1 on hard fail. PROBE_HANDS overrides N.
+	docker compose exec -e PROBE_HANDS=$${PROBE_HANDS:-9000} backend python scripts/archetype_mixedfield_probe.py
 
 clean: ## Clean up containers, volumes, and data
 	docker compose down -v
