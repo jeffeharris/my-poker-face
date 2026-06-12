@@ -484,6 +484,27 @@ the reshove gate uses). This worst case (a never-folder) bounds the downside; a
 foldy limper is where the iso wins, but there is no limp-FOLD fish leak to measure
 that arm — it needs a `Jeff_clone`-style foldy limper or a synthetic limp-fold leak.
 
+### Fold-equity gate (shipped)
+
+Added the gate: the iso-jam now fires only when `TieredBotController.
+_opponent_fold_equity_ok(limper_idx, …)` reads the limper as foldy — the **same
+read-based gate the reshove uses, generalized** (the question "is this opponent too
+loose to fold to my preflop jam?" is identical whether they opened or limped, so
+`_reshove_opener_fold_equity_ok` became `_opponent_fold_equity_ok`, reusing
+`exploitation.reshove_fold_equity_ok`). No opponent model / no read / loose-VPIP
+limper → decline → fall through (conservative).
+
+Re-ran the probe with the gate live: vs the never-folding fish the gate declines
+the iso (VPIP=1.0 → no fold equity), so **iso fires collapse 3288 → ~0 and the
+bb/100 delta goes −7.7 → +0.0** — the leak is closed, the feature is bb/100-neutral
+vs a sticky field (exactly the reshove outcome). `FORCE_FE=1` on the probe bypasses
+the gate to reproduce the −7.7 ungated number.
+
+Still gated **off**: neutral-vs-sticky is the *safety* proof; the *upside* (firing
++EV vs a foldy limper) is unmeasured for want of a limp-fold opponent, and the v1
+range is still the unopened proxy. Turn-on waits on that upside arm + a dedicated
+`iso_over_limper` range.
+
 ## Sources
 Published Nash chip-EV (ICM-off) push/fold references: Mathematics of Poker
 (Chen & Ankenman), HoldemResources HUNE tables, gamblingcalc Nash push/fold
