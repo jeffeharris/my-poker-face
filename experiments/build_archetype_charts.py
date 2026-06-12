@@ -259,6 +259,47 @@ def _invent_call(row: dict, frac: float, hand: str) -> dict:
     return {'call': frac, 'fold': round(1.0 - frac, 4)}
 
 
+# ── Tight-tier facing tighten (nit / rock) ────────────────────────────────────
+# The tight tiers read the base facing rows, which carry the (correct) wider base
+# BB-defense / cold-defense — too loose for a nit/rock, which over-fold to
+# aggression. _station_facing only re-routes raise->call (keep_fold=1.0), so the
+# wide CALL range survives and nit VPIP sticks ~20% (band 10-16). The symmetric
+# fix: route call->fold on the hands OUTSIDE a narrow keep pool, so the tight tier
+# folds its marginal continues. The keep pool = the premiums/strong a nit still
+# defends. Gated on the mixed-field band probe (make validate-archetype-bands);
+# tuned down GRADUALLY (target nit VPIP 16-18 first, not straight to 10-16).
+_TIGHT_KEEP_PAIRS = {'AA', 'KK', 'QQ', 'JJ', 'TT', '99'}
+_TIGHT_KEEP_SUITED = {'AKs', 'AQs', 'AJs', 'ATs', 'KQs', 'KJs', 'QJs'}
+_TIGHT_KEEP_OFFSUIT = {'AKo', 'AQo', 'KQo'}
+
+
+def _is_tight_keep(hand: str) -> bool:
+    """The strong tier a nit/rock keeps continuing facing aggression — premiums,
+    strong suited broadways, AK/AQ/KQo. Everything else folds harder."""
+    if hand in _TIGHT_KEEP_PAIRS:
+        return True
+    if len(hand) == 2:
+        return False  # small/medium pairs fold to facing aggression at the tight tier
+    return hand in (_TIGHT_KEEP_SUITED if hand[2] == 's' else _TIGHT_KEEP_OFFSUIT)
+
+
+def _tighten_facing(row: dict, frac: float, hand: str) -> dict:
+    """Route `frac` of a NON-keep hand's CALL mass into FOLD — the symmetric
+    inverse of _invent_call. Tightens the tight tier's facing range (folds the
+    marginal continues the base/competent player defends) without touching the
+    keep-pool premiums, pure-folds, or any raise mass."""
+    if frac <= 0 or _is_tight_keep(hand):
+        return row
+    call = row.get('call', 0.0)
+    if call <= 0:
+        return row
+    moved = call * frac
+    out = dict(row)
+    out['call'] = call - moved
+    out['fold'] = out.get('fold', 0.0) + moved
+    return out
+
+
 def _station_facing(actions: dict, keep_fold: float, damp_raise: float = 0.0) -> dict:
     """Calling-station transform: cut fold to `keep_fold` * original and put
     ~ALL freed mass into CALL (a hair into raise so it isn't perfectly face-up).
@@ -299,6 +340,7 @@ def _transform_facing(
     extra_by_scenario: "dict | None" = None,
     promote_3bet_by_scenario: "dict | None" = None,
     invent_call_by_scenario: "dict | None" = None,
+    tighten_by_scenario: "dict | None" = None,
 ):
     """Apply `fn(actions, keep_fold, **extra)` to every row of each scenario.
     `extra_by_scenario` (optional) supplies per-scenario kwargs — e.g. a lower
@@ -311,10 +353,12 @@ def _transform_facing(
     extra_by_scenario = extra_by_scenario or {}
     promote_3bet_by_scenario = promote_3bet_by_scenario or {}
     invent_call_by_scenario = invent_call_by_scenario or {}
+    tighten_by_scenario = tighten_by_scenario or {}
     for scenario, keep_fold in keep_fold_by_scenario.items():
         extra = extra_by_scenario.get(scenario, {})
         promote = promote_3bet_by_scenario.get(scenario, 0.0)
         invent = invent_call_by_scenario.get(scenario, 0.0)
+        tighten = tighten_by_scenario.get(scenario, 0.0)
         for pos_dict in data[scenario].values():
             for hand in pos_dict:
                 row = fn(pos_dict[hand], keep_fold, **extra)
@@ -322,6 +366,8 @@ def _transform_facing(
                     row = _promote_3bet(row, promote, hand)
                 if invent:
                     row = _invent_call(row, invent, hand)
+                if tighten:
+                    row = _tighten_facing(row, tighten, hand)
                 pos_dict[hand] = row
 
 
@@ -463,6 +509,15 @@ def build_tight(base: dict) -> dict:
             'vs_open': {'damp_raise': 0.55},
             'vs_3bet': {'damp_raise': 0.45},
         },
+        # Tighten the facing range: fold the marginal (non-keep) continues the base
+        # defends, so the tight tier stops inheriting the wider base BB/cold-defense.
+        # GRADUAL FIRST STEP toward the 10-16/8-15 bands — gated on the mixed-field
+        # band probe (make validate-archetype-bands, 9000 hands): nit VPIP 20.1->16.8,
+        # rock 18.1->15.5 (both still WARN — the deliberate gradual target 16-18, NOT
+        # straight to band; the next step toward 14-16 awaits play-test). vs_open is
+        # the VPIP lever; vs_3bet lifts fold-to-3bet toward band. Premiums (AA-99/
+        # AK/AQ/KQ via _is_tight_keep) are preserved — only the marginal flats fold.
+        tighten_by_scenario={'vs_open': 0.25, 'vs_3bet': 0.18},
     )
     return data
 
