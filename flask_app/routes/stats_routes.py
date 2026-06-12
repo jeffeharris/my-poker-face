@@ -658,6 +658,56 @@ Things THEY say (reference or play off these, don't copy): {', '.join(verbal_tic
         if social_read:
             context_str = f"{context_str}\nOpponent read: {social_read}"
 
+        # On-device prefetch (batch): the common context above is the same for every
+        # tone/length/intensity, so render ALL variants for this spot in one shot.
+        # The native client caches them and generates on-device at click time with no
+        # further network. Same composed prompts as the single path; no LLM call.
+        if data.get('render_only') == 'batch':
+            system_targeted = (
+                "You write sharp, witty poker banter that responds to the actual "
+                "conversation. Never generic - always specific callbacks, quotes, or "
+                "reactions to what just happened. Short and punchy."
+            )
+            req_tones = data.get('tones') or list(template_map.keys())
+            req_lengths = data.get('lengths') or list(LENGTH_GUIDANCE.keys())
+            req_intensities = data.get('intensities') or list(INTENSITY_GUIDANCE.keys())
+            target_first_name = target_player.split()[0] if target_player else "them"
+            variants: Dict[str, str] = {}
+            for t in req_tones:
+                for ln in req_lengths:
+                    for inten in req_intensities:
+                        lg = LENGTH_GUIDANCE.get(ln, LENGTH_GUIDANCE['short'])
+                        ig = INTENSITY_GUIDANCE.get(inten, INTENSITY_GUIDANCE['chill'])
+                        try:
+                            if target_player:
+                                user_prompt = _prompt_manager.render_prompt(
+                                    template_map.get(t, 'quick_chat_goad'),
+                                    player_name=player_name,
+                                    target_player=target_player,
+                                    target_first_name=target_first_name,
+                                    context_str=context_str,
+                                    chat_context=chat_context,
+                                    length_guidance=lg,
+                                    intensity_guidance=ig,
+                                )
+                            else:
+                                user_prompt = _prompt_manager.render_prompt(
+                                    'quick_chat_table',
+                                    player_name=player_name,
+                                    context_str=context_str,
+                                    chat_context=chat_context,
+                                    tone=t,
+                                    tone_description=tone_descriptions.get(
+                                        t, tone_descriptions['goad']
+                                    ),
+                                    length_guidance=lg,
+                                    intensity_guidance=ig,
+                                )
+                            variants[f"{t}|{ln}|{inten}"] = user_prompt
+                        except Exception as e:
+                            logger.warning("[QuickChat] batch render skip %s: %s", t, e)
+            return jsonify({"system": system_targeted, "variants": variants, "count": 2})
+
         if target_player:
             target_first_name = target_player.split()[0] if target_player else "them"
             template_name = template_map.get(tone, 'quick_chat_goad')

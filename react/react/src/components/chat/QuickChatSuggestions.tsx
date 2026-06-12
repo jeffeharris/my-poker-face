@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import type { Player } from '../../types';
 import type { ChatTone, ChatLength, ChatIntensity, TargetedSuggestion } from '../../types/chat';
-import { gameAPI } from '../../utils/api';
+import { gameAPI, prefetchTargetedChatPrompts } from '../../utils/api';
 import { logger } from '../../utils/logger';
 import { orderOpponentsRelativeToHuman } from '../../utils/playerOrdering';
 import { safeGetItem, safeSetItem } from '../../utils/storage';
@@ -195,6 +195,17 @@ export function QuickChatSuggestions({
   useEffect(() => {
     void prewarmOnDevice();
   }, []);
+
+  // Prefetch every prompt variant for this spot (target + last action) so a tone tap
+  // generates fully on-device with no network round-trip. Cheap no-op when off-device
+  // or already cached; re-runs (and re-caches) when the target or the action changes.
+  useEffect(() => {
+    void prefetchTargetedChatPrompts(gameId, {
+      playerName,
+      targetPlayer: selectedTarget,
+      lastAction,
+    });
+  }, [gameId, playerName, selectedTarget, lastAction]);
 
   // All AI players stay selectable as chat targets — including folded ones.
   // Folded targets are still useful: the player can needle a busted opponent
