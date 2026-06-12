@@ -26,7 +26,8 @@ export function FMTest() {
 
   const toggleFlag = () => {
     const next = !flagOn;
-    if (next) localStorage.removeItem('onDeviceLLM'); // default = on
+    if (next)
+      localStorage.removeItem('onDeviceLLM'); // default = on
     else localStorage.setItem('onDeviceLLM', '0'); // kill switch = server route
     setFlagOn(next);
   };
@@ -49,11 +50,27 @@ export function FMTest() {
   };
 
   return (
-    <div style={{ padding: 20, fontFamily: 'system-ui', color: '#fff', background: '#111', minHeight: '100vh' }}>
+    <div
+      style={{
+        padding: 20,
+        fontFamily: 'system-ui',
+        color: '#fff',
+        background: '#111',
+        minHeight: '100vh',
+      }}
+    >
       <h2>On-device LLM test</h2>
 
       <p style={{ fontSize: 13, opacity: 0.85 }}>availability:</p>
-      <pre style={{ background: '#000', padding: 10, borderRadius: 8, fontSize: 12, whiteSpace: 'pre-wrap' }}>
+      <pre
+        style={{
+          background: '#000',
+          padding: 10,
+          borderRadius: 8,
+          fontSize: 12,
+          whiteSpace: 'pre-wrap',
+        }}
+      >
         {avail}
       </pre>
 
@@ -97,7 +114,15 @@ export function FMTest() {
       </p>
 
       {error && (
-        <pre style={{ background: '#400', padding: 10, borderRadius: 8, fontSize: 12, whiteSpace: 'pre-wrap' }}>
+        <pre
+          style={{
+            background: '#400',
+            padding: 10,
+            borderRadius: 8,
+            fontSize: 12,
+            whiteSpace: 'pre-wrap',
+          }}
+        >
           ERROR: {error}
         </pre>
       )}

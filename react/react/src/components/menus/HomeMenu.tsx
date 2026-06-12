@@ -87,20 +87,20 @@ export function HomeMenu({
 
         {/* TEMP (on-device LLM spike): native-only so prod web never shows it. */}
         {isNativePlatform() && (
-        <button
-          onClick={() => navigate('/dev/fmtest')}
-          style={{
-            marginTop: 16,
-            background: 'transparent',
-            border: '1px dashed #888',
-            color: '#aaa',
-            padding: '8px 14px',
-            borderRadius: 8,
-            fontSize: 13,
-          }}
-        >
-          🧪 On-device LLM test
-        </button>
+          <button
+            onClick={() => navigate('/dev/fmtest')}
+            style={{
+              marginTop: 16,
+              background: 'transparent',
+              border: '1px dashed #888',
+              color: '#aaa',
+              padding: '8px 14px',
+              borderRadius: 8,
+              fontSize: 13,
+            }}
+          >
+            🧪 On-device LLM test
+          </button>
         )}
       </PageLayout>
     </>
