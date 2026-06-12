@@ -29,10 +29,19 @@ HANDS_PER_SEED = 2000
 BB = 100
 
 # One limper + four tight folders → hero frequently faces a single limper.
+#   LIMPER=sticky (default): a never-folding fish (LIMPS_EVERY_HAND) — the SAFETY
+#     arm; the fold-equity gate should DECLINE it → iso ~0 fires, bb/100 neutral.
+#   LIMPER=foldy: a tight limper (LIMP_FOLD) that limps the top ~45% and folds the
+#     rest to the jam — the UPSIDE arm; the gate should ALLOW it (VPIP ~0.45) and
+#     the iso should fire +EV (hero takes the dead money + folds out the bottom).
 sim.ARCHETYPES.setdefault(
     "Limper", {"kind": "rule_bot", "strategy": "fish", "fish_leak": "limps_every_hand"}
 )
-FIELD = ["Limper", "Rock", "Rock", "Rock", "Rock"]
+sim.ARCHETYPES.setdefault(
+    "Limper-Foldy", {"kind": "rule_bot", "strategy": "fish", "fish_leak": "limp_fold"}
+)
+_LIMPER = "Limper-Foldy" if os.environ.get("LIMPER") == "foldy" else "Limper"
+FIELD = [_LIMPER, "Rock", "Rock", "Rock", "Rock"]
 
 # ── iso-fire instrumentation ────────────────────────────────────────────────
 _real_lookup = tbc.lookup_push_fold_action_6max
