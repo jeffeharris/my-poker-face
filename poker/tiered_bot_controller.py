@@ -369,11 +369,30 @@ def _resolve_vs3bet_exploit(pcfg, skill) -> float:
     return VS3BET_EXPLOIT_DEFAULT
 
 
-# Punish-limpers exploit (LIMP_EXPLOIT.md): iso-raise wider vs a weak limper.
+# Punish-limpers exploit (LIMP_EXPLOIT.md): iso-raise a weak limper. The MEASURED
+# spot (a single limper folded around to the hero) is ~100% the BB checking its
+# option ({check: 1.0}) — a lone limp stands alone almost only when it folds to the
+# BB. So the exploit converts PASSIVE give-up mass (check, or a folded open) into an
+# iso-raise; the check→raise case is the real one.
 LIMP_EXPLOIT_DEFAULT = 0.5  # field default for an un-tiered persona
 LIMP_GAP_MIN = 0.20  # min (vpip_per_vol − pfr_per_open) to read a habitual limper
-LIMP_EXPLOIT_SCALE = 0.35  # maps knob·foldiness to a per-hand fold→open shift (capped)
-LIMP_EXPLOIT_MAX_SHIFT = 0.5  # never convert more than this much of a hand's fold mass
+LIMP_EXPLOIT_SCALE = 1.1  # maps knob·foldiness to a per-hand passive→raise shift (capped)
+LIMP_EXPLOIT_MAX_SHIFT = 0.5  # never convert more than this much of a hand's passive mass
+LIMP_ISO_RAISE_KEY = 'raise_2.5bb'  # the open/iso-raise action to inject when none present
+_BROADWAY = frozenset('TJQKA')
+
+
+def _is_iso_hand(hand: str) -> bool:
+    """Hands worth iso-raising a weak limper with: any pair, any suited, and offsuit
+    BROADWAYS (both ranks T+). Excludes offsuit junk (72o) — iso-raising junk is the
+    spew this guards (LIMP_EXPLOIT.md)."""
+    if len(hand) == 2:
+        return True  # pair
+    if len(hand) == 3 and hand[2] == 's':
+        return True  # suited
+    if len(hand) == 3 and hand[2] == 'o':
+        return hand[0] in _BROADWAY and hand[1] in _BROADWAY  # offsuit broadway only
+    return False
 
 
 def _resolve_limp_exploit(pcfg, skill) -> float:
@@ -4472,47 +4491,51 @@ class TieredBotController(AIPlayerController):
         return max(0.0, min(1.0, gap))
 
     def _apply_limp_exploit(self, strategy, node, game_state, player_idx):
-        """Punish-limpers: iso-raise wider vs a single weak foldy limper.
+        """Punish-limpers: iso-RAISE a single weak foldy limper.
 
-        No-op unless: flag on, knob>0, scenario rfi (entering), the hand is a
-        playable speculative type (suited or a pair — NEVER opens offsuit junk), and
-        `_foldy_limper_read` finds one foldy habitual limper. Shifts a capped slice
-        of `fold` mass into the open (`raise_*`), scaled by knob·foldiness — widening
-        the bottom of the opening range to attack the limp's dead money. vs a sticky
-        limper the read gate no-ops (value-only is correct there). Base chart stays
-        the baseline. See LIMP_EXPLOIT.md."""
+        No-op unless: flag on, knob>0, scenario rfi (a limped pot classifies as rfi),
+        the hand is worth iso-raising (`_is_iso_hand` — pair / suited / offsuit
+        broadway; NEVER iso junk), and `_foldy_limper_read` finds one foldy habitual
+        limper. Converts a capped slice of PASSIVE give-up mass — `check` (the BB
+        checking its option, the measured ~100% spot) OR a folded open — into the
+        iso-raise (`raise_2.5bb`, injected if the node has no raise), scaled by
+        knob·foldiness. vs a sticky limper the read gate no-ops (no fold equity).
+        Base chart stays the baseline. See LIMP_EXPLOIT.md."""
         knob = getattr(self, 'limp_exploit', 0.0)
         if knob <= 0 or getattr(node, 'scenario', '') != 'rfi':
             return strategy
         if not _limp_exploit_enabled():
             return strategy
-        hand = getattr(node, 'hand', '')
-        is_playable = len(hand) == 2 or (len(hand) == 3 and hand.endswith('s'))
-        if not is_playable:
-            return strategy  # offsuit non-pair → never iso junk
-        raise_key = next(
-            (a for a in strategy.action_probabilities if a.startswith('raise') or a == 'jam'),
-            None,
-        )
-        if raise_key is None:
+        if not _is_iso_hand(getattr(node, 'hand', '')):
             return strategy
         foldiness = self._foldy_limper_read(game_state, player_idx)
         if foldiness <= 0:
             return strategy
         probs = dict(strategy.action_probabilities)
-        fold = probs.get('fold', 0.0)
+        # Passive give-up mass: check (BB option) and/or a folded open. Convert a
+        # slice into the iso-raise — reuse an existing raise action, else inject one.
+        passive = probs.get('check', 0.0) + probs.get('fold', 0.0)
+        if passive <= 0:
+            return strategy
+        raise_key = next(
+            (a for a in probs if a.startswith('raise') or a == 'jam'),
+            LIMP_ISO_RAISE_KEY,
+        )
         s = min(LIMP_EXPLOIT_MAX_SHIFT, knob * LIMP_EXPLOIT_SCALE * foldiness)
-        moved = fold * s
+        moved = passive * s
         if moved <= 0:
             return strategy
-        probs['fold'] = fold - moved
+        for k in ('check', 'fold'):  # drain proportionally from the passive actions
+            if probs.get(k, 0.0) > 0:
+                probs[k] = probs[k] - moved * (probs[k] / passive)
         probs[raise_key] = probs.get(raise_key, 0.0) + moved
         snap = getattr(self, '_last_pipeline_snapshot', None)
         if isinstance(snap, dict):
             snap['limp_exploit'] = {
                 'knob': knob,
                 'foldiness': round(foldiness, 3),
-                'fold_to_open_shift': round(moved, 4),
+                'passive_to_raise_shift': round(moved, 4),
+                'raise_action': raise_key,
             }
         return StrategyProfile(action_probabilities=probs)
 
