@@ -80,3 +80,23 @@ def test_squeeze_section_is_per_opener_20_nodes():
     # Same caller (CO) + squeezer (BTN), different opener (UTG vs HJ) → distinct
     # ranges: a CO flat vs a tight UTG open ≠ vs a wider HJ open.
     assert sq["CO_vs_UTG_vs_BTN"] != sq["CO_vs_HJ_vs_BTN"]
+
+
+def test_squeeze_defense_widens_vs_a_wider_squeezer():
+    """MDF-lite: facing a WIDER squeeze range hero continues wider (folds less).
+    Same caller+opener (BTN_vs_CO), a BB squeeze (wide, closes the action) must
+    fold LESS than an SB squeeze (tighter)."""
+    with open(b3._BASE) as f:
+        chart = json.load(f)
+    b3._build_squeeze_section(chart)
+    vs_open = chart["vs_open"]
+    fold_vs_sb, _ = b3._squeeze_metrics(
+        "BTN", "CO", chart["vs_squeeze"]["BTN_vs_CO_vs_SB"], vs_open
+    )
+    fold_vs_bb, _ = b3._squeeze_metrics(
+        "BTN", "CO", chart["vs_squeeze"]["BTN_vs_CO_vs_BB"], vs_open
+    )
+    assert fold_vs_bb < fold_vs_sb - 1e-6, (
+        f"defense should widen vs the wider BB squeeze: "
+        f"fold vs BB {fold_vs_bb:.3f} should be < fold vs SB {fold_vs_sb:.3f}"
+    )

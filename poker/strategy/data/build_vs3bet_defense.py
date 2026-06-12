@@ -103,6 +103,16 @@ SQUEEZE_VALUE_FRAC = 0.12      # jam ~12% of the cold-call range (top by equity)
 SQUEEZE_CONT_FRAC = 0.36       # continue (jam+call) ~36% → fold-to-squeeze ~64% of the cap
 DIST_SQUEEZE_JAM = {"raise_2.2x": 0.80, "call": 0.15, "fold": 0.05}
 DIST_SQUEEZE_CALL = {"call": 0.85, "fold": 0.15}
+# Width-scaled defense (MDF-lite): continue WIDER vs a wider/weaker squeeze range,
+# tighter vs a narrow/strong one — so the squeezer's identity actually moves the
+# response (a BB squeeze of a late open is far wider than a CO squeeze). The
+# multiplier is anchored at the TYPICAL (tight, early-position) squeezer width so
+# the common case keeps its validated ~64% fold-to-squeeze; the wide blind squeezes
+# pull the defense wider from there. scale = clamp(1 + DAMP·(width/REF − 1)) on both
+# the jam and continue tiers.
+SQUEEZE_REF_WIDTH = 0.052      # reference squeezer 3-bet width (≈ a tight/typical squeeze)
+SQUEEZE_WIDTH_DAMP = 0.5       # how strongly defense width tracks squeezer width
+SQUEEZE_SCALE_BOUNDS = (0.85, 1.35)  # clamp the multiplier (avoid absurd over/under-defense)
 
 def build_node(hero: str, villain: str, rfi: Dict, vs_open: Dict, matrix: Dict) -> Dict[str, Dict[str, float]]:
     """Generate one vs_3bet node (hero=opener, villain=3-bettor)."""
@@ -204,12 +214,18 @@ def build_squeeze_node(
     sq_value = {h: w for h, w in sq_3bet.items()
                 if sq_node[h].get("raise_3x", 0.0) >= VILLAIN_CONTINUE_CLIFF} or dict(sq_3bet)
 
+    # MDF-lite width scale: how wide the squeezer 3-bets (combo-weighted) vs the
+    # reference. Wider squeeze range → continue (and value-jam) wider.
+    sq_width = sum(COMBO_COUNT[h] * w for h, w in sq_3bet.items()) / TOTAL_COMBOS
+    lo, hi = SQUEEZE_SCALE_BOUNDS
+    width_scale = max(lo, min(hi, 1.0 + SQUEEZE_WIDTH_DAMP * (sq_width / SQUEEZE_REF_WIDTH - 1.0)))
+
     live = {h: cc[h] for h in CANONICAL_HANDS if cc[h] >= SQUEEZE_LIVE_FLOOR}
     eq = {h: equity_vs_range(h, matrix, sq_value) for h in live}
     cc_combos = {h: COMBO_COUNT[h] * cc[h] for h in live}
     total_cc = sum(cc_combos.values())
-    value_target = SQUEEZE_VALUE_FRAC * total_cc
-    cont_target = SQUEEZE_CONT_FRAC * total_cc
+    value_target = SQUEEZE_VALUE_FRAC * width_scale * total_cc
+    cont_target = SQUEEZE_CONT_FRAC * width_scale * total_cc
 
     dist: Dict[str, Dict[str, float]] = {}
     spent_value = spent_cont = 0.0
