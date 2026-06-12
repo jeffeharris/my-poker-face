@@ -996,7 +996,12 @@ def run_hand(
     # an all-in-preflop showdown has no postflop action yet is a showdown — the
     # live model's wtsd clamps to 1.0 for exactly that case. The showdown set is
     # the non-folded players still in at hand end (≥2 = a real showdown).
-    if opponent_manager is not None and hero_name is not None:
+    #
+    # Gate on a TERMINAL phase: drive_hand can break early on the max_actions
+    # safety valve (runaway hand) WITHOUT the state machine reaching HAND_OVER,
+    # leaving the pot unsettled. Without this gate that aborted hand would still
+    # show ≥2 non-folded players and record a showdown that never happened.
+    if opponent_manager is not None and hero_name is not None and sm.phase in TERMINAL_PHASES:
         revealed = [p for p in sm.game_state.players if not getattr(p, 'is_folded', False)]
         if len(revealed) >= 2:
             for p in revealed:

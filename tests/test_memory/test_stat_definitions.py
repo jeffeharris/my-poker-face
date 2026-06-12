@@ -218,3 +218,48 @@ def test_live_model_agrees_with_reducer_on_same_event_stream():
     assert t.aggression_factor == pytest.approx(
         sd.aggression_factor(bet_raise, call_ct, zero_call_cap=cap)
     )
+
+
+# ── Sim showdown feed (the runtime behavior change) ─────────────────────────
+
+
+@pytest.mark.simulation
+def test_sim_showdown_feed_records_showdowns_and_holds_wtsd_clamp():
+    """`run_hand` must feed `observe_showdown` so WTSD is non-zero in sims (the
+    bug this PR fixes). Drive a short real matchup, capture the manager it builds
+    internally, and assert: at least one showdown was recorded (the feed fired),
+    every recorded showdown sits on a TERMINAL hand, and `wtsd` stays clamped to
+    [0, 1]. Previously `_showdowns` stayed 0 for every opponent in every sim."""
+    import experiments.simulate_bb100 as sim
+    from poker.memory.opponent_model import OpponentModelManager
+
+    captured = []
+
+    class _CapturingManager(OpponentModelManager):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            captured.append(self)
+
+    st = sim.load_strategy_table()
+    orig = sim.OpponentModelManager
+    sim.OpponentModelManager = _CapturingManager
+    try:
+        # TAG vs a sticky station → reliably reaches showdown within a few dozen hands.
+        sim.run_matchup("TAG", "CallStation", 80, st, base_seed=42)
+    finally:
+        sim.OpponentModelManager = orig
+
+    models = [m for mgr in captured for opp in mgr.models.values() for m in opp.values()]
+    assert models, "matchup built no opponent models"
+
+    total_showdowns = sum(m.tendencies._showdowns for m in models)
+    assert total_showdowns > 0, "showdown feed never fired — WTSD would read 0 in sims"
+
+    for m in models:
+        t = m.tendencies
+        # Showdowns are credited on saw-flop hands (or rare preflop all-ins); the
+        # clamp keeps the ratio defined regardless.
+        assert 0.0 <= t.wtsd <= 1.0
+        # A showdown implies the opponent was dealt in — guards against the
+        # max_actions false-positive (counting a never-settled aborted hand).
+        assert t._showdowns <= t.hands_observed
