@@ -26,14 +26,13 @@ from cash_mode.ai_vice_spending import (
     CONCENTRATION_FLOOR,
     DURATION_RANGES,
     EXCESS_WEIGHT,
-    FLOOR_PROTECTION_FRACTION,
     MAX_PROB,
     MAX_RECOVERY,
     MAX_VICE_FRACTION,
-    MIN_CAST_MEDIAN_FOR_VICE,
-    MIN_VICE_AMOUNT,
     PRESSURE_BOOST,
+    RECOVERY_REFERENCE_AMOUNT,
     VICE_BUCKET_WEIGHTS,
+    VICE_FLOOR_MEDIAN_MULT,
     VICE_STARTS_PER_REFRESH,
     ViceEndResult,
     ViceStartResult,
@@ -166,36 +165,37 @@ class TestViceAmount(unittest.TestCase):
         return random.Random(0)
 
     def test_zero_excess_skips_event(self):
-        amt = compute_vice_amount(8_000, 10_000, 0.0, self._rng())
+        amt = compute_vice_amount(8_000, 0.0, self._rng(), field_median=10_000)
         self.assertEqual(amt, 0)
 
     def test_normal_fire_produces_positive_amount(self):
-        amt = compute_vice_amount(50_000, 10_000, 3.8, self._rng())
-        self.assertGreater(amt, MIN_VICE_AMOUNT)
+        # Whale at 50K, field median 10K — well above the field-relative floor.
+        amt = compute_vice_amount(50_000, 3.8, self._rng(), field_median=10_000)
+        self.assertGreater(amt, 0)
 
     def test_max_fraction_cap(self):
         # Force jitter to max → ensure the cap kicks in
         rng = random.Random()
         # Stub uniform to always return AMOUNT_JITTER_HIGH
         rng.uniform = lambda a, b: b  # type: ignore
-        amt = compute_vice_amount(50_000, 10_000, 3.8, rng)
+        amt = compute_vice_amount(50_000, 3.8, rng, field_median=10_000)
         cap = int(50_000 * MAX_VICE_FRACTION)
         self.assertLessEqual(amt, cap)
 
-    def test_floor_protection_skips_event(self):
-        # Bankroll just above the 50% floor — any meaningful spend
-        # would breach it.
-        floor = int(10_000 * FLOOR_PROTECTION_FRACTION)
-        bankroll = floor + 100  # 5_100 — barely above floor
-        # excess_ratio big enough to fire, but the floor guard catches it
-        amt = compute_vice_amount(bankroll, 10_000, 0.5, self._rng())
+    def test_field_relative_floor_protection_skips_event(self):
+        # Bankroll just above the FIELD-relative floor (field_median × mult) —
+        # any meaningful spend would strand the AI below it, so skip.
+        field_median = 5_000
+        floor = int(field_median * VICE_FLOOR_MEDIAN_MULT)
+        bankroll = floor + 100  # barely above the floor
+        amt = compute_vice_amount(bankroll, 0.5, self._rng(), field_median=field_median)
         self.assertEqual(amt, 0)
 
 
 class TestRecoveryFactor(unittest.TestCase):
     def test_min_amount_yields_base(self):
         self.assertAlmostEqual(
-            compute_recovery_factor(MIN_VICE_AMOUNT),
+            compute_recovery_factor(RECOVERY_REFERENCE_AMOUNT),
             BASE_RECOVERY,
         )
 
@@ -718,32 +718,48 @@ class TestResolveAiViceSpending:
         )
         assert vice_destroyed == result[0].amount
 
-    def test_short_circuits_when_cast_too_poor(self, db_setup):
-        """If the cast median is below MIN_CAST_MEDIAN_FOR_VICE, vice
-        suppresses entirely — even a flush AI shouldn't fire when
-        "everybody is broke." Regression for the design intent: drain
-        the rich, not the relatively-richer-than-broke."""
-        # Drop everyone (including flush_ai) to near-zero so median collapses
+    def test_suppressed_when_field_is_flat(self, db_setup):
+        """A uniformly-equal field (low Gini) suppresses vice entirely — there's
+        no concentrated "top" to drain. This preserves the floor's TRUE intent
+        ("don't drain when everybody is equally broke") with a scale-invariant
+        signal instead of an absolute median."""
+        # Everyone — including flush_ai — at the SAME chips → Gini ≈ 0.
         for pid in ["flush_ai", "broke_ai"] + [f"bg_ai_{i}" for i in range(7)]:
             db_setup["bankroll"].save_ai_bankroll(
-                AIBankrollState(
-                    personality_id=pid,
-                    chips=500,
-                    last_regen_tick=ANCHOR,
-                ),
+                AIBankrollState(personality_id=pid, chips=500, last_regen_tick=ANCHOR),
                 sandbox_id=SBX,
                 chip_ledger_repo=db_setup["ledger"],
             )
-        # Now make one AI "relatively rich" by cast standards: $5K
-        # against a median of $500. Concentration = 10 (above floor).
-        # But cast median ($500) is below MIN_CAST_MEDIAN_FOR_VICE, so
-        # the pass short-circuits.
+
+        result = resolve_ai_vice_spending(
+            candidates={"flush_ai"},
+            vice_repo=db_setup["vice"],
+            bankroll_repo=db_setup["bankroll"],
+            chip_ledger_repo=db_setup["ledger"],
+            sandbox_id=SBX,
+            rng=_AlwaysLowRng(),
+            now=ANCHOR,
+        )
+        assert result == []
+
+    def test_fires_when_field_is_unequal_even_if_drained(self, db_setup):
+        """The whole point of the Gini gate (vs the old absolute median floor):
+        a DRAINED but UNEQUAL field still fires vice, so the bank pool keeps
+        refilling and the economy can climb back out. The old $5K median floor
+        would have wrongly suppressed this (median is only $500) — turning
+        "drained" into an absorbing state."""
+        # 8 broke AIs at $500 + one whale at $50K. Median = $500 (well under the
+        # old 5K floor), but Gini ≈ 0.92 — an obvious top to drain. The whale is
+        # also well above its own per-persona floor protection, so the amount
+        # logic doesn't block it.
+        for pid in ["broke_ai"] + [f"bg_ai_{i}" for i in range(7)]:
+            db_setup["bankroll"].save_ai_bankroll(
+                AIBankrollState(personality_id=pid, chips=500, last_regen_tick=ANCHOR),
+                sandbox_id=SBX,
+                chip_ledger_repo=db_setup["ledger"],
+            )
         db_setup["bankroll"].save_ai_bankroll(
-            AIBankrollState(
-                personality_id="flush_ai",
-                chips=5_000,
-                last_regen_tick=ANCHOR,
-            ),
+            AIBankrollState(personality_id="flush_ai", chips=50_000, last_regen_tick=ANCHOR),
             sandbox_id=SBX,
             chip_ledger_repo=db_setup["ledger"],
         )
@@ -757,7 +773,8 @@ class TestResolveAiViceSpending:
             rng=_AlwaysLowRng(),
             now=ANCHOR,
         )
-        assert result == []
+        assert len(result) == 1
+        assert result[0].personality_id == "flush_ai"
 
     def test_concentration_gate_excludes_modestly_above_average(self, db_setup):
         """Reported bug: Ace at $24K vicing while median is $14K.

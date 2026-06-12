@@ -139,7 +139,22 @@ LEVER_REFERENCE_MODE: str = os.environ.get('LEVER_REFERENCE_MODE', 'own_start').
 
 # Tunables used only in 'field_liquid' mode (validate in sim before flip):
 FIELD_CONCENTRATION_FLOOR: float = 2.5  # vice fires above N× field median
-MIN_FIELD_MEDIAN_FOR_VICE: int = 5_000  # suppress vice when field is broke
+# Suppress the vice pass only when wealth is too EVENLY spread to have a "top"
+# worth draining — measured by the Gini coefficient of field liquid wealth, NOT
+# an absolute median. Gini is dimensionless (scale-invariant), so a drained
+# field that is still UNEQUAL reads high-Gini and keeps recycling chips into the
+# bank pool. That removes the absolute-floor death spiral (low median -> vice off
+# -> pool starves -> stays low) that froze the economy.
+#
+# Sim-calibrated (360-tick run_sim, vice_mode='real'): a HEALTHY field runs at
+# Gini ~0.47-0.51; a drained-but-unequal field (one whale, rest broke) measures
+# ~0.44-0.92. So 0.15 sits well below both — vice fires normally in a healthy
+# field AND keeps recycling in a drained-but-concentrated one (the recovery the
+# old median floor blocked). It suppresses ONLY below 0.15 = near-perfect
+# equality ("no top to drain"). The low bias is deliberate: the bug was vice
+# turning OFF, so erring toward "keep recycling unless truly flat" is the safe
+# direction.
+MIN_GINI_FOR_VICE: float = 0.15
 FIELD_HUSTLE_ELIGIBLE_PERCENTILE: float = 0.10  # bottom 10% of field → hustle candidate
 FIELD_HUSTLE_TARGET_PERCENTILE: float = 0.25  # hustle tops up toward this field pct
 FIELD_GRINDER_HUNGER_PERCENTILE: float = 0.35  # below this field pct → hungry grinder

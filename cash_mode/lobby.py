@@ -1582,8 +1582,8 @@ def refresh_unseated_tables(
         and sandbox_id is not None
     ):
         from cash_mode.ai_vice_spending import (
-            MIN_CAST_MEDIAN_FOR_VICE,
             _load_psych_snapshot,
+            compute_cast_gini,
             compute_cast_median,
             compute_excess_ratio,
             compute_pressure,
@@ -1593,20 +1593,22 @@ def refresh_unseated_tables(
         # Field-liquid mode: the cast median is the field's LIQUID net
         # worth median (bankroll+seat), from the shared snapshot — so
         # seated AIs count their stacks and don't depress the reference.
+        # The pass GATE is the field's Gini (scale-invariant), not the median;
+        # the median only anchors each candidate's concentration ratio below.
         if _field_snapshot is not None:
             _vice_cast_median = _field_snapshot.median()
-            _vice_min_median = economy_flags.MIN_FIELD_MEDIAN_FOR_VICE
+            _vice_cast_gini = _field_snapshot.gini()
         else:
             try:
-                _vice_cast_median = compute_cast_median(
-                    bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
-                )
+                _chips = bankroll_repo.list_all_ai_bankroll_chips(sandbox_id=sandbox_id)
+                _vice_cast_median = compute_cast_median(_chips)
+                _vice_cast_gini = compute_cast_gini(_chips)
             except Exception as exc:
-                logger.warning("[CASH][LOBBY] vice cast-median compute failed: %s", exc)
+                logger.warning("[CASH][LOBBY] vice cast-stats compute failed: %s", exc)
                 _vice_cast_median = 0
-            _vice_min_median = MIN_CAST_MEDIAN_FOR_VICE
+                _vice_cast_gini = 0.0
 
-        if _vice_cast_median >= _vice_min_median:
+        if _vice_cast_gini >= economy_flags.MIN_GINI_FOR_VICE:
 
             def _vice_prob_lookup(pid: str) -> float:
                 # Refractory window: no urge to celebrate right after one.
