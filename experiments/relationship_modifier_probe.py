@@ -177,15 +177,9 @@ def main():
         f"{SCALE_STATS['scaled_aggressive']} aggressive deltas scaled, "
         f"{SCALE_STATS['scaled_fold']} fold deltas scaled"
     )
-    print(
-        f"  behavioral ceiling: {moved:.1f}pp max swing at the STRONGEST modifier"
-    )
-    print(
-        "  → if ~0, the layer is inert-by-channel (rides the dead additive nudge);"
-    )
-    print(
-        "    'never EV-measured' is closeable by inspection — no EV to measure."
-    )
+    print(f"  behavioral ceiling: {moved:.1f}pp max swing at the STRONGEST modifier")
+    print("  → if ~0, the layer is inert-by-channel (rides the dead additive nudge);")
+    print("    'never EV-measured' is closeable by inspection — no EV to measure.")
     return 0
 
 

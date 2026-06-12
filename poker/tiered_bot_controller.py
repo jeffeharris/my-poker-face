@@ -38,6 +38,7 @@ from .strategy.exploitation import (
     classify_opponent_archetype,
     compute_exploitation_offsets_with_traces,
     compute_multiway_cbet_intensity,
+    compute_overbluff_intensity,
     compute_value_vs_station_intensity,
     is_value_vs_station_enabled,
     reshove_fold_equity_ok,
@@ -212,6 +213,12 @@ _ALLIN_VETO_EQUITY_ITERS = 600
 # compute_value_vs_station_intensity returns ~1.0 for a clear station; 0.5
 # keeps the override off marginal/ambiguous reads while firing on real ones.
 STOP_BLUFF_MIN_INTENSITY = 0.5
+
+# Bluff-catch-vs-over-bluffer hard override (see _maybe_bluff_catch_override).
+# Min over-bluffer-read intensity (compute_overbluff_intensity on the primary
+# aggressor) before the override hard-sets the call. Same 0.5 floor as
+# stop-bluff: fire on a confident maniac read, stay off marginal ones.
+BLUFF_CATCH_MIN_INTENSITY = 0.5
 
 
 def _preflop_allin_equity(hole_cards: List[str], num_opponents: int) -> Optional[float]:
@@ -2440,6 +2447,23 @@ class TieredBotController(AIPlayerController):
             bluff_reduction_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
         )
 
+        # Catalog C1/C5: bluff-catch vs an over-bluffer (maniac). The inverse
+        # leak of value_vs_station — a player betting/barreling far wider than
+        # their value justifies has an air-heavy range, so hero's bluff-catchers
+        # (medium/weak made) should call them down rather than fold. Keyed on
+        # the PRIMARY AGGRESSOR's postflop over-aggression (not the field), and
+        # gated to a bluff-catcher hand class while facing a bet. Feeds the
+        # _maybe_bluff_catch_override hard override below — the behavioral half,
+        # mirroring stop_bluff for stations.
+        bluff_catch_intensity_raw = 0.0
+        if hand_strength in BLUFF_CATCH_TRIGGER_CLASSES and call_amount > 0:
+            bluff_catch_intensity_raw = compute_overbluff_intensity(primary_spot)
+        # Same playstyle gate as the station exploits — the skilled postflop
+        # archetypes that out-level stations are the same ones that catch maniacs.
+        bluff_catch_intensity_used = (
+            bluff_catch_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
+        )
+
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
         # Phase 8.1c: pass through whether at least one continuing
         # non-all-in opponent is station-like. Gates the base
@@ -2506,49 +2530,61 @@ class TieredBotController(AIPlayerController):
                 primary_spot=primary_spot,
             )
 
-        if not offsets:
-            return strategy, exploitation_traces
+        # NOTE: do NOT early-return when `offsets` is empty. The additive
+        # offsets and the HARD OVERRIDES below are independent channels — an
+        # over-bluffer triggers the bluff_catch override (and a station the
+        # stop_bluff override) via their own intensity signals even when no
+        # additive station/aggression offset populated. The old
+        # `if not offsets: return` silently skipped BOTH overrides whenever the
+        # offsets dict was empty (~95% of decisions vs a maniac; ~24% even vs a
+        # station), so the behavioral half never ran in exactly the aggressive
+        # spots bluff_catch targets. Apply offsets only when present; always
+        # fall through to the overrides.
+        if offsets:
+            if self.debug_logging:
+                logger.info(f"[TIERED_BOT] {self.player_name}: " f"exploitation offsets={offsets}")
 
-        if self.debug_logging:
-            logger.info(f"[TIERED_BOT] {self.player_name}: " f"exploitation offsets={offsets}")
+            # Phase 7.5 Item 2c: route the L1 clamp through _determine_clamp,
+            # replacing the legacy two-tier _pick_max_total_shift. Tier is
+            # determined by opponent's postflop signal axes (AF_postflop OR
+            # all_in_per_facing_bet OR postflop_jam_open_rate) with the
+            # sliding-window ratchet-down applied when recent stats diverge.
+            clamp_value, clamp_tier, winning_axis = self._compute_clamp(
+                stats,
+                manager,
+                primary_spot,
+            )
 
-        # Phase 7.5 Item 2c: route the L1 clamp through _determine_clamp,
-        # replacing the legacy two-tier _pick_max_total_shift. Tier is
-        # determined by opponent's postflop signal axes (AF_postflop OR
-        # all_in_per_facing_bet OR postflop_jam_open_rate) with the
-        # sliding-window ratchet-down applied when recent stats diverge.
-        clamp_value, clamp_tier, winning_axis = self._compute_clamp(
-            stats,
-            manager,
-            primary_spot,
-        )
+            # Stash tier diagnostic for downstream callers / capture.
+            self._last_clamp_tier = clamp_tier
+            self._last_clamp_axis = winning_axis
 
-        # Stash tier diagnostic for downstream callers / capture.
-        self._last_clamp_tier = clamp_tier
-        self._last_clamp_axis = winning_axis
+            # Phase 7.6 Step 6: snapshot exploitation inputs for replay.
+            clamp_tier_label = (
+                clamp_tier.value.lower()
+                if hasattr(clamp_tier, 'value')
+                else str(clamp_tier).lower()
+            )
+            self._snapshot_exploitation_inputs(
+                stats=stats,
+                decision_context=decision_context,
+                adaptation_bias=anchors.adaptation_bias,
+                tilt_factor=tilt_factor,
+                exploitation_strength=exploitation_strength,
+                multiway_cbet_intensity=multiway_cbet_intensity,
+                vvs_intensity_used=vvs_intensity_used,
+                clamp_value=clamp_value,
+                clamp_tier_label=clamp_tier_label,
+            )
 
-        # Phase 7.6 Step 6: snapshot exploitation inputs for replay.
-        clamp_tier_label = (
-            clamp_tier.value.lower() if hasattr(clamp_tier, 'value') else str(clamp_tier).lower()
-        )
-        self._snapshot_exploitation_inputs(
-            stats=stats,
-            decision_context=decision_context,
-            adaptation_bias=anchors.adaptation_bias,
-            tilt_factor=tilt_factor,
-            exploitation_strength=exploitation_strength,
-            multiway_cbet_intensity=multiway_cbet_intensity,
-            vvs_intensity_used=vvs_intensity_used,
-            clamp_value=clamp_value,
-            clamp_tier_label=clamp_tier_label,
-        )
-
-        updated_strategy = apply_exploitation_offsets(
-            strategy=strategy,
-            offsets=offsets,
-            legal_actions=valid_actions,
-            max_total_shift=clamp_value,
-        )
+            updated_strategy = apply_exploitation_offsets(
+                strategy=strategy,
+                offsets=offsets,
+                legal_actions=valid_actions,
+                max_total_shift=clamp_value,
+            )
+        else:
+            updated_strategy = strategy
 
         # Stop-bluffing-vs-station HARD OVERRIDE (the behavioral half).
         # The bluff_reduction OFFSET above is a soft logit nudge; measured
@@ -2563,6 +2599,23 @@ class TieredBotController(AIPlayerController):
             valid_actions=valid_actions,
             hand_strength=hand_strength,
             bluff_reduction_intensity=bluff_reduction_intensity_used,
+            tilt_factor=tilt_factor,
+            adaptation_bias=anchors.adaptation_bias,
+            exploitation_strength=exploitation_strength,
+        )
+
+        # Bluff-catch-vs-over-bluffer HARD OVERRIDE (the behavioral half — the
+        # mirror of stop_bluff for the inverse leak). The soft clamped
+        # bluff_catch shift can't reliably flip a fold facing a maniac; this
+        # hard-sets the call when hero holds a bluff-catcher vs a confidently
+        # read over-bluffer. Disjoint hand classes from stop_bluff (air vs
+        # made), so the two overrides never both fire.
+        updated_strategy = self._maybe_bluff_catch_override(
+            updated_strategy,
+            valid_actions=valid_actions,
+            hand_strength=hand_strength,
+            bluff_catch_intensity=bluff_catch_intensity_used,
+            call_amount=call_amount,
             tilt_factor=tilt_factor,
             adaptation_bias=anchors.adaptation_bias,
             exploitation_strength=exploitation_strength,
@@ -2619,6 +2672,58 @@ class TieredBotController(AIPlayerController):
         if snap is not None:
             snap['stop_bluff_override'] = give_up
         return StrategyProfile(action_probabilities={give_up: 1.0})
+
+    def _maybe_bluff_catch_override(
+        self,
+        strategy: 'StrategyProfile',
+        *,
+        valid_actions: List[str],
+        hand_strength,
+        bluff_catch_intensity: float,
+        call_amount: int,
+        tilt_factor: float,
+        adaptation_bias: float,
+        exploitation_strength: float,
+    ) -> 'StrategyProfile':
+        """Hard 'call down an over-bluffer' override — the behavioral half of
+        the bluff_catch shift, mirroring _maybe_stop_bluff_override for the
+        inverse leak (a maniac who bets/barrels too wide; catalog C1/C5).
+
+        Replaces the strategy with a pure call when hero holds a bluff-catcher
+        (medium/weak made) facing a bet from a confidently-read over-bluffer
+        while composed. A bluff-catcher's job vs an over-bluffer is to CALL —
+        not raise (that folds out the very bluffs it beats), not fold (the bet
+        is air-heavy). The soft clamped bluff_catch shift can't reliably flip
+        the fold; removing the fold/raise mass outright is the only thing that
+        moves the sampled action (the same lesson stop_bluff proved for
+        stations).
+
+        Gates (all required):
+          - hand_strength in BLUFF_CATCH_TRIGGER_CLASSES (medium/weak made).
+            Disjoint from stop_bluff's air gate — the two never both fire.
+          - facing a bet: call_amount > 0 AND 'call' legal (there is a fold to
+            remove). A check-decision has no bluff to catch.
+          - bluff_catch_intensity >= BLUFF_CATCH_MIN_INTENSITY — a confident
+            over-bluffer read on the primary aggressor.
+          - exploitation enabled: exploitation_strength > 0 AND
+            adaptation_bias > GATING_FLOOR.
+          - COMPOSED: tilt_factor >= 1.0. You can't be on tilt and hero-calling
+            a maniac on a read — a tilted bot reverts to its base line.
+        """
+        if hand_strength not in BLUFF_CATCH_TRIGGER_CLASSES:
+            return strategy
+        if call_amount <= 0 or 'call' not in valid_actions:
+            return strategy
+        if bluff_catch_intensity < BLUFF_CATCH_MIN_INTENSITY:
+            return strategy
+        if exploitation_strength <= 0.0 or adaptation_bias <= GATING_FLOOR:
+            return strategy
+        if tilt_factor < 1.0:  # not composed → stop adapting, keep base line
+            return strategy
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is not None:
+            snap['bluff_catch_override'] = 'call'
+        return StrategyProfile(action_probabilities={'call': 1.0})
 
     def _apply_relationship_modifier_to_offsets(
         self,
