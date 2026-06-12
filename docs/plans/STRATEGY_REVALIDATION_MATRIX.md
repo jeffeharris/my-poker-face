@@ -461,3 +461,38 @@ Result (`detection_fidelity_probe`, HU, 1500 hands):
 
 The detector now reads the literature 3-axis station (loose ∧ passive ∧ sticky) on
 trustworthy stats. Remaining: the bb/100 EV pass (step 5) and Tier-1 gear-switch.
+
+## Step 5 — bb/100 EV pass (2026-06-12)
+
+Does the proven stop-bluff behavior actually win chips? `exploit_bb100` (CRN-paired
+ON vs OFF twin, 8000 hands × 3 seeds), three fields:
+
+| field | challenger(ON) | champion(OFF) | paired edge | hands flipped | verdict |
+|---|---|---|---|---|---|
+| extreme station (CallStation×2 + FoldyBot×2) | +459.0 | +437.4 | **+21.6** [+13.6,+29.6] | 7.5% | ✅ CI-clear |
+| semi-exploitable bots (GTO-Lite×2 + ABCBot×2) | +284.4 | +258.6 | +25.7 [+17.3,+34.2] | 6.3% | ✅ CI-clear |
+| realistic folding field (Jeff_clone×2 + Punisher_clone×2) | +76.7 | +76.7 | **+0.0** | **0/24000 (0.0%)** | ➖ inert |
+
+**Verdict — the override works, but its reach is unchanged:**
+- vs the SAME extreme-station backdrop, the layer went **+10.3 (Batch 1, pre-override)
+  → +21.6** (post-override). The stat refactor (#324) was behavior-preserving, so
+  ~+11 bb/100 of that is the stop-bluff hard override. Stop-bluffing a station is
+  +EV, now measured — not asserted.
+- the "competent" GTO-Lite/ABCBot control is NOT a clean overfit check (those rule
+  bots are semi-exploitable → a positive edge is expected, not overfit evidence).
+- the honest control — a **realistic folding field** (the real-human Jeff_clone + the
+  disciplined Punisher_clone) — fires on **0% of 24000 hands**. Same reach limit as
+  the original "+22.5 that wasn't": the edge is concentrated on cartoonish
+  (vpip≈0.7+) stations.
+
+**Why 0% vs the realistic field:** the hard override + the value/bluff-reduction
+counters gate on `_is_hyper_passive` (vpip/vol > 0.70). Jeff (.36) and Punisher
+(.18) fall below it. The `loose_passive` detector (this session) WOULD catch Jeff,
+but it is wired to the classifier/diagnostics only, NOT to
+`compute_value_vs_station_intensity`. So the re-architecture made the exploit
+*real* (behavior change + bb/100) without changing its *reach*.
+
+**Next (the bridge):** wire `loose_passive` into `compute_value_vs_station_intensity`
+(and thus the bluff_reduction intensity that gates the hard override) so it fires
+vs moderate real-human stations. Then re-run this folding-field control — the 0.0
+should move. The detector to do it is now built, WTSD-gated, and folder-excluding.
