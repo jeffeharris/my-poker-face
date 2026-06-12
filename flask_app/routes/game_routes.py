@@ -59,7 +59,7 @@ from ..handlers.message_handler import (
     record_action_in_memory,
     send_message,
 )
-from ..services import game_state_service
+from ..services import game_state_service, membership_service
 from ..services.elasticity_service import format_elasticity_data
 from ..socket_rate_limit import socket_rate_limit
 from ..state_version import next_state_version
@@ -133,7 +133,12 @@ def _authorize_game_access(game_id: str, current_game_data: dict = None):
         if owner_info is not None:
             owner_id = owner_info.get('owner_id')
             _sync_cached_owner_from_db(game_id, current_game_data, owner_info)
-        if owner_id != user_id:
+        # Async-friends: a seated member (not just the owner) may access the
+        # game. is_member() short-circuits on the owner/admin we already
+        # checked, then consults the membership ledger.
+        if owner_id != user_id and not membership_service.is_member(
+            game_id, user_id, owner_id=owner_id, is_admin=is_admin
+        ):
             return current_user, is_admin, owner_id, (jsonify({'error': 'Permission denied'}), 403)
 
     return current_user, is_admin, owner_id, None
@@ -155,7 +160,9 @@ def _emit_reload_if_persisted(game_id: str) -> None:
             return  # truly gone — nothing to reload
         user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         user_id = user.get('id') if user else None
-        if user_id and (user_id == owner_info.get('owner_id') or _is_admin(user_id)):
+        if user_id and membership_service.is_member(
+            game_id, user_id, owner_id=owner_info.get('owner_id')
+        ):
             emit('reload_required', {'game_id': game_id, 'code': 'RELOAD_REQUIRED'})
     except Exception as e:
         logger.debug("[SOCKET] reload signal skipped for %s: %s", game_id, e)
@@ -2640,12 +2647,12 @@ def register_socket_events(sio):
             _emit_reload_if_persisted(game_id_str)
             return
 
-        # Verify the current user is the game owner (or an admin —
-        # matches the bypass already in send_message and progress_game).
+        # Verify the current user is a member of the game (owner, admin, or a
+        # seated friend in an async game).
         user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = game_data.get('owner_id')
         user_id = user.get('id') if user else None
-        if not user_id or (user_id != owner_id and not _is_admin(user_id)):
+        if not user_id or not membership_service.is_member(game_id_str, user_id, owner_id=owner_id):
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
 
@@ -2677,14 +2684,30 @@ def register_socket_events(sio):
             _emit_reload_if_persisted(game_id)
             return
 
-        # Verify the current user is the game owner
+        # Verify the current user is a member of the game.
         user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = current_game_data.get('owner_id')
-        if not user or user.get('id') != owner_id:
+        user_id = user.get('id') if user else None
+        if not user_id or not membership_service.is_member(game_id, user_id, owner_id=owner_id):
             logger.debug(
-                f"[SOCKET] player_action unauthorized: user={user.get('id') if user else None}, owner={owner_id}"
+                f"[SOCKET] player_action unauthorized: user={user_id}, owner={owner_id}"
             )
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
+            return
+
+        # Async-friends: in a multi-human game a member may only act on their
+        # OWN turn. Legacy single-human games leave is_async falsy, so this is a
+        # no-op there (the lone human seat is always the owner). Admins bypass
+        # so they can drive a game while debugging.
+        _sm = current_game_data.get('state_machine')
+        if (
+            current_game_data.get('is_async')
+            and _sm is not None
+            and not _is_admin(user_id)
+            and not membership_service.is_users_turn(_sm.game_state, user_id)
+        ):
+            logger.debug(f"[SOCKET] player_action out of turn: user={user_id}")
+            emit('auth_error', {'error': "It's not your turn", 'code': 'NOT_YOUR_TURN'})
             return
 
         if user and is_guest(user) and GUEST_LIMITS_ENABLED:
@@ -2810,11 +2833,12 @@ def register_socket_events(sio):
             logger.debug(f"[SOCKET] send_message game not found: {game_id}")
             return
 
-        # Verify the current user is the game owner or an admin
+        # Verify the current user is a member of the game (owner, admin, or a
+        # seated friend in an async game).
         user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = game_data.get('owner_id')
         user_id = user.get('id') if user else None
-        if not user_id or (user_id != owner_id and not _is_admin(user_id)):
+        if not user_id or not membership_service.is_member(game_id, user_id, owner_id=owner_id):
             logger.debug(f"[SOCKET] send_message unauthorized: user={user_id}, owner={owner_id}")
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return
@@ -2853,11 +2877,12 @@ def register_socket_events(sio):
             logger.debug(f"[SOCKET] progress_game game not found: {game_id_str}")
             return
 
-        # Verify the current user is the game owner or an admin
+        # Verify the current user is a member of the game (owner, admin, or a
+        # seated friend in an async game).
         user = extensions.auth_manager.get_current_user() if extensions.auth_manager else None
         owner_id = game_data.get('owner_id')
         user_id = user.get('id') if user else None
-        if not user_id or (user_id != owner_id and not _is_admin(user_id)):
+        if not user_id or not membership_service.is_member(game_id_str, user_id, owner_id=owner_id):
             logger.debug(f"[SOCKET] progress_game unauthorized: user={user_id}, owner={owner_id}")
             emit('auth_error', {'error': 'Not authorized for this game', 'code': 'NOT_OWNER'})
             return

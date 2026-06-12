@@ -112,6 +112,8 @@ career_progress_repo = None
 cash_scalps_repo = None  # durable attributed "who busted whom" counter (v132)
 renown_field_repo = None  # batched Renown-v2 field-input read (v133)
 entity_presence_repo = None  # dormant Presence machine store (Cut 3 / cutover)
+membership_repo = None  # async-friends: multi-human seat ledger + invites
+device_repo = None  # async-friends: push notification delivery targets
 persistence_db_path = None  # for callers that need the raw path
 
 # Human-player avatar service (acquire/generate/process/persist user avatars)
@@ -263,6 +265,8 @@ def init_persistence() -> None:
         cash_scalps_repo, \
         renown_field_repo, \
         entity_presence_repo, \
+        membership_repo, \
+        device_repo, \
         persistence_db_path
     global prompt_capture_repo, decision_analysis_repo, prompt_preset_repo
     global capture_label_repo, replay_experiment_repo
@@ -303,6 +307,8 @@ def init_persistence() -> None:
     cash_scalps_repo = repos['cash_scalps_repo']
     renown_field_repo = repos['renown_field_repo']
     entity_presence_repo = repos['entity_presence_repo']
+    membership_repo = repos['membership_repo']
+    device_repo = repos['device_repo']
     persistence_db_path = repos['db_path']
 
     event_repository = PressureEventRepository(db_path)

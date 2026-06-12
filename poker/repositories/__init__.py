@@ -16,6 +16,7 @@ from .cash_table_repository import CashTableRepository
 from .chip_ledger_repository import ChipLedgerRepository
 from .coach_repository import CoachRepository
 from .decision_analysis_repository import DecisionAnalysisRepository
+from .device_repository import DeviceRepository
 from .entity_presence_repository import EntityPresenceRepository
 from .experiment_repository import ExperimentRepository
 from .game_repository import GameRepository, SavedGame
@@ -23,6 +24,7 @@ from .guest_tracking_repository import GuestTrackingRepository
 from .hand_history_repository import HandHistoryRepository
 from .holdings_snapshots_repository import HoldingsSnapshotsRepository
 from .llm_repository import LLMRepository
+from .membership_repository import MembershipRepository
 from .personality_repository import PersonalityRepository
 from .prestige_snapshots_repository import PrestigeSnapshotsRepository
 from .prompt_capture_repository import PromptCaptureRepository
@@ -95,6 +97,8 @@ def create_repos(db_path: str) -> dict:
         'cash_scalps_repo': CashScalpsRepository(db_path),
         'renown_field_repo': RenownFieldRepository(db_path),
         'entity_presence_repo': EntityPresenceRepository(db_path),
+        'membership_repo': MembershipRepository(db_path),
+        'device_repo': DeviceRepository(db_path),
         'db_path': db_path,
     }
 
@@ -110,6 +114,7 @@ __all__ = [
     'ChipLedgerRepository',
     'CoachRepository',
     'DecisionAnalysisRepository',
+    'DeviceRepository',
     'EntityPresenceRepository',
     'ExperimentRepository',
     'GameRepository',
@@ -120,6 +125,7 @@ __all__ = [
     'CashScalpsRepository',
     'RenownFieldRepository',
     'LLMRepository',
+    'MembershipRepository',
     'PersonalityRepository',
     'PressureEventRepository',
     'PromptCaptureRepository',
