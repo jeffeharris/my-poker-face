@@ -55,7 +55,7 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Set, Tuple
 
 import experiments.simulate_bb100 as sim
-from poker.card_utils import card_to_string
+from poker.card_utils import card_to_string, normalize_card_string
 from poker.hand_ranges import (
     LATE_POSITION_RANGE,
     MIDDLE_POSITION_RANGE,
@@ -63,7 +63,6 @@ from poker.hand_ranges import (
     _get_all_combos_for_hand,
     estimate_range_from_vpip,
 )
-from poker.card_utils import normalize_card_string
 from poker.tiered_bot_controller import TieredBotController
 
 HERO = "TAG"
@@ -263,8 +262,10 @@ def main() -> int:
     mean_pot = sum(s["pot_bb"] for s in spots) / len(spots)
     mean_cost = sum(s["cost_bb"] for s in spots) / len(spots)
     print(f"  mean pot calling into: {mean_pot:.1f}bb   mean cost to call: {mean_cost:.1f}bb")
-    print(f"  (folding forfeits a {mean_pot:.0f}bb pot; pot odds to call ≈ "
-          f"{100.0 * mean_cost / (mean_pot + mean_cost):.0f}%)")
+    print(
+        f"  (folding forfeits a {mean_pot:.0f}bb pot; pot odds to call ≈ "
+        f"{100.0 * mean_cost / (mean_pot + mean_cost):.0f}%)"
+    )
 
     print("\nsqueezer range widths swept:")
     for label, rng in SQUEEZE_RANGES.items():
@@ -272,7 +273,9 @@ def main() -> int:
 
     # Price each spot vs each width × realization haircut.
     print("\n" + "=" * 90)
-    print("LEAK = Σ max(0, EV_call) over the recorded blind spots, in bb, then bb/100 (÷hands×100).")
+    print(
+        "LEAK = Σ max(0, EV_call) over the recorded blind spots, in bb, then bb/100 (÷hands×100)."
+    )
     print("A +EV call means folding that hand leaks; the leak is the dead money left behind.")
     print("=" * 90)
     print(
@@ -294,7 +297,7 @@ def main() -> int:
             n_defend = 0
             leak_bb = 0.0
             defend_ev_sum = 0.0
-            for s, eq in zip(spots, eqs):
+            for s, eq in zip(spots, eqs, strict=False):
                 ev = _ev_call(eq, s["pot_bb"], s["cost_bb"], r)
                 if ev > 0:
                     n_defend += 1

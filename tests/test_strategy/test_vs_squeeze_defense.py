@@ -137,9 +137,9 @@ def _manager_for(name, *, hands=40, vpip=0.55):
 def _squeeze_state():
     """Hero=BB@idx0 facing an UTG open (3bb) + BTN squeeze (9bb); SB folded."""
     players = [
-        _player('Hero', bet=100),        # BB
-        _player('Opener', bet=300),      # UTG open 3bb
-        _player('Squeezer', bet=900),    # BTN squeeze 9bb (largest live bet)
+        _player('Hero', bet=100),  # BB
+        _player('Opener', bet=300),  # UTG open 3bb
+        _player('Squeezer', bet=900),  # BTN squeeze 9bb (largest live bet)
         _player('Folder', bet=0, folded=True),
     ]
     return SimpleNamespace(players=players)

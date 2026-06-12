@@ -111,8 +111,13 @@ def _run_arm(on: bool) -> None:
         st = sim.load_strategy_table()
         for seed in SEEDS:
             sim.run_6max_matchup(
-                HERO, HANDS_PER_SEED, st, big_blind=BB, starting_stack=100 * BB,
-                base_seed=seed, opponents=FIELD,
+                HERO,
+                HANDS_PER_SEED,
+                st,
+                big_blind=BB,
+                starting_stack=100 * BB,
+                base_seed=seed,
+                opponents=FIELD,
             )
     finally:
         TieredBotController._get_ai_decision = _orig
@@ -162,8 +167,10 @@ def main() -> int:
     fires = on_cont > off_cont + 1.0
     print("\n" + "=" * 84)
     print(f"  OFF continue% ≈ 0:        {'PASS' if off_cont < 1.0 else 'FAIL'} ({off_cont:.1f}%)")
-    print(f"  ON fires (continue ↑):    {'PASS' if fires else 'FAIL'} "
-          f"({off_cont:.1f}% → {on_cont:.1f}%)")
+    print(
+        f"  ON fires (continue ↑):    {'PASS' if fires else 'FAIL'} "
+        f"({off_cont:.1f}% → {on_cont:.1f}%)"
+    )
     print(f"  value floor continues:    {'PASS' if floor_ok else 'FAIL'}")
     print("  (widen-rises-with-VPIP: eyeball the by-band table above — should trend up.)")
     return 0 if (off_cont < 1.0 and fires and floor_ok) else 1

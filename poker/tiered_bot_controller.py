@@ -440,10 +440,10 @@ def _limp_exploit_enabled() -> bool:
 # a 4-bet — 4-betting the top is a future enhancement). Value & high-card-blocker
 # hands that flop top pair / dominate a wide squeeze; no wide speculative suited.
 SQUEEZE_DEFENSE_TIERS = (
-    ('AA', 'KK', 'QQ', 'AKs', 'AKo'),                  # tier 0: value floor
-    ('JJ', 'TT', 'AQs', 'AQo'),                        # tier 1: vs a normal squeezer
-    ('99', 'AJs', 'KQs', 'ATs', 'AJo', 'KQo'),         # tier 2: vs a wide squeezer
-    ('88', '77', 'KJs', 'QJs', 'JTs', 'ATo', 'A5s'),   # tier 3: vs a maniac
+    ('AA', 'KK', 'QQ', 'AKs', 'AKo'),  # tier 0: value floor
+    ('JJ', 'TT', 'AQs', 'AQo'),  # tier 1: vs a normal squeezer
+    ('99', 'AJs', 'KQs', 'ATs', 'AJo', 'KQo'),  # tier 2: vs a wide squeezer
+    ('88', '77', 'KJs', 'QJs', 'JTs', 'ATo', 'A5s'),  # tier 3: vs a maniac
 )
 # Squeezer VPIP read → base tier depth (how wide its range is). Tighter squeeze →
 # floor only; a wide/loose squeezer → deeper widen. Knob scales this depth down for
@@ -4752,9 +4752,7 @@ class TieredBotController(AIPlayerController):
         if vpip is not None:
             base_tier = next((d for cut, d in _SQUEEZE_WIDTH_BANDS if vpip >= cut), 0)
         max_tier = int(round(base_tier * knob))  # knob shrinks the widen, not the floor
-        continue_hands = {
-            h for tier in SQUEEZE_DEFENSE_TIERS[: max_tier + 1] for h in tier
-        }
+        continue_hands = {h for tier in SQUEEZE_DEFENSE_TIERS[: max_tier + 1] for h in tier}
         hand = getattr(node, 'hand', '')
         snap = getattr(self, '_last_pipeline_snapshot', None)
         if hand not in continue_hands:
