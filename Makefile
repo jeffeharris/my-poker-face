@@ -1,4 +1,4 @@
-.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last validate-archetype-bands clean prod testflight
+.PHONY: help build up down logs shell test test-quick test-strategy test-repos test-cash test-memory test-flask test-llm test-last validate-archetype-bands clean prod testflight android-debug android-release
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -119,3 +119,24 @@ testflight: ## Build, archive & upload an App Store .ipa to TestFlight (needs AS
 		--file $(IOS_APP_DIR)/build/export/App.ipa \
 		--apiKey $(ASC_KEY_ID) --apiIssuer $(ASC_ISSUER_ID)
 	@echo "Uploaded. Build is processing in App Store Connect -> TestFlight (~5-15 min)."
+
+# --- Android builds (Capacitor) ----------------------------------------------
+# Same web app, wrapped by Capacitor (react/react/android). Needs a JDK 17+ and
+# the Android SDK on PATH (Android Studio installs both) — the Android analogue of
+# "iOS needs a Mac + Xcode". See docs/guides/ANDROID_APP.md.
+ANDROID_DIR := react/react/android
+
+android-debug: ## Build a sideloadable debug APK (prod-pointed, no keystore needed)
+	cd react/react && VITE_API_URL=$(PROD_URL) VITE_SOCKET_URL=$(PROD_URL) npm run build
+	cd react/react && npx cap copy android
+	cd $(ANDROID_DIR) && ./gradlew assembleDebug
+	@echo "APK: $(ANDROID_DIR)/app/build/outputs/apk/debug/app-debug.apk"
+	@echo "Install: adb install -r $(ANDROID_DIR)/app/build/outputs/apk/debug/app-debug.apk"
+
+android-release: ## Build a signed Play Store AAB (needs android/key.properties — see ANDROID_APP.md)
+	@test -f $(ANDROID_DIR)/key.properties || { echo "ERROR: $(ANDROID_DIR)/key.properties missing — see docs/guides/ANDROID_APP.md (release signing)"; exit 1; }
+	cd react/react && VITE_API_URL=$(PROD_URL) VITE_SOCKET_URL=$(PROD_URL) npm run build
+	cd react/react && npx cap copy android
+	cd $(ANDROID_DIR) && ./gradlew bundleRelease -PversionCode=$(BUILD_NUMBER) -PversionName=$(BUILD_NUMBER)
+	@echo "AAB: $(ANDROID_DIR)/app/build/outputs/bundle/release/app-release.aab"
+	@echo "Upload it to the Play Console (Internal testing track for the fastest loop)."

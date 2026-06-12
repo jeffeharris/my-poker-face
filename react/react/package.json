@@ -15,9 +15,11 @@
     "test:watch": "vitest",
     "cap:sync": "npm run build && cap sync",
     "ios": "npm run build && cap sync ios && cap open ios",
-    "android": "npm run build && cap sync android && cap open android"
+    "android": "npm run build && cap sync android && cap open android",
+    "assets:generate": "capacitor-assets generate --android --iconBackgroundColor '#0a0b10' --iconBackgroundColorDark '#0a0b10' --splashBackgroundColor '#0a0b10' --splashBackgroundColorDark '#0a0b10'"
   },
   "dependencies": {
+    "@capacitor/android": "^6.2.1",
     "@capacitor/app": "^6.0.3",
     "@capacitor/core": "^6.2.1",
     "@capacitor/haptics": "^6.0.3",
@@ -45,6 +47,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^6.2.1",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.58.2",

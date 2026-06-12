@@ -173,5 +173,9 @@ realtime socket), and a groq Default LLM tier. Full story:
 - **Sign in with Apple** — Apple requires it on the App Store and for **external**
   TestFlight whenever you offer third-party login (Google). Internal testing
   doesn't need it. Backend pattern mirrors `/api/auth/google/native`.
-- **Android** — the auth/transport layer is platform-agnostic; only the OAuth
-  client + `cap add android` remain.
+- **Android** — done: the Capacitor Android project is scaffolded and committed at
+  `react/react/android`. The auth/transport layer is platform-agnostic, so it
+  rides along; what's Android-specific (Google `server_client_id`, an Android
+  OAuth client + SHA-1, signing keystore, Play Store) is covered in
+  [`ANDROID_APP.md`](./ANDROID_APP.md). The Net Worth home-screen widget has an
+  Android counterpart too (an `AppWidgetProvider` + `WidgetBridge` plugin).

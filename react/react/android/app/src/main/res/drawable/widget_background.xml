@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark rounded card behind the Net Worth widget — matches the app chrome
+     (#0a0b10) and the iOS widget's containerBackground. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_background" />
+    <corners android:radius="16dp" />
+</shape>
