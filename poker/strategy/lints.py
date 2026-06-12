@@ -162,12 +162,13 @@ def lint_completeness(chart: Dict) -> List[str]:
         for node_name, node in nodes.items():
             if len(node) != 169:
                 fails.append(f"{scenario}/{node_name}: {len(node)} hands (expected 169)")
-    # vs_squeeze is OPTIONAL (base chart only). When present, it has exactly the 10
-    # cold-caller→squeezer pairs (HJ/CO/BTN/SB callers — UTG opens first, BB closes).
+    # vs_squeeze is OPTIONAL (base chart only). When present it has exactly the 20
+    # per-opener {caller}_vs_{opener}_vs_{squeezer} nodes: HJ/CO/BTN/SB callers ×
+    # each earlier opener × each later squeezer (HJ:4, CO:6, BTN:6, SB:4).
     squeeze = chart.get("vs_squeeze", {})
     if squeeze:
-        if len(squeeze) != 10:
-            fails.append(f"vs_squeeze: {len(squeeze)} nodes (expected 10)")
+        if len(squeeze) != 20:
+            fails.append(f"vs_squeeze: {len(squeeze)} nodes (expected 20)")
         for node_name, node in squeeze.items():
             if len(node) != 169:
                 fails.append(f"vs_squeeze/{node_name}: {len(node)} hands (expected 169)")
