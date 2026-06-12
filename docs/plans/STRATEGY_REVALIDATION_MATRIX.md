@@ -219,3 +219,43 @@ Jeff alone: his live vpip/vol ~0.35 is still below the 0.70 hyper_passive cutoff
 - New side-finding: the **punisher clone's authored `fold_to_cbet` doesn't manifest
   in play** — the clone isn't a clean test bed for c-bet exploitation; revisit clone
   fidelity (same theme as the fold-to-3bet fix) before trusting clone-based c-bet A/Bs.
+
+---
+
+## First-principles test — the canonical "stop bluffing vs a station" exploit (2026-06-12)
+
+Jeff's basic exploit: vs a player who always calls, stop bluffing + value-bet
+more. Measured the BEHAVIOR directly (`experiments/exploit_behavior_probe.py`):
+TAG hero vs a pure CallStation, exploitation ON (strength 1.0) vs OFF (0.0),
+postflop actions split by hand class.
+
+| Field | bluff rate (air-aggression) | value rate (strong/nuts) |
+|---|---|---|
+| **HU OFF** | **59.9%** | 95.0% |
+| **HU ON** | **59.8%** (Δ −0.1pp) | 97.2% (Δ +2.1) |
+| 6-max OFF | 14.4% | 94.0% |
+| 6-max ON | 14.1% (Δ −0.3pp) | 96.2% (Δ +2.3) |
+
+**The exploit does NOT work.** The bot bluffs ~60% (HU) with air into a calling
+station and exploitation changes that by −0.1pp (noise). Value-betting is already
+near-ceiling (94–97%) so there's no headroom there either.
+
+**It is NOT a detection or enablement failure** (the prior clone result was). Vs a
+clear CallStation, instrumentation shows the chain works up to the last step:
+`archetype_name='tag'` → `is_value_vs_station_enabled` **True** (5398/5398);
+`compute_value_vs_station_intensity` returns **1.0** (maxed, 3764/3846); the
+`bluff_reduction` rule's hand-gate (air) fires. The break is **offset→behavior**:
+`_apply_bluff_reduction` emits a `-0.20 × multiplier` logit nudge on bet/raise
+(+0.10 check), and after the `adaptation_bias × confidence × strength` multiplier
+the realized shift is small enough that the sampled action almost never changes —
+**detection at full strength yields ≈0 behavioral change.**
+
+**Conclusion / fix direction:** exploitation as architected is a *soft logit nudge*
+that does not translate into behavior even at max intensity vs the clearest target.
+For it to be a real, measurable capability (Jeff's bar), the highest-confidence
+exploits need a **hard-override / much larger magnitude** path — like the
+`value_override` and facing-all-in-veto layers already use (they hard-set the
+action) — not a small additive offset. The right gate to prove the fix is THIS
+behavioral probe (bluff% must actually drop vs a station), then bb/100. The
+"light nudge vs real exploit engine" design call is now answered by data: the
+light nudge produces nothing.
