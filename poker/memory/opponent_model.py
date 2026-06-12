@@ -112,6 +112,12 @@ class OpponentTendencies:
     aggression_factor_postflop: float = 1.0  # postflop bet/raise/all-in / postflop call
     all_in_per_facing_bet: float = 0.0  # response-aggression axis
     postflop_jam_open_rate: float = 0.0  # open-aggression axis
+    # Stickiness axis: fraction of facing-bet decisions answered with a CALL
+    # (postflop calls / facing-bet opportunities). The "doesn't fold" signal
+    # that disambiguates a calling station (high — calls down) from a loose
+    # FOLDER (low — spews then folds) at the same low AF. Default 0.0 so a
+    # cold/unread opponent is never sticky. See _is_loose_passive_station.
+    call_rate_facing_bet: float = 0.0
 
     # Opportunity-normalized preflop stats. The legacy `vpip` and `pfr`
     # use hands_dealt as denominator, which causes 1/N scaling with
@@ -184,6 +190,13 @@ class OpponentTendencies:
     _flop_check_barrel_opportunity_count: int = 0
     _showdowns: int = 0
     _showdowns_won: int = 0
+    # WTSD (went-to-showdown) denominator: hands where this opponent saw the
+    # flop (took any postflop action). Numerator is _showdowns. wtsd =
+    # _showdowns / _saw_flop — the literature's station/folder discriminator:
+    # a sticky calling station reaches showdown often (>~0.5), a fit-or-fold
+    # type rarely (<~0.25). Counted once per hand via _saw_flop_this_hand.
+    _saw_flop: int = 0
+    wtsd: float = 0.0
 
     # Phase 7.5 Step 0: per-axis counters for the new postflop-only stats.
     # Updated only when phase is FLOP/TURN/RIVER. See
@@ -310,6 +323,7 @@ class OpponentTendencies:
     # Per-hand tracking (reset each new hand)
     _vpip_this_hand: bool = False
     _pfr_this_hand: bool = False
+    _saw_flop_this_hand: bool = False  # WTSD denominator guard (count once/hand)
 
     def record_hand_dealt(self):
         """Record that the opponent was at the table for one more hand.
@@ -369,6 +383,14 @@ class OpponentTendencies:
             self._preflop_open_raised_this_hand = False
             self._preflop_vol_action_this_hand = False
             self._limped_this_hand = False
+            self._saw_flop_this_hand = False
+
+        # WTSD denominator: first postflop action of a hand means the opponent
+        # saw the flop. Counted independent of facing-bet context (any postflop
+        # action — check/bet/call/fold — implies they reached the flop).
+        if phase in ('FLOP', 'TURN', 'RIVER') and not self._saw_flop_this_hand:
+            self._saw_flop += 1
+            self._saw_flop_this_hand = True
 
         # Track VPIP (voluntary pot entry) - only count ONCE per hand.
         # all_in is voluntary chip commitment and counts as VPIP.
@@ -819,6 +841,12 @@ class OpponentTendencies:
         if self._showdowns > 0:
             self.showdown_win_rate = self._showdowns_won / self._showdowns
 
+        # WTSD: showdowns reached / hands that saw the flop. Clamped to 1.0 to
+        # stay defined when a rare all-in-preflop showdown adds to the numerator
+        # without a postflop action incrementing _saw_flop.
+        if self._saw_flop > 0:
+            self.wtsd = min(1.0, self._showdowns / self._saw_flop)
+
         # Sizing-aware Phase A: polarization score = how much MORE equity this
         # opponent shows on big bets vs small bets. Only meaningful once BOTH
         # bins have a real sample; otherwise hold the neutral 0.0 prior so a
@@ -889,6 +917,14 @@ class OpponentTendencies:
             self.all_in_per_facing_bet = self._all_ins_facing_bet / self._facing_bet_opportunities
         else:
             self.all_in_per_facing_bet = 0.0
+
+        # Stickiness axis: calls per facing-bet opportunity (the "doesn't fold"
+        # signal). A call only happens when facing a bet, so the denominator
+        # is the same _facing_bet_opportunities; the remainder is folds + raises.
+        if self._facing_bet_opportunities > 0:
+            self.call_rate_facing_bet = self._postflop_call_count / self._facing_bet_opportunities
+        else:
+            self.call_rate_facing_bet = 0.0
 
         # Open-aggression axis: opening jams per postflop open opportunity.
         if self._postflop_open_opportunities > 0:
@@ -985,6 +1021,7 @@ class OpponentTendencies:
         ('aggression_factor_postflop', 1.0),
         ('all_in_per_facing_bet', 0.0),
         ('postflop_jam_open_rate', 0.0),
+        ('call_rate_facing_bet', 0.0),
         # Opportunity-normalized preflop stats (neutral prior 0.5)
         ('pfr_per_open_opportunity', 0.5),
         ('vpip_per_voluntary_opportunity', 0.5),
@@ -1009,6 +1046,8 @@ class OpponentTendencies:
         ('_flop_check_barrel_opportunity_count', 0),
         ('_showdowns', 0),
         ('_showdowns_won', 0),
+        ('_saw_flop', 0),
+        ('wtsd', 0.0),
         # Phase 7.5 counters
         ('_postflop_bet_raise_count', 0),
         ('_postflop_call_count', 0),

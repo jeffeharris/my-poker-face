@@ -259,3 +259,168 @@ action) — not a small additive offset. The right gate to prove the fix is THIS
 behavioral probe (bluff% must actually drop vs a station), then bb/100. The
 "light nudge vs real exploit engine" design call is now answered by data: the
 light nudge produces nothing.
+
+---
+
+## Detection-fidelity probe — what the detector actually sees (2026-06-12)
+
+Step 1 of the re-architecture (per the priority order: *measure reachability/
+fidelity before changing code*). Built `experiments/detection_fidelity_probe.py`
+— read-only, monkeypatches `classify_detected_patterns` to record, per decision,
+the `AggregatedOpponentStats` the detector sees + which patterns fire + the
+archetype, then diffs against each clone's AUTHORED profile. Replaces the earlier
+agent-estimated "live-measured" numbers with a reproducible tool. TAG hero, 3000
+hands, seed 42.
+
+| stat | authored | Punisher HU / 6max | Jeff HU / 6max |
+|---|---|---|---|
+| vpip/vol | P .26 / J .39 | .22 / .17 | .35 / .35 |
+| **AF (global)** | P 3.0 / J 1.22 | **0.93 / 1.13** | **0.24 / 0.34** |
+| AF postflop | — | 0.74 / 1.27 | **0.18 / 0.45** |
+| **fold_to_cbet** | P .70 / J .45 | **0.00 / 0.00** | 0.00 / 0.09 |
+| cbet_faced sample | — | 5 / 54 | 165 / 107 |
+| barrel_freq | — | 0.50 / 0.50 | 0.50 / 0.50 (suspect: constant — likely a neutral prior, not measured) |
+| patterns fired | — | **`tight_nit` 100%** (wrong tool) | **none** |
+| archetype | — | `unmatched` | `unmatched` |
+
+**Two distinct gaps, now reproducible:**
+
+1. **Stat-fidelity (the clones aren't clean test beds for some exploits).**
+   - Authored AF (3.0 Punisher / 1.22 Jeff) does NOT manifest — the hero observes
+     global AF ~0.9 / ~0.24. The action-ratio AF computed from real play is
+     structurally far below the authored number. Any A/B that leans on "Punisher
+     is an aggressive reg" *via the AF stat* is testing a villain the hero sees as
+     passive.
+   - Authored `fold_to_cbet 0.70` manifests as ~0.00 — partly thin sample (the hero
+     rarely c-bets these clones: 5 faced HU), partly the clone doesn't actually fold
+     to c-bets in play. The Punisher clone is NOT a valid bed for c-bet/fold-equity
+     exploits until its c-bet-facing behaviour is fixed.
+
+2. **Detection-reachability.** The archetype classifier only knows
+   {hyper_aggressive, sticky_jammer, pure_station}; both clones are `unmatched`.
+   Punisher fires the `tight_nit` *pattern* (widens hero's opens — does nothing
+   about its actual leak); Jeff fires *nothing* (vpip .35 is in the dead zone:
+   >0.30 nit cutoff, <0.70 station cutoff).
+
+**Implication for step 2 (promote stats) — refined:** the load-bearing signal is
+ALREADY a column. `aggression_factor_postflop` carries Jeff's real leak (0.18 HU)
+and the station/`hyper_passive` detector simply doesn't read it (keyed on global
+AF, exploitation.py:683). So the highest-value "stat" work is a **re-key of
+existing detectors to the postflop stat**, not new columns. BUT the matrix caveat
+holds and is now measured: re-keying `hyper_passive` to postflop AF is *necessary*
+(Jeff's AF_postflop 0.18 ≪ 0.80 gate) yet *not sufficient* — the conjoined
+`vpip/vol > 0.70` gate still excludes Jeff (.35). Catching a postflop-passive
+moderate-vpip reg needs either a lower VPIP floor on the station detector or a new
+"passive reg / fit-or-fold" archetype keyed primarily on low postflop AF. (New
+columns are still needed for the 🔴 catalog rows — fold_to_3bet, wtsd, limp/donk —
+just not for station/reg detection.)
+
+**Implication for step 3 (Tier-1 gear-switch vs nit/over-folder):** there is no
+`nit` archetype today (deferred §1.5b in exploitation.py). The gear-switch is the
+"consumer rule" that unlocks it — extend `classify_opponent_archetype` to return a
+`nit` label (Punisher *does* read as tight_nit-pattern with vpip .17–.22, so a
+nit-gear has a real, detected target), then key chart selection on it. Validate the
+gear actually changes the opened range with the behavioral probe before bb/100.
+
+### Reframe (2026-06-12) — the targets are REAL players, not the rule-bots
+
+Per Jeff: the rule-bots (CallStation/CaseBot/ManiacBot) were throwaway test
+fixtures; the detection layer over-indexed on "catch the bot" because they were
+sitting in every harness. They're dead weight now that TieredBot runs every seat —
+their only legit use is *extreme stress* cases ("a human just bombs raises"). The
+**actual game**: a TieredBot persona reads the *other players at the table* (the
+human + other AI personas, which carry real archetype leaks via their deviation
+profiles) and reacts to *their* leaks. Two consequences:
+- The right test beds are **real humans** (`jeff.json` is a genuine 4669-hand mined
+  profile — a loose-passive human) and **archetype personas**, NOT the rule-bots.
+- **Verified the layer is live in prod:** `opponent_model_manager` is attached to
+  controllers in cash (`cash_routes.py:947`), tournaments
+  (`tournament_game_builder.py:280`, `tournament_handler.py:260`) and standard games
+  (`game_handler.py:1151`). The `--opponent-model`-off sims were the misleading part;
+  exploitation *does* fire against real opponents in live games.
+
+### The canonical grid is already implemented (we just didn't wire it to exploits)
+
+`poker/archetypes.py::play_style_label(vpip, af)` already maps the literature
+4-quadrant grid (TAG/LAG/Rock/Fish) with standard thresholds (VPIP_TIGHT 0.30,
+AF_PASSIVE 0.50). By that grid Jeff = `loose-passive` and Punisher = `tight-passive`
+*today*. The exploit layer just never used it — it grew a parallel, narrower
+taxonomy (`pure_station`/`sticky_jammer`/`hyper_aggressive`) phase-by-phase against
+the rule-bots. The two diverged because exploitation uses player-count-stable stats
+(`vpip_per_voluntary_opportunity`) and the grid uses raw VPIP — but the boundary
+values align (`TIGHT_NIT_VPIP_PER_VOL_THRESHOLD == VPIP_TIGHT == 0.30`).
+
+## Step 2 IMPLEMENTED — `loose_passive` station detection (2026-06-12)
+
+Added the canonical loose-passive ("Fish") quadrant to the exploit detector, in
+exploitation's own stat space, keyed on the real station signal (`AF_postflop`):
+
+- `_is_loose_passive_station(stats)` = `vpip/vol ≥ 0.30` (not a nit) AND
+  `facing_bet_opportunities ≥ 10` (real postflop sample) AND `AF_postflop < 0.80`.
+- Wired into `classify_detected_patterns` (`loose_passive` pattern) and
+  `classify_opponent_archetype` (`loose_passive` label, checked after the validated
+  extreme labels so they keep precedence). Dossier badge/tip added.
+- **Deliberately NOT wired into the offset path** — the counter that consumes it
+  (stop-bluffing / value-thin as a *real* behavioral shift) is step 4. So this
+  change has **zero EV blast radius**: it only makes the detector *see* the
+  opponent. `classify_opponent_archetype` is consumed only as `== 'hyper_aggressive'`
+  elsewhere, so a new label is safe.
+
+**Validated** (`detection_fidelity_probe`, 1200 hands HU):
+- Jeff: `unmatched → loose_passive`, fires 99.6% of mature decisions ✅
+- Punisher: stays `tight_nit`/`unmatched`, `loose_passive` False — no false positive
+  (its vpip .17 < .30 keeps the nit out of the station bucket; note its AF_postflop
+  0.77 *would* qualify, so the VPIP floor is doing the nit/station separation) ✅
+- `648 passed, 0 failed` across exploitation/archetype/classify/dossier tests.
+
+**Next (step 4, the behavioral half):** wire `loose_passive` to the station
+counters as a HARD override (stop-bluffing must actually drop bluff% — the
+`exploit_behavior_probe` gate), since the first-principles test proved the existing
+−0.20 logit nudge changes nothing. Detection is now in place to feed it.
+
+## Step 4 IMPLEMENTED — stop-bluffing-vs-station HARD OVERRIDE (2026-06-12)
+
+The behavioral half — and the proof the whole re-architecture works. Added
+`_maybe_stop_bluff_override` at the tail of `_apply_exploitation`: when hero holds
+**pure air** (`air_no_draw`, no equity) against a **confidently-read station**
+(`bluff_reduction_intensity ≥ 0.5`, the existing extreme-station signal) while
+**composed**, it hard-sets the give-up line (check if free, else fold) — removing
+all bet/raise/all-in mass instead of the −0.20 nudge. Mirrors `value_override`'s
+"replace the distribution, don't nudge it" pattern.
+
+Gates (all required): `air_no_draw` (a draw can still semi-bluff a station — kept
+firing); station intensity ≥ `STOP_BLUFF_MIN_INTENSITY`; `exploitation_strength > 0`
+AND `adaptation_bias > GATING_FLOOR` (recreational personas barely adapt, the
+exploit-OFF twin never does); **`tilt_factor ≥ 1.0` (composed only)** — the
+psychology gate.
+
+**Validated** (`experiments/stop_bluff_probe.py`, TAG vs CallStation HU, CRN-paired,
+2500 hands):
+
+| arm | air_no_draw aggression | air_strong_draw aggression |
+|---|---|---|
+| OFF (strength 0) | **56.9%** | 82.6% |
+| ON (strength 1, composed) | **0.3%** | 82.6% |
+| ON+TILTED (tilt_factor 0) | **56.9%** | 82.6% |
+
+- **Behavior changes:** pure-air bluffing 56.9% → 0.3%. The offset moved it
+  59.9→59.8 (nothing); the override moves it to ~0. The soft-nudge→hard-override
+  thesis is proven.
+- **Correctly scoped:** `air_strong_draw` untouched at 82.6% — kills pure bluffs
+  only, not semi-bluffs/value (the right poker).
+- **Psychology gate holds:** ON+TILTED ≡ OFF — a tilted bot stops out-levelling.
+- `817 passed, 0 failed` (exploitation/tiered/postflop/intervention/value_override).
+
+**Scope + caveats (honest):**
+- Fires on the **extreme** station detection (`compute_value_vs_station_intensity` →
+  `_is_hyper_passive`), which is rock-solid. It does **not** yet consume the new
+  `loose_passive` band (the moderate-loose-passive detector is a thin test hook, not
+  prod-ready — needs a not-folding signal, call_rate/WTSD, before wiring it here).
+- This is a **behavioral** proof, not an EV proof. "Stop bluffing a station" is
+  canonically +EV, but bb/100 (step 5) is not yet measured. Multiway: the gate
+  requires a station in the continuing field; whether killing air-aggression is
+  right when a non-station is also live is a bb/100 question.
+
+**The system is proven end-to-end:** detection → real behavioral change →
+psychology-gated. The remaining work is breadth (more catalog rows as hard
+overrides / gear-switches) and the EV pass (step 5), not the architecture.

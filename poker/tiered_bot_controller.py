@@ -206,6 +206,12 @@ def _exploitation_no_op_traces(
 _ALLIN_VETO_EQUITY_SEED = 20260610
 _ALLIN_VETO_EQUITY_ITERS = 600
 
+# Stop-bluffing-vs-station hard override (see _maybe_stop_bluff_override).
+# Min station-read intensity before the override hard-sets the give-up line.
+# compute_value_vs_station_intensity returns ~1.0 for a clear station; 0.5
+# keeps the override off marginal/ambiguous reads while firing on real ones.
+STOP_BLUFF_MIN_INTENSITY = 0.5
+
 
 def _preflop_allin_equity(hole_cards: List[str], num_opponents: int) -> Optional[float]:
     """Hero's preflop all-in equity vs `num_opponents` random hands.
@@ -2434,7 +2440,76 @@ class TieredBotController(AIPlayerController):
             legal_actions=valid_actions,
             max_total_shift=clamp_value,
         )
+
+        # Stop-bluffing-vs-station HARD OVERRIDE (the behavioral half).
+        # The bluff_reduction OFFSET above is a soft logit nudge; measured
+        # behaviorally it does NOT change the sampled action even at full
+        # intensity vs a pure station (bluff rate 59.9%→59.8% — see
+        # STRATEGY_REVALIDATION_MATRIX.md). The canonical exploit "a station
+        # never folds, so stop bluffing them" needs a REAL range change, like
+        # value_override / the all-in veto: hard-set the give-up line rather
+        # than nudge it.
+        updated_strategy = self._maybe_stop_bluff_override(
+            updated_strategy,
+            valid_actions=valid_actions,
+            hand_strength=hand_strength,
+            bluff_reduction_intensity=bluff_reduction_intensity_used,
+            tilt_factor=tilt_factor,
+            adaptation_bias=anchors.adaptation_bias,
+            exploitation_strength=exploitation_strength,
+        )
         return updated_strategy, exploitation_traces
+
+    def _maybe_stop_bluff_override(
+        self,
+        strategy: 'StrategyProfile',
+        *,
+        valid_actions: List[str],
+        hand_strength,
+        bluff_reduction_intensity: float,
+        tilt_factor: float,
+        adaptation_bias: float,
+        exploitation_strength: float,
+    ) -> 'StrategyProfile':
+        """Hard 'stop bluffing vs a station' override — the behavioral half of
+        the bluff_reduction offset.
+
+        Replaces the strategy with a pure give-up line (check if free, else
+        fold) when hero holds *pure air* against a confidently-read station
+        while composed. Unlike the offset it does not nudge — it removes all
+        bet/raise/all-in mass, the only thing that actually moves the sampled
+        action (proven: the offset alone leaves the bluff rate unchanged).
+
+        Gates (all required):
+          - hand_strength == 'air_no_draw' — pure air, no equity. A draw
+            (air_strong_draw) can still legitimately semi-bluff / value-bet a
+            station, so it is deliberately excluded.
+          - bluff_reduction_intensity >= STOP_BLUFF_MIN_INTENSITY — a confident
+            station read (same spot signal the offset uses).
+          - exploitation enabled: exploitation_strength > 0 AND
+            adaptation_bias > GATING_FLOOR (a recreational persona barely
+            adapts; an exploit-OFF twin never does).
+          - COMPOSED: tilt_factor >= 1.0. You can't be on tilt and out-
+            levelling someone — a tilted bot reverts to its base line.
+        """
+        if hand_strength != 'air_no_draw':
+            return strategy
+        if bluff_reduction_intensity < STOP_BLUFF_MIN_INTENSITY:
+            return strategy
+        if exploitation_strength <= 0.0 or adaptation_bias <= GATING_FLOOR:
+            return strategy
+        if tilt_factor < 1.0:  # not composed → stop adapting, keep base line
+            return strategy
+        if 'check' in valid_actions:
+            give_up = 'check'
+        elif 'fold' in valid_actions:
+            give_up = 'fold'
+        else:
+            return strategy  # no give-up line available (shouldn't happen on air)
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is not None:
+            snap['stop_bluff_override'] = give_up
+        return StrategyProfile(action_probabilities={give_up: 1.0})
 
     def _apply_relationship_modifier_to_offsets(
         self,
@@ -3702,6 +3777,8 @@ class TieredBotController(AIPlayerController):
                             aggression_factor_postflop=t.aggression_factor_postflop,
                             all_in_per_facing_bet=t.all_in_per_facing_bet,
                             facing_bet_opportunities=t._facing_bet_opportunities,
+                            call_rate_facing_bet=getattr(t, 'call_rate_facing_bet', 0.0),
+                            wtsd=getattr(t, 'wtsd', 0.0),
                             postflop_jam_open_rate=t.postflop_jam_open_rate,
                             postflop_open_opportunities=t._postflop_open_opportunities,
                             # Opportunity-normalized preflop fields.
