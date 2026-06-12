@@ -424,3 +424,40 @@ psychology gate.
 **The system is proven end-to-end:** detection → real behavioral change →
 psychology-gated. The remaining work is breadth (more catalog rows as hard
 overrides / gear-switches) and the EV pass (step 5), not the architecture.
+
+## Detector hardening CLOSED — WTSD sticky axis + faithful folder bed (2026-06-12)
+
+The `loose_passive` sticky axis is now keyed on **WTSD** (went-to-showdown), not
+`call_rate_facing_bet`, and the folder-exclusion is **proven**, not by-design.
+
+Sequence:
+- Promoted WTSD onto the live model (`_saw_flop` counter + `wtsd` ratio); the
+  stat-unification PR (#324) added the sim showdown feed so WTSD finally populates
+  in sims.
+- Calibration showed WTSD separates the disciplined reg (0.47) from stations
+  (0.78–0.80) cleanly — but NOT the `spewy_folder_fish` clone (0.70), because that
+  clone doesn't actually fold in play (legacy fold gate maxes at textbook pot odds).
+- **Built a faithful folder bed** (`clone_profiles/folder_fish.json` + an additive
+  `overfold_factor` lever on `CloneProfile`, default 1.0 = byte-identical legacy).
+  `overfold_factor=1.8` makes it over-fold (lay down pot-odds-correct hands).
+- Flipped `_is_loose_passive_station` sticky axis: `call_rate_facing_bet >= 0.45`
+  → `wtsd >= STATION_MIN_WTSD (0.55)`.
+
+Result (`detection_fidelity_probe`, HU, 1500 hands):
+
+| clone | vpip | AF_pf | call_rate | **wtsd** | loose_passive |
+|---|---|---|---|---|---|
+| Folder (new, faithful) | 0.47 | 0.35 | 0.617 | **0.382** | **False (excluded)** |
+| SpewyFolder (unfaithful) | 0.47 | 0.23 | 0.857 | 0.704 | True |
+| Station | 0.75 | 0.15 | 0.915 | 0.804 | True |
+| Jeff (real human) | 0.36 | 0.17 | 0.911 | 0.783 | True |
+
+- A genuine loose-passive **folder is now excluded** (wtsd 0.382 < 0.55) while two
+  stations + the real-human station are included — distinguished purely by WTSD.
+- **Vindicates the flip:** Folder's call_rate is 0.617 (> the old 0.45 floor), so
+  call_rate would have *wrongly kept it a station*; WTSD excludes it.
+- Zero blast radius: existing clones' WTSD byte-identical pre/post (additive lever).
+  `332 passed` (human_clone / exploitation / reshove).
+
+The detector now reads the literature 3-axis station (loose ∧ passive ∧ sticky) on
+trustworthy stats. Remaining: the bb/100 EV pass (step 5) and Tier-1 gear-switch.

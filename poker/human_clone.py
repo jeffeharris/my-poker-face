@@ -94,6 +94,15 @@ class CloneProfile:
     # noted in docs/plans/EVAL_HARNESS_PLAN.md, P0.5).
     bluff_air_freq: float = 0.0
 
+    # P(over-fold) lever (hand-authored profiles only). Multiplies the facing-bet
+    # required-equity threshold ABOVE pot odds, so a fit-or-fold type lays down
+    # hands that are pot-odds-correct to call (a genuine over-folder, not just a
+    # sub-pot-odds folder). Default 1.0 keeps every DB-derived / existing JSON
+    # profile byte-identical (the legacy fold gate maxes at textbook pot odds).
+    # The existing `fold_to_cbet`-derived multiplier already covers 0.5..1.0;
+    # this extends past 1.0. e.g. 1.8 → folds hands needing up to ~1.8× pot odds.
+    overfold_factor: float = 1.0
+
     @property
     def display_name(self) -> str:
         return f"{self.source_player}_clone"
@@ -425,6 +434,12 @@ def build_clone_strategy(profile: CloneProfile, oracle_punish_overbets: bool = F
     # fold_to_cbet=0.5 (default) → multiplier 0.75
     fold_multiplier = 0.5 + (profile.fold_to_cbet * 0.5)
 
+    # Over-fold lever: extends the required-equity threshold ABOVE pot odds so a
+    # fit-or-fold profile lays down pot-odds-correct hands (a genuine over-folder
+    # → low WtSD). Clamp to >= 1.0 so a JSON typo can't make the clone call wider
+    # than its fold_to_cbet already implies. Default 1.0 = legacy behavior.
+    overfold_factor = max(1.0, profile.overfold_factor)
+
     # wtsd adjusts turn/river fold thresholds. A sticky caller (wtsd=0.50+)
     # gets a more permissive (lower) multiplier on those streets; a fit-or-
     # fold type (wtsd < 0.20) gets a stricter (higher) multiplier. Bounded
@@ -555,7 +570,9 @@ def build_clone_strategy(profile: CloneProfile, oracle_punish_overbets: bool = F
         street_fold_multiplier = fold_multiplier
         if phase in ('TURN', 'RIVER'):
             street_fold_multiplier = fold_multiplier * wtsd_adjust
-        effective_required = required * street_fold_multiplier
+        # Over-fold applies on every street (a genuine folder folds the flop too,
+        # not just turn/river). overfold_factor=1.0 → byte-identical legacy path.
+        effective_required = required * street_fold_multiplier * overfold_factor
         if equity < effective_required:
             return _fold()
         # Value-raise on strong hands at street-specific rate.
