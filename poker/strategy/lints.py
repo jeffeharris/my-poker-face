@@ -174,6 +174,71 @@ def lint_completeness(chart: Dict) -> List[str]:
     return fails
 
 
+# ── Postflop lints ──────────────────────────────────────────────────────────
+# The postflop charts (postflop_strategies*.json) are a FLAT map of
+# node_key -> {action: prob}, NOT the [scenario][node][hand] preflop shape, so
+# they need their own structural lints (they had ZERO coverage before this).
+# Fixed legal postflop actions; sized bet_<pct>/raise_<pct> are validated via
+# action_vocab.is_sized.
+POSTFLOP_FIXED_ACTIONS = {"check", "call", "fold", "jam"}
+
+
+def _postflop_nodes(chart: Dict):
+    """Yield (node_key, leaf) for every non-meta node. A leaf is the
+    {action: prob} dict the bot samples at that node."""
+    for key, leaf in chart.items():
+        if key == "meta":
+            continue
+        yield key, leaf
+
+
+def lint_postflop_nonempty(chart: Dict) -> List[str]:
+    """Every node is a non-empty {action: float} leaf (no empty/nested nodes)."""
+    fails = []
+    for key, leaf in _postflop_nodes(chart):
+        if not isinstance(leaf, dict) or not leaf:
+            fails.append(f"{key}: empty or non-dict node")
+            continue
+        if not all(isinstance(v, int | float) for v in leaf.values()):
+            fails.append(f"{key}: non-leaf node (values not all numeric)")
+    return fails
+
+
+def lint_postflop_weights_sum(chart: Dict) -> List[str]:
+    """Each node's action weights sum to 1.0 (±tol) and are non-negative."""
+    fails = []
+    for key, leaf in _postflop_nodes(chart):
+        if not isinstance(leaf, dict) or not leaf:
+            continue  # reported by lint_postflop_nonempty
+        if any(isinstance(v, int | float) and v < 0 for v in leaf.values()):
+            fails.append(f"{key}: negative weight {leaf}")
+        s = sum(v for v in leaf.values() if isinstance(v, int | float))
+        if abs(s - 1.0) > WEIGHT_SUM_TOL:
+            fails.append(f"{key}: weights sum {s:.4f} ≠ 1.0")
+    return fails
+
+
+def lint_postflop_legal_vocab(chart: Dict) -> List[str]:
+    """Actions are postflop-legal: check/call/fold/jam or sized bet_/raise_."""
+    from .action_vocab import is_sized
+
+    fails = []
+    for key, leaf in _postflop_nodes(chart):
+        if not isinstance(leaf, dict):
+            continue
+        illegal = {a for a in leaf if a not in POSTFLOP_FIXED_ACTIONS and not is_sized(a)}
+        if illegal:
+            fails.append(f"{key}: illegal action(s) {sorted(illegal)}")
+    return fails
+
+
+POSTFLOP_LINTS = (
+    lint_postflop_nonempty,
+    lint_postflop_weights_sum,
+    lint_postflop_legal_vocab,
+)
+
+
 # Which node-name token is the OPENER (whose RFI range drives the spot).
 _OPENER_TOKEN = {"vs_open": 1, "vs_3bet": 0, "vs_4bet": 1}
 
@@ -421,6 +486,25 @@ def run_report() -> int:
             depth_lints.append(lint_depth_flat_retention)
         for fn in depth_lints:
             fails = fn(base, depth, depth_bb)
+            mark = "PASS" if not fails else f"FAIL ({len(fails)})"
+            print(f"  [{mark:>9}] {fn.__name__}")
+            for msg in fails[:8]:
+                print(f"             - {msg}")
+            total_fail += len(fails)
+
+    for fname in (
+        "postflop_strategies.json",
+        "postflop_strategies_low_spr.json",
+        "postflop_strategies_3bp.json",
+    ):
+        path = os.path.join(_DATA, fname)
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            postflop = json.load(f)
+        print(f"=== postflop: {fname} ({sum(1 for k in postflop if k != 'meta')} nodes) ===")
+        for fn in POSTFLOP_LINTS:
+            fails = fn(postflop)
             mark = "PASS" if not fails else f"FAIL ({len(fails)})"
             print(f"  [{mark:>9}] {fn.__name__}")
             for msg in fails[:8]:

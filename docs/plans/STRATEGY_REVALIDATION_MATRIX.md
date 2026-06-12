@@ -113,3 +113,23 @@ Run in this order. The single biggest theme: **re-run everything that touches fo
 - `push_fold_6max` caller tables (bb_vs_sb/bb_vs_late) — dead weight; #271 all-in veto decides those spots first.
 - All **OFF** tilt flags (PERSISTENCE / TELEGRAPH / ERRATIC / SIGNATURE) and `air_barrel` / H2 fold-barrel / `sizing_defense` — zero live risk; only validate before any enable decision. TELEGRAPH is frequency-neutral so has no EV to measure at all.
 - `push_fold_equity_matrix.json` — deterministic seeded cache; staleness ≈ zero; treat as infrastructure.
+
+---
+
+## Verification addendum (2026-06-12) — the audit's own "quick wins" re-checked
+
+Before acting on §5, each quick win was verified against the code/data (the same
+don't-trust-unverified discipline applied to the audit itself). Most did NOT survive:
+
+| Audit quick-win claim | Verdict | Evidence |
+|---|---|---|
+| Add postflop lints (zero coverage) | **TRUE — DONE** | `lint_postflop_{nonempty,weights_sum,legal_vocab}` added; 8,640 nodes now linted, all pass |
+| `wider_rfi` byte-identical to base → delete | **FALSE** | `diff` says DIFFERENT; it's used by `champion_challenger.py:119` as a comparison chart — not a deletion candidate |
+| 25bb BB-defense "100% jam / 0% flat" artifact | **OVERSTATED** | aggregate vs_open is fold 77.6 / jam 17.3 / **call 5.2** — it does flat; jam-lean at 25bb is plausibly deliberate, not an obvious bug. Defer to re-validation |
+| `weak_station` vs_3bet inversion (< station) | **UNCONFIRMED** | 37.3% vs 47.2% continue is real but relative to each chart's own (different) open range — needs combo-level analysis, not a blind fix. Defer to re-validation |
+| Stale `+17bb/100` base-chart meta / provenance note | **PARTLY** | meta note IS stale (pre-#295/#299/#300) but lives in a generated JSON (fix belongs in the generator); the "footgun note is wrong" claim is itself unverified (depth charts may not have been regenerated). Deferred |
+
+**Meta-lesson:** the audit fan-out produced plausible-but-partly-wrong claims —
+exactly the failure mode this whole exercise exists to catch. Treat the matrix
+above as a *prioritized hypothesis list*, not ground truth; verify each cell
+before acting. The only blind-safe action was the additive postflop lints.
