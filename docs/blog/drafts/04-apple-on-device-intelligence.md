@@ -2,7 +2,7 @@
 purpose: Devlog draft on integrating Apple's on-device Foundation Models to generate quick-chat suggestions on iPhone, and what the model is actually good for
 type: vision
 created: 2026-06-12
-last_updated: 2026-06-12
+last_updated: 2026-06-13
 ---
 
 > **Draft status:** first draft. Grounded against
@@ -221,6 +221,34 @@ const { system, prompt } = await fetch('/api/greeting/prompt', {
 // Hand it to your native bridge, which runs it on the on-device model.
 const greeting = await OnDeviceModel.generate({ system, prompt });
 ```
+
+**Stream it so it feels instant.** Even at a second or two, a blank wait followed by a
+sudden pop feels slow. Streaming shows the text as the model writes it, so something
+appears almost right away. Iterate the response stream and push each cumulative snapshot
+to the UI.
+
+```swift
+func streamGreeting(
+    for name: String,
+    lastSeen: String,
+    onUpdate: @escaping (Greeting.PartiallyGenerated) -> Void
+) async throws {
+    let prompt = "Greet \(name), who was last seen \(lastSeen). One warm line."
+    let stream = session.streamResponse(to: prompt, generating: Greeting.self)
+    for try await snapshot in stream {
+        // Each snapshot is the structure filled in so far; its fields are optional
+        // until they arrive. Publish it to the UI as it grows.
+        onUpdate(snapshot.content)
+    }
+}
+```
+
+One gotcha that will save you a compile error: the stream yields a `Snapshot`, and the
+partially built value lives under `snapshot.content`, not on the snapshot itself. And
+resist the urge to pre-generate every possible answer "because it is free." The
+on-device model runs one request at a time, so a queue of speculative generations heats
+the phone and can leave the one the user actually wanted waiting behind the rest. Stream
+the one they asked for.
 
 ## What I would tell someone eyeing this framework
 
