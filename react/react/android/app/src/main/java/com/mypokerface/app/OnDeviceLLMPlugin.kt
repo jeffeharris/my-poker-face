@@ -53,9 +53,7 @@ class OnDeviceLLMPlugin : Plugin() {
     fun availability(call: PluginCall) {
         scope.launch {
             try {
-                val status = model.checkStatus()
-                Log.i(TAG, "availability: checkStatus=$status (AVAILABLE=${FeatureStatus.AVAILABLE})")
-                when (status) {
+                when (model.checkStatus()) {
                     FeatureStatus.AVAILABLE ->
                         call.resolve(JSObject().put("available", true))
                     FeatureStatus.DOWNLOADABLE ->
@@ -80,22 +78,15 @@ class OnDeviceLLMPlugin : Plugin() {
     fun prewarm(call: PluginCall) {
         scope.launch {
             try {
-                val status = model.checkStatus()
-                Log.i(TAG, "prewarm: checkStatus=$status")
-                when (status) {
+                when (model.checkStatus()) {
                     FeatureStatus.AVAILABLE -> {
                         model.warmup()
-                        Log.i(TAG, "prewarm: model warmed")
                         call.resolve(JSObject().put("warmed", true))
                     }
                     FeatureStatus.DOWNLOADABLE -> {
-                        // Fire-and-forget the download; report not-yet-warm.
-                        Log.i(TAG, "prewarm: starting Gemini Nano model download")
-                        scope.launch {
-                            runCatching {
-                                model.download().collect { st -> Log.i(TAG, "download: $st") }
-                            }.onFailure { Log.w(TAG, "download failed: ${it.message}") }
-                        }
+                        // Fire-and-forget the (one-time, sizable) download so a later
+                        // session flips to AVAILABLE; report not-yet-warm now.
+                        scope.launch { runCatching { model.download().collect { } } }
                         call.resolve(JSObject().put("warmed", false))
                     }
                     else -> call.resolve(JSObject().put("warmed", false))
@@ -130,7 +121,6 @@ class OnDeviceLLMPlugin : Plugin() {
         scope.launch {
             try {
                 val full = buildPrompt(prompt, system, tones)
-                Log.i(TAG, "suggestChat: generating on-device (prompt ${full.length} chars)")
                 // genai-prompt exposes a String overload of generateContent — no need
                 // to build a GenerateContentRequest/TextPart for a plain text prompt.
                 val response = model.generateContent(full)
@@ -138,7 +128,6 @@ class OnDeviceLLMPlugin : Plugin() {
                     ?: throw IllegalStateException("empty response")
                 val suggestions = parseSuggestions(text, tones.firstOrNull() ?: "")
                 if (suggestions.length() == 0) throw IllegalStateException("no parseable suggestions")
-                Log.i(TAG, "suggestChat: ON-DEVICE OK — ${suggestions.length()} suggestion(s)")
                 call.resolve(JSObject().put("suggestions", suggestions))
             } catch (e: Throwable) {
                 Log.w(TAG, "suggestChat: on-device failed (-> server): ${e.message}")
@@ -151,9 +140,9 @@ class OnDeviceLLMPlugin : Plugin() {
      * Streaming variant of [suggestChat] — the Android side of the JS
      * `suggestChatStream` contract (callback return type: resolve() fires repeatedly
      * with cumulative `{suggestions, done}` until done=true). Collects the Gemini
-     * Nano token stream via `generateContentStream` and surfaces each suggestion as
-     * its JSON object closes, so the UI shows the first line before the rest finish.
-     * The JS self-heals to non-streaming generation if this errors.
+     * Nano token stream via `generateContentStream` and surfaces each suggestion's
+     * text as it's generated (see extractSuggestionTexts), so chips fill in as the
+     * model types. The JS self-heals to non-streaming generation if this errors.
      */
     @PluginMethod(returnType = PluginMethod.RETURN_CALLBACK)
     fun suggestChatStream(call: PluginCall) {
@@ -172,12 +161,9 @@ class OnDeviceLLMPlugin : Plugin() {
         scope.launch {
             try {
                 val full = buildPrompt(prompt, system, tones)
-                Log.i(TAG, "suggestChatStream: streaming on-device (prompt ${full.length} chars)")
                 var acc = ""
                 var lastJson = ""
-                var chunks = 0
                 model.generateContentStream(full).collect { resp ->
-                    chunks++
                     val text = resp.candidates.firstOrNull()?.text ?: ""
                     // Tolerate either cumulative or delta chunk semantics.
                     acc = if (text.startsWith(acc) && text.length >= acc.length) text else acc + text
@@ -190,9 +176,7 @@ class OnDeviceLLMPlugin : Plugin() {
                         call.resolve(JSObject().put("suggestions", partial).put("done", false))
                     }
                 }
-                val finalList = extractSuggestionTexts(acc, fallbackTone)
-                Log.i(TAG, "suggestChatStream: ON-DEVICE OK — ${finalList.length()} suggestion(s) in $chunks chunk(s)")
-                call.resolve(JSObject().put("suggestions", finalList).put("done", true))
+                call.resolve(JSObject().put("suggestions", extractSuggestionTexts(acc, fallbackTone)).put("done", true))
             } catch (e: Throwable) {
                 Log.w(TAG, "suggestChatStream: on-device failed (-> server): ${e.message}")
                 call.reject("on-device streaming failed: ${e.message}")
