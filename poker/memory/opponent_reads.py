@@ -294,7 +294,9 @@ _EXPLOIT_READ_TEXT = {
 }
 
 
-def exploit_reads_from_tendencies(t, *, archetype: Optional[str] = None, perspective: str = 'opponent'):
+def exploit_reads_from_tendencies(
+    t, *, archetype: Optional[str] = None, perspective: str = 'opponent'
+):
     """Synthesize an `OpponentTendencies` into actionable reads — the same leaks the
     tiered bots detect+attack, named with a tell + the play.
 
@@ -357,7 +359,5 @@ def exploit_reads_from_tendencies(t, *, archetype: Optional[str] = None, perspec
     reads = []
     for tendency, confidence in fired:
         tell, play = _EXPLOIT_READ_TEXT[tendency][persp]
-        reads.append(
-            {'tendency': tendency, 'confidence': confidence, 'tell': tell, 'play': play}
-        )
+        reads.append({'tendency': tendency, 'confidence': confidence, 'tell': tell, 'play': play})
     return reads
