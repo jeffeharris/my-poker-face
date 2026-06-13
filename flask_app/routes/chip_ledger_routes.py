@@ -81,6 +81,30 @@ def chip_ledger_audit():
         return jsonify({'error': 'Audit computation failed'}), 500
 
 
+@chip_ledger_bp.route('/api/admin/chip-ledger/chairman')
+@_admin_required
+def chip_ledger_chairman():
+    """Return the economy-chairman status — the Director's stage + levers + lock.
+
+    Projects `core.economy.economy_signal` for the dashboard: the live reserve
+    signal bucketed onto the band ladder (critical → low → climbing → trigger),
+    the full ladder with each band's policy (rake / vice / tournament), and the
+    policy-lock windows (rake hold + Main Event cooldown). `?sandbox_id=` scopes
+    the signal; empty → the cross-sandbox aggregate.
+    """
+    from ..services.chairman_status import compute_chairman_status
+
+    try:
+        data = compute_chairman_status(
+            ledger_repo=extensions.chip_ledger_repo,
+            sandbox_id=_sandbox_arg(),
+        )
+        return jsonify(data)
+    except Exception as e:
+        logger.error("chip-ledger chairman failed: %s", e, exc_info=True)
+        return jsonify({'error': 'Chairman status failed'}), 500
+
+
 @chip_ledger_bp.route('/api/admin/chip-ledger/recent')
 @_admin_required
 def chip_ledger_recent():

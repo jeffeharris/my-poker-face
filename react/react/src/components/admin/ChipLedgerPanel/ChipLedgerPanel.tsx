@@ -9,6 +9,7 @@ import type {
   HoldingsRow,
   HoldingsHistoryResponse,
   LifecycleResponse,
+  ChairmanResponse,
   LedgerTotals,
   ActualTotals,
   ChipLedgerPanelProps,
@@ -25,6 +26,7 @@ import { HoldingsChart } from './HoldingsChart';
 import { HoldingsTable } from './HoldingsTable';
 import { BankPoolFlow } from './BankPoolFlow';
 import { ReasonTable } from './ReasonTable';
+import { ChairmanPanel } from './ChairmanPanel';
 import './ChipLedgerPanel.css';
 
 export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
@@ -44,6 +46,7 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
   const [history, setHistory] = useState<HoldingsHistoryResponse | null>(null);
   const [historyDays, setHistoryDays] = useState<number>(30);
   const [lifecycle, setLifecycle] = useState<LifecycleResponse | null>(null);
+  const [chairman, setChairman] = useState<ChairmanResponse | null>(null);
   const [highlightedEntity, setHighlightedEntity] = useState<string | null>(null);
 
   // Core panels: audit drift, recent feed, holdings, lifecycle. These are the
@@ -58,11 +61,12 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
     // carry a query string (recent's `limit`).
     const scopeParam = sandboxId ? `&sandbox_id=${encodeURIComponent(sandboxId)}` : '';
     try {
-      const [auditResp, recentResp, holdingsResp, lifecycleResp] = await Promise.all([
+      const [auditResp, recentResp, holdingsResp, lifecycleResp, chairmanResp] = await Promise.all([
         adminAPI.fetch(`/api/admin/chip-ledger/audit${scope}`),
         adminAPI.fetch(`/api/admin/chip-ledger/recent?limit=20${scopeParam}`),
         adminAPI.fetch(`/api/admin/chip-ledger/holdings${scope}`),
         adminAPI.fetch(`/api/admin/chip-ledger/lifecycle${scope}`),
+        adminAPI.fetch(`/api/admin/chip-ledger/chairman${scope}`),
       ]);
       if (!auditResp.ok) {
         throw new Error(`Audit returned ${auditResp.status}`);
@@ -81,6 +85,10 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
       if (lifecycleResp.ok) {
         const lifecycleData: LifecycleResponse = await lifecycleResp.json();
         setLifecycle(lifecycleData);
+      }
+      if (chairmanResp.ok) {
+        const chairmanData: ChairmanResponse = await chairmanResp.json();
+        setChairman(chairmanData);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -252,6 +260,8 @@ export function ChipLedgerPanel({ embedded = false }: ChipLedgerPanelProps) {
           </ul>
         </div>
       )}
+
+      <ChairmanPanel chairman={chairman} />
 
       <div className="chip-ledger-grid">
         <section className="chip-ledger-card">

@@ -72,6 +72,17 @@ export default defineConfig({
       },
     }),
   ],
+  optimizeDeps: {
+    // Pre-bundle the native-only Google-auth plugin on server start. It is only
+    // ever pulled in via a guarded dynamic import (`src/native/googleSignIn.ts`,
+    // reached eagerly through LoginForm), so vite discovers it LAZILY — and on a
+    // fresh dev server a tab can hit that import before the dep is optimized,
+    // surfacing a transient "[vite] Failed to resolve import" overlay until a
+    // reload. Listing it here forces the pre-bundle up front so the dep is always
+    // ready. (It ships a Capacitor web shim, so bundling it for web is a no-op at
+    // runtime — the `isNativePlatform()` guard means web never actually calls it.)
+    include: ['@codetrix-studio/capacitor-google-auth'],
+  },
   server: {
     allowedHosts: ['homehub', 'frontend', 'macbook', '.ts.net'],
     // Proxy API and Socket.IO to backend when VITE_BACKEND_URL is set (Docker compose)

@@ -501,3 +501,318 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85rem;
 }
+
+/* ============================================
+   Economy chairman (Director thermostat)
+   ============================================ */
+
+.chairman-panel {
+  margin-bottom: 1rem;
+}
+
+.chairman-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.chairman-header h3 {
+  margin: 0;
+}
+
+.chairman-stage {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, #444);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.chairman-stage--cold {
+  color: var(--text-secondary, #999);
+}
+.chairman-stage--critical {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.4);
+}
+.chairman-stage--low {
+  color: #ff8c5a;
+  background: rgba(255, 140, 90, 0.12);
+  border-color: rgba(255, 140, 90, 0.4);
+}
+.chairman-stage--climbing {
+  color: #56d364;
+  background: rgba(86, 211, 100, 0.12);
+  border-color: rgba(86, 211, 100, 0.4);
+}
+.chairman-stage--trigger {
+  color: #79b8ff;
+  background: rgba(121, 184, 255, 0.12);
+  border-color: rgba(121, 184, 255, 0.4);
+}
+
+.chairman-regime {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #999);
+  margin-left: auto;
+  cursor: help;
+  font-variant-numeric: tabular-nums;
+}
+
+.chairman-caveat {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #999);
+  line-height: 1.5;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.chairman-caveat code {
+  background: var(--surface-3, #2a2a2a);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+}
+
+/* Signal: reserves ÷ holdings = ratio */
+.chairman-signal {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 0;
+}
+
+.chairman-signal > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.chairman-signal__num {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.chairman-signal__ratio {
+  color: #f5d76e;
+}
+
+.chairman-signal__label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #999);
+}
+
+.chairman-signal__op {
+  font-size: 1.2rem;
+  color: var(--text-secondary, #777);
+  align-self: center;
+}
+
+/* Ratio gauge */
+.chairman-gauge {
+  margin: 0.5rem 0 1.25rem;
+}
+
+.chairman-gauge__track {
+  position: relative;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--surface-3, #2a2a2a);
+  overflow: visible;
+  margin-bottom: 1.4rem;
+}
+
+.chairman-gauge__seg {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  opacity: 0.55;
+}
+.chairman-gauge__seg.critical {
+  left: 0;
+  background: #f85149;
+  border-radius: 6px 0 0 6px;
+}
+.chairman-gauge__seg.low {
+  background: #ff8c5a;
+}
+.chairman-gauge__seg.climbing {
+  background: #56d364;
+}
+.chairman-gauge__seg.trigger {
+  background: #79b8ff;
+  border-radius: 0 6px 6px 0;
+}
+
+.chairman-gauge__mark {
+  position: absolute;
+  top: -3px;
+  width: 0;
+  height: 18px;
+  border-left: 1px dashed var(--text-secondary, #aaa);
+  transform: translateX(-0.5px);
+}
+
+.chairman-gauge__mark-label {
+  position: absolute;
+  top: 20px;
+  left: 0;
+  transform: translateX(-50%);
+  font-size: 0.62rem;
+  color: var(--text-secondary, #999);
+  white-space: nowrap;
+}
+
+.chairman-gauge__needle {
+  position: absolute;
+  top: -5px;
+  width: 3px;
+  height: 22px;
+  background: #fff;
+  border-radius: 2px;
+  transform: translateX(-1.5px);
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.6);
+}
+
+.chairman-gauge__scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-secondary, #777);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lever lists */
+.chairman-levers {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.chairman-levers li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.chairman-lever__name {
+  color: var(--text-secondary, #999);
+}
+
+.chairman-lever__val {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.chairman-ladder__title,
+.chairman-lock h4 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #bbb);
+}
+
+/* Stage ladder */
+.chairman-ladder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.6rem;
+}
+
+.chairman-band {
+  border: 1px solid var(--border, #333);
+  border-left-width: 3px;
+  border-radius: 5px;
+  padding: 0.6rem 0.7rem;
+  background: var(--surface-3, #242424);
+  opacity: 0.72;
+  transition: opacity 0.2s;
+}
+
+.chairman-band.is-active {
+  opacity: 1;
+  background: var(--surface-2, #1d1d1d);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.chairman-band--critical {
+  border-left-color: #f85149;
+}
+.chairman-band--low {
+  border-left-color: #ff8c5a;
+}
+.chairman-band--climbing {
+  border-left-color: #56d364;
+}
+.chairman-band--trigger {
+  border-left-color: #79b8ff;
+}
+
+.chairman-band__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.chairman-band__label {
+  font-weight: 600;
+}
+
+.chairman-band__range {
+  font-size: 0.72rem;
+  color: var(--text-secondary, #888);
+  font-variant-numeric: tabular-nums;
+}
+
+.chairman-band__here {
+  font-size: 0.7rem;
+  color: #f5d76e;
+  font-weight: 600;
+  margin-left: auto;
+}
+
+.chairman-band__blurb {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #999);
+  line-height: 1.45;
+  margin: 0.35rem 0;
+}
+
+/* Policy lock — each value stacked directly under its own label so they read
+   as a unit (a column-aligned dl left short labels stranded from their value). */
+.chairman-lock__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.25rem;
+}
+
+.chairman-lock__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.chairman-lock__label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary, #999);
+}
+
+.chairman-lock__val {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
