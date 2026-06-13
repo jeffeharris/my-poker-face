@@ -189,27 +189,22 @@ def _print_report(d: dict) -> None:
     print()
 
 
-def plan_reversal(db_path: str, sandbox_id: str) -> list:
-    """Per-seat reversal plan: reconcile every `seat:ai` to its live stack.
+RECONCILIATION = "reconciliation"
 
-    The double-drain misallocation is conservation-neutral (residual 0), so the
-    fix is a pure ai↔seat TRANSFER per AI — no creation/destruction. For each seat
-    with balance `b` and live-stack target `t`, move `t − b`:
-      * b < t (negative / under-target seat) → `ai:<pid> → seat` (de-inflate the
-        over-credited bankroll, heal the seat up to its stack),
-      * b > t (over-target seat)             → `seat → ai:<pid>` (return stranded
-        chips to the bankroll).
-    After the plan every `seat:ai` == its live stack; the global residual is
-    unchanged (every row is a transfer). Returns a list of dict rows.
+
+def _compute_plan(bal: dict, live: dict, sandbox_id: str) -> list:
+    """Per-seat reconciliation rows: set every `seat:ai` to its live stack, with
+    the `reconciliation` suspense account as the counterparty.
+
+    The phantom dispersed through the economy (AIs spent it), so it can no longer
+    be pulled back from the originating bankrolls — a per-bankroll reversal would
+    drive ~30 of them negative. So we reconcile the SEATS (the thing that traps
+    chips and mis-fires the cash-out guard) to their live stacks, and park the
+    unrecoverable difference in the bank-neutral `reconciliation` suspense account.
+    Bankrolls are untouched; the global residual is unchanged (reconciliation is a
+    non-bank account); the seat double-drain trap is gone. The residual balance of
+    `reconciliation` is the honest record of how much misallocation dispersed.
     """
-    uri = f"file:{db_path}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
-    try:
-        bal = _account_balances(conn, sandbox_id)
-        live = _live_seat_stacks(conn, sandbox_id)
-    finally:
-        conn.close()
-
     seat_prefix = f"seat:ai:{sandbox_id}:"
     plan = []
     for acct, b in bal.items():
@@ -220,14 +215,10 @@ def plan_reversal(db_path: str, sandbox_id: str) -> list:
         delta = target - b
         if delta == 0:
             continue
-        ai_acct = f"ai:{pid}"
-        ai_bal = bal.get(ai_acct, 0)
-        if delta > 0:  # move INTO seat from bankroll (de-inflate)
-            source, sink, amount = ai_acct, acct, delta
-            ai_after = ai_bal - delta
-        else:  # move OUT of seat into bankroll (return stranded)
-            source, sink, amount = acct, ai_acct, -delta
-            ai_after = ai_bal + (-delta)
+        if delta > 0:  # seat under target → reconciliation → seat
+            source, sink, amount = RECONCILIATION, acct, delta
+        else:  # seat over target → seat → reconciliation
+            source, sink, amount = acct, RECONCILIATION, -delta
         plan.append(
             {
                 "pid": pid,
@@ -236,33 +227,50 @@ def plan_reversal(db_path: str, sandbox_id: str) -> list:
                 "amount": amount,
                 "source": source,
                 "sink": sink,
-                "ai_before": ai_bal,
-                "ai_after": ai_after,
-                "ai_goes_negative": ai_after < 0,
             }
         )
     plan.sort(key=lambda r: -r["amount"])
     return plan
 
 
-def apply_reversal(db_path: str, sandbox_id: str, plan: list) -> dict:
-    """Write the reversal rows in ONE transaction; re-verify conservation after.
+def plan_reversal(db_path: str, sandbox_id: str) -> list:
+    """Read-only: compute the seat-reconciliation plan for the dry-run display."""
+    uri = f"file:{db_path}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        return _compute_plan(
+            _account_balances(conn, sandbox_id), _live_seat_stacks(conn, sandbox_id), sandbox_id
+        )
+    finally:
+        conn.close()
 
-    Each row is an append-only `phantom_reversal` transfer (ai↔seat, no
-    central_bank side). Re-reads balances afterward and asserts: every seat ==
-    its target, the global residual is unchanged, no AI bankroll went negative.
-    Rolls back on any assertion failure.
+
+def apply_reversal(db_path: str, sandbox_id: str) -> dict:
+    """Recompute the plan + write it in ONE transaction (atomic vs concurrent app
+    writes); re-verify and roll back on any inconsistency.
+
+    Re-reads balances inside the txn so the reconciliation targets the CURRENT
+    seats (not a stale snapshot). Asserts afterward: every seat == its live stack
+    and the global residual is unchanged. Bankrolls are never touched.
     """
     import json as _json
 
-    conn = sqlite3.connect(db_path)  # read-write (NOT mode=ro)
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.isolation_level = None  # we drive the transaction explicitly
     try:
-        before = _account_balances(conn, sandbox_id)
-        residual_before = sum(b for a, b in before.items() if a != "central_bank") + before.get(
-            "central_bank", 0
-        )
-        ctx = _json.dumps({"site": "phantom_clawback", "reverses": "seat_double_drain"})
-        with conn:  # transaction
+        # BEGIN IMMEDIATE takes the write lock up front so a concurrent app write
+        # can't change a seat between our read and our verify (which would force a
+        # spurious rollback). The app's writes queue for our short txn.
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            bal = _account_balances(conn, sandbox_id)
+            live = _live_seat_stacks(conn, sandbox_id)
+            residual_before = sum(b for a, b in bal.items() if a != "central_bank") + bal.get(
+                "central_bank", 0
+            )
+            plan = _compute_plan(bal, live, sandbox_id)
+            ctx = _json.dumps({"site": "phantom_clawback", "reverses": "seat_double_drain"})
             for r in plan:
                 conn.execute(
                     "INSERT INTO chip_ledger_entries (source, sink, amount, reason, "
@@ -274,31 +282,28 @@ def apply_reversal(db_path: str, sandbox_id: str, plan: list) -> dict:
                 "central_bank", 0
             )
             seat_prefix = f"seat:ai:{sandbox_id}:"
-            live = _live_seat_stacks(conn, sandbox_id)
-            bad_seats = {
-                a[len(seat_prefix) :]: after[a]
+            bad = {
+                a: after[a]
                 for a in after
                 if a.startswith(seat_prefix) and after[a] != int(live.get(a[len(seat_prefix) :], 0))
             }
-            neg_ai = {a: after[a] for a in after if a.startswith("ai:") and after[a] < 0}
             if residual_after != residual_before:
                 raise AssertionError(
-                    f"residual changed {residual_before} → {residual_after} (reversal must "
-                    "be conservation-neutral) — rolling back"
+                    f"residual changed {residual_before} → {residual_after} — rolling back"
                 )
-            if bad_seats:
-                raise AssertionError(f"{len(bad_seats)} seats != live stack after — rolling back")
-            if neg_ai:
-                raise AssertionError(
-                    f"{len(neg_ai)} AI bankrolls went negative — rolling back: "
-                    f"{dict(list(neg_ai.items())[:5])}"
-                )
-        return {
-            "rows_written": len(plan),
-            "residual_before": residual_before,
-            "residual_after": residual_after,
-            "ok": True,
-        }
+            if bad:
+                raise AssertionError(f"{len(bad)} seats != live stack after — rolling back")
+            conn.execute("COMMIT")
+            return {
+                "rows_written": len(plan),
+                "residual_before": residual_before,
+                "residual_after": residual_after,
+                "reconciliation_balance": after.get(RECONCILIATION, 0),
+                "ok": True,
+            }
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
     finally:
         conn.close()
 
@@ -336,22 +341,20 @@ def main() -> int:
         return 3
 
     plan = plan_reversal(args.db_path, args.sandbox_id)
-    total_into_seats = sum(r["amount"] for r in plan if r["sink"].startswith("seat:ai:"))
-    total_out_of_seats = sum(r["amount"] for r in plan if r["source"].startswith("seat:ai:"))
-    print("\n--- REVERSAL PLAN (reconcile every seat to its live stack) ---")
+    into = sum(r["amount"] for r in plan if r["sink"].startswith("seat:ai:"))
+    out = sum(r["amount"] for r in plan if r["source"].startswith("seat:ai:"))
+    print("\n--- RECONCILIATION PLAN (reset every seat to its live stack) ---")
+    print("  counterparty: `reconciliation` suspense account (bank-neutral; bankrolls untouched)")
     print(
-        f"  rows: {len(plan)}   into seats (de-inflate bankrolls): {total_into_seats:,}   "
-        f"out of seats (return stranded): {total_out_of_seats:,}"
+        f"  rows: {len(plan)}   into seats: {into:,}   out of seats: {out:,}   "
+        f"net to reconciliation: {out - into:,}"
     )
-    for r in plan[:20]:
-        arrow = "ai→seat" if r["sink"].startswith("seat:ai:") else "seat→ai"
+    for r in plan[:15]:
+        arrow = "recon→seat" if r["sink"].startswith("seat:ai:") else "seat→recon"
         print(
             f"    {r['pid']:<26} {arrow}  {r['amount']:>12,}   "
-            f"ai {r['ai_before']:>12,} → {r['ai_after']:>12,}"
-            f"{'  ⚠ NEGATIVE' if r['ai_goes_negative'] else ''}"
+            f"seat {r['seat_before']:>12,} → {r['seat_target']:>10,}"
         )
-    if any(r["ai_goes_negative"] for r in plan):
-        print("\n  ⚠ Some AI bankrolls would go negative — apply will refuse (rolls back).")
 
     if not args.apply:
         print("\n(dry-run — no writes. Re-run with --apply --i-have-backed-up to execute.)")
@@ -359,11 +362,12 @@ def main() -> int:
     if not args.i_have_backed_up:
         print("\nREFUSING --apply without --i-have-backed-up.", file=sys.stderr)
         return 2
-    print("\nAPPLYING reversal …")
-    result = apply_reversal(args.db_path, args.sandbox_id, plan)
+    print("\nAPPLYING reconciliation …")
+    result = apply_reversal(args.db_path, args.sandbox_id)
     print(
-        f"  DONE: {result['rows_written']} rows; residual "
-        f"{result['residual_before']} → {result['residual_after']} (unchanged ⇒ conserved)."
+        f"  DONE: {result['rows_written']} rows; residual {result['residual_before']} → "
+        f"{result['residual_after']} (unchanged ⇒ conserved); reconciliation now "
+        f"{result['reconciliation_balance']:,}."
     )
     return 0
 
