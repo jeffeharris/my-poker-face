@@ -134,6 +134,14 @@ LEDGER_REASONS = frozenset(
         # settles here, so the table conserves internally
         # between seat accounts (winners' seats go negative,
         # losers' positive; they sum to ~0 across a table).
+        'phantom_reversal',  # ai:<pid> ↔ seat:ai:<sb>:<pid>: one-time correction of
+        # the seat double-drain residue. The double-drain over-credited an AI's
+        # bankroll and drove its `seat:ai` negative (a misallocation — globally
+        # conservation-neutral, residual 0). This reconciles each seat back to its
+        # live stack, moving the difference to/from the bankroll, so the seat
+        # ledger == live stack under the post-fix model. A pure TRANSFER (ai↔seat,
+        # no central_bank side) → invisible to drift/pool sums. Written by
+        # `scripts/phantom_clawback.py`; appears only in the cleanup pass.
         'hand_pnl',  # seat:<X> → seat:<Y>: per-hand chip redistribution between
         # two seats at the same table (loser's seat → winner's seat).
         # Recorded once per hand from the pre-rake stack deltas so that
@@ -222,6 +230,7 @@ TRANSFER_REASONS = frozenset(
         'ai_buy_in',
         'ai_cash_out',
         'hand_pnl',
+        'phantom_reversal',
         'stake_fund',
         'stake_payoff',
         'tournament_buy_in',

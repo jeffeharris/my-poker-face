@@ -189,18 +189,135 @@ def _print_report(d: dict) -> None:
     print()
 
 
+def plan_reversal(db_path: str, sandbox_id: str) -> list:
+    """Per-seat reversal plan: reconcile every `seat:ai` to its live stack.
+
+    The double-drain misallocation is conservation-neutral (residual 0), so the
+    fix is a pure ai↔seat TRANSFER per AI — no creation/destruction. For each seat
+    with balance `b` and live-stack target `t`, move `t − b`:
+      * b < t (negative / under-target seat) → `ai:<pid> → seat` (de-inflate the
+        over-credited bankroll, heal the seat up to its stack),
+      * b > t (over-target seat)             → `seat → ai:<pid>` (return stranded
+        chips to the bankroll).
+    After the plan every `seat:ai` == its live stack; the global residual is
+    unchanged (every row is a transfer). Returns a list of dict rows.
+    """
+    uri = f"file:{db_path}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        bal = _account_balances(conn, sandbox_id)
+        live = _live_seat_stacks(conn, sandbox_id)
+    finally:
+        conn.close()
+
+    seat_prefix = f"seat:ai:{sandbox_id}:"
+    plan = []
+    for acct, b in bal.items():
+        if not acct.startswith(seat_prefix):
+            continue
+        pid = acct[len(seat_prefix) :]
+        target = int(live.get(pid, 0))
+        delta = target - b
+        if delta == 0:
+            continue
+        ai_acct = f"ai:{pid}"
+        ai_bal = bal.get(ai_acct, 0)
+        if delta > 0:  # move INTO seat from bankroll (de-inflate)
+            source, sink, amount = ai_acct, acct, delta
+            ai_after = ai_bal - delta
+        else:  # move OUT of seat into bankroll (return stranded)
+            source, sink, amount = acct, ai_acct, -delta
+            ai_after = ai_bal + (-delta)
+        plan.append(
+            {
+                "pid": pid,
+                "seat_before": b,
+                "seat_target": target,
+                "amount": amount,
+                "source": source,
+                "sink": sink,
+                "ai_before": ai_bal,
+                "ai_after": ai_after,
+                "ai_goes_negative": ai_after < 0,
+            }
+        )
+    plan.sort(key=lambda r: -r["amount"])
+    return plan
+
+
+def apply_reversal(db_path: str, sandbox_id: str, plan: list) -> dict:
+    """Write the reversal rows in ONE transaction; re-verify conservation after.
+
+    Each row is an append-only `phantom_reversal` transfer (ai↔seat, no
+    central_bank side). Re-reads balances afterward and asserts: every seat ==
+    its target, the global residual is unchanged, no AI bankroll went negative.
+    Rolls back on any assertion failure.
+    """
+    import json as _json
+
+    conn = sqlite3.connect(db_path)  # read-write (NOT mode=ro)
+    try:
+        before = _account_balances(conn, sandbox_id)
+        residual_before = sum(b for a, b in before.items() if a != "central_bank") + before.get(
+            "central_bank", 0
+        )
+        ctx = _json.dumps({"site": "phantom_clawback", "reverses": "seat_double_drain"})
+        with conn:  # transaction
+            for r in plan:
+                conn.execute(
+                    "INSERT INTO chip_ledger_entries (source, sink, amount, reason, "
+                    "context_json, sandbox_id) VALUES (?, ?, ?, 'phantom_reversal', ?, ?)",
+                    (r["source"], r["sink"], int(r["amount"]), ctx, sandbox_id),
+                )
+            after = _account_balances(conn, sandbox_id)
+            residual_after = sum(b for a, b in after.items() if a != "central_bank") + after.get(
+                "central_bank", 0
+            )
+            seat_prefix = f"seat:ai:{sandbox_id}:"
+            live = _live_seat_stacks(conn, sandbox_id)
+            bad_seats = {
+                a[len(seat_prefix) :]: after[a]
+                for a in after
+                if a.startswith(seat_prefix) and after[a] != int(live.get(a[len(seat_prefix) :], 0))
+            }
+            neg_ai = {a: after[a] for a in after if a.startswith("ai:") and after[a] < 0}
+            if residual_after != residual_before:
+                raise AssertionError(
+                    f"residual changed {residual_before} → {residual_after} (reversal must "
+                    "be conservation-neutral) — rolling back"
+                )
+            if bad_seats:
+                raise AssertionError(f"{len(bad_seats)} seats != live stack after — rolling back")
+            if neg_ai:
+                raise AssertionError(
+                    f"{len(neg_ai)} AI bankrolls went negative — rolling back: "
+                    f"{dict(list(neg_ai.items())[:5])}"
+                )
+        return {
+            "rows_written": len(plan),
+            "residual_before": residual_before,
+            "residual_after": residual_after,
+            "ok": True,
+        }
+    finally:
+        conn.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--db-path", required=True, help="SQLite DB (opened read-only for the report)")
+    ap.add_argument("--db-path", required=True, help="SQLite DB (read-only unless --apply)")
     ap.add_argument("--sandbox-id", required=True, help="Target sandbox (no guessing)")
     ap.add_argument("--out", default=None, help="Optional JSON dump of the diagnostic")
     ap.add_argument(
         "--apply",
         action="store_true",
-        help="Execute the clawback (NOT YET IMPLEMENTED — decide the mechanism from "
-        "the diagnostic first; apply is intentionally gated until then).",
+        help="Write the reversal (default is a dry-run that prints the plan only).",
     )
-    ap.add_argument("--i-have-backed-up", action="store_true")
+    ap.add_argument(
+        "--i-have-backed-up",
+        action="store_true",
+        help="Required with --apply: confirm the DB is backed up (WAL-quiesced).",
+    )
     args = ap.parse_args()
 
     d = diagnose(args.db_path, args.sandbox_id)
@@ -209,15 +326,45 @@ def main() -> int:
         Path(args.out).write_text(json.dumps(d, indent=2, default=str))
         print(f"wrote {args.out}")
 
-    if args.apply:
+    if d["minted_chips"]:
         print(
-            "\nREFUSING --apply: the remediation mechanism (reversal vs destruction) "
-            "depends on the global-residual reading above and must be chosen + reviewed "
-            "against the live numbers before any write. Re-run without --apply, decide "
-            "the mechanism, then implement the gated writer.",
+            "\nABORTING: global residual is NON-ZERO — real chips exist beyond central_bank "
+            "emission. A seat-reversal would NOT be conservation-correct here; this needs a "
+            "central_bank destruction designed separately. Not touching the DB.",
             file=sys.stderr,
         )
+        return 3
+
+    plan = plan_reversal(args.db_path, args.sandbox_id)
+    total_into_seats = sum(r["amount"] for r in plan if r["sink"].startswith("seat:ai:"))
+    total_out_of_seats = sum(r["amount"] for r in plan if r["source"].startswith("seat:ai:"))
+    print("\n--- REVERSAL PLAN (reconcile every seat to its live stack) ---")
+    print(
+        f"  rows: {len(plan)}   into seats (de-inflate bankrolls): {total_into_seats:,}   "
+        f"out of seats (return stranded): {total_out_of_seats:,}"
+    )
+    for r in plan[:20]:
+        arrow = "ai→seat" if r["sink"].startswith("seat:ai:") else "seat→ai"
+        print(
+            f"    {r['pid']:<26} {arrow}  {r['amount']:>12,}   "
+            f"ai {r['ai_before']:>12,} → {r['ai_after']:>12,}"
+            f"{'  ⚠ NEGATIVE' if r['ai_goes_negative'] else ''}"
+        )
+    if any(r["ai_goes_negative"] for r in plan):
+        print("\n  ⚠ Some AI bankrolls would go negative — apply will refuse (rolls back).")
+
+    if not args.apply:
+        print("\n(dry-run — no writes. Re-run with --apply --i-have-backed-up to execute.)")
+        return 0
+    if not args.i_have_backed_up:
+        print("\nREFUSING --apply without --i-have-backed-up.", file=sys.stderr)
         return 2
+    print("\nAPPLYING reversal …")
+    result = apply_reversal(args.db_path, args.sandbox_id, plan)
+    print(
+        f"  DONE: {result['rows_written']} rows; residual "
+        f"{result['residual_before']} → {result['residual_after']} (unchanged ⇒ conserved)."
+    )
     return 0
 
 
