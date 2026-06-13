@@ -86,6 +86,34 @@ export async function getInvite(): Promise<InviteResponse> {
   return res.json();
 }
 
+/** One past circuit Main Event in the Champions Roll. The field crowns a winner
+ *  every cycle — including events the player declined/expired (`played: false`),
+ *  which is the point: the circuit runs without you at its center. */
+export interface CircuitChampion {
+  tournament_id: string;
+  /** Winning persona's display name, "You" for the owner's own seat, or null
+   *  when unresolved (a pre-stamp legacy row). */
+  winner_name: string | null;
+  field_size: number | null;
+  buy_in: number;
+  prize_pool: number;
+  /** ISO completion time. */
+  completed_at: string;
+  /** Whether the player sat in this one (accepted) vs let it run (declined/expired). */
+  played: boolean;
+}
+
+/** The Champions Roll — completed circuit Main Events for the owner, newest
+ *  first. Renders nothing until the circuit has crowned at least one champion. */
+export async function getCircuitHistory(): Promise<{ events: CircuitChampion[] }> {
+  const res = await fetch(`${BASE}/circuit-history`, { credentials: 'include' });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export interface TournamentLobby {
   has_active: boolean;
   active: { tournament_id: string; created_at: string } | null;

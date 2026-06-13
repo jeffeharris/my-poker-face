@@ -16,6 +16,7 @@ hand boundary so a crash between them can't desync stacks. See
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from typing import Optional
@@ -25,6 +26,25 @@ from .base_repository import BaseRepository
 
 def _utcnow_iso() -> str:
     return datetime.utcnow().isoformat()
+
+
+def _winner_and_field_size(session_json: Optional[str]) -> tuple[Optional[str], Optional[int]]:
+    """`(winner_pid, field_size)` extracted from a serialized session, mirroring
+    `TournamentField.winner()` / `.field_size`: the sole remaining stack is the
+    champion; the field size is the entry count. `winner_pid` is None until the
+    field collapses (so this is safe to call on every save — it only yields a
+    winner once the tournament is actually decided). Best-effort: any shape
+    mismatch returns `(None, None)`."""
+    if not session_json:
+        return None, None
+    try:
+        field = (json.loads(session_json) or {}).get('field') or {}
+        entries = field.get('entries') or {}
+        stacks = field.get('stacks') or {}
+        winner = next(iter(stacks)) if len(stacks) == 1 else None
+        return winner, (len(entries) or None)
+    except (TypeError, ValueError, KeyError):
+        return None, None
 
 
 # Recency window for the double-presence exclusion: a tournament whose row hasn't
@@ -58,6 +78,10 @@ class TournamentSessionRepository(BaseRepository):
             'bank_overlay': row['bank_overlay'] if 'bank_overlay' in keys else 0,
             'prize_pool': row['prize_pool'] if 'prize_pool' in keys else 0,
             'payout_status': row['payout_status'] if 'payout_status' in keys else 'skipped',
+            # Denormalized champion + field size (Champions Roll). Stamped at the
+            # save chokepoint once the field collapses; NULL on pre-stamp rows.
+            'winner_pid': row['winner_pid'] if 'winner_pid' in keys else None,
+            'field_size': row['field_size'] if 'field_size' in keys else None,
         }
 
     def save(
@@ -74,20 +98,28 @@ class TournamentSessionRepository(BaseRepository):
         """Insert or update a tournament row. `created_at` is set on first
         insert and preserved on update; `updated_at` is stamped every save."""
         now = _utcnow_iso()
+        # Stamp the champion + field size off the session being saved. `winner_pid`
+        # stays None until the field collapses, so this is correct on every save;
+        # COALESCE in the upsert keeps a stamped winner from being nulled by a
+        # later save (none of the completion paths re-open a decided field, but the
+        # guard makes the chokepoint robust regardless of save order).
+        winner_pid, field_size = _winner_and_field_size(session_json)
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO tournaments
                     (tournament_id, owner_id, game_id, status, resolver_kind,
-                     created_at, updated_at, session_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     created_at, updated_at, session_json, winner_pid, field_size)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tournament_id) DO UPDATE SET
                     owner_id=excluded.owner_id,
                     game_id=excluded.game_id,
                     status=excluded.status,
                     resolver_kind=excluded.resolver_kind,
                     updated_at=excluded.updated_at,
-                    session_json=excluded.session_json
+                    session_json=excluded.session_json,
+                    winner_pid=COALESCE(excluded.winner_pid, tournaments.winner_pid),
+                    field_size=COALESCE(excluded.field_size, tournaments.field_size)
                 """,
                 (
                     tournament_id,
@@ -98,6 +130,8 @@ class TournamentSessionRepository(BaseRepository):
                     created_at,
                     now,
                     session_json,
+                    winner_pid,
+                    field_size,
                 ),
             )
 
@@ -209,6 +243,51 @@ class TournamentSessionRepository(BaseRepository):
                 (game_id,),
             ).fetchone()
             return self._row_to_dict(row) if row else None
+
+    def list_circuit_history_for_owner(self, owner_id: str, *, limit: int = 20) -> list[dict]:
+        """Completed circuit Main Events for the owner — the Champions Roll.
+
+        A tournament is a *circuit* event iff an invite linked it (every Main
+        Event begins as an invite to the owner, whatever its disposition), so the
+        JOIN both scopes to circuit events (excluding ad-hoc `/tournament` MTTs,
+        which have no invite) and carries the player's disposition: an
+        `accepted` invite means they played it, `declined`/`expired` means the
+        field ran without them. Newest first. The winner's display NAME is
+        resolved by the caller (repo has no personality access)."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT t.tournament_id, t.winner_pid, t.field_size, t.buy_in,
+                       t.prize_pool, t.updated_at, MIN(i.status) AS invite_status
+                FROM tournaments t
+                JOIN tournament_invites i ON i.tournament_id = t.tournament_id
+                WHERE i.owner_id = ? AND t.status = 'complete'
+                -- One row per tournament: the invite→tournament link isn't unique
+                -- at the schema level, so a stray second invite for the same
+                -- tournament would otherwise fan out the JOIN and let LIMIT drop a
+                -- real event. MIN(status) collapses it and prefers 'accepted'
+                -- ('accepted' < 'declined' < 'expired') — if any invite for this
+                -- tournament was accepted, the player played it. Normal play has
+                -- exactly one invite, so this is a defensive no-op there.
+                GROUP BY t.tournament_id
+                ORDER BY t.updated_at DESC
+                LIMIT ?
+                """,
+                (owner_id, int(limit)),
+            ).fetchall()
+        return [
+            {
+                'tournament_id': r['tournament_id'],
+                'winner_pid': r['winner_pid'],
+                'field_size': r['field_size'],
+                'buy_in': r['buy_in'],
+                'prize_pool': r['prize_pool'],
+                'completed_at': r['updated_at'],
+                # accepted → the player sat in it; declined/expired → it ran without them.
+                'played': r['invite_status'] == 'accepted',
+            }
+            for r in rows
+        ]
 
     def set_status(self, tournament_id: str, status: str) -> None:
         with self._get_connection() as conn:
