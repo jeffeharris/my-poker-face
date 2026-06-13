@@ -22,7 +22,7 @@ import logging
 import random
 import secrets
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from core.economy import economy_signal
@@ -269,7 +269,13 @@ def maybe_offer_main_event(
 
     expires_at = None
     if expiry_seconds is not None:
-        expires_at = (now + timedelta(seconds=expiry_seconds)).isoformat()
+        # Tag as UTC so the ISO string carries a `+00:00` offset. `now` is a naive
+        # UTC datetime (utcnow), and a naive `.isoformat()` is parsed as *local
+        # time* by the browser's `new Date(...)`, inflating the client countdown
+        # by its UTC offset (e.g. +240 min at UTC-4 — the "250 min" display bug).
+        expires_at = (
+            (now + timedelta(seconds=expiry_seconds)).replace(tzinfo=timezone.utc).isoformat()
+        )
 
     return offer(
         invite_repo=invite_repo,

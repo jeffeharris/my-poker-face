@@ -30,6 +30,7 @@ import { dossierFromPlayer } from '../character/dossierFromPlayer';
 import { MenuBar, PotDisplay, GameInfoDisplay } from '../shared';
 import { usePokerGame } from '../../hooks/usePokerGame';
 import { useTournamentEvents } from '../../hooks/useTournamentEvents';
+import { useGameMainEventCountdown } from '../../hooks/useMainEventCountdown';
 import { useGameStore } from '../../stores/gameStore';
 import { useDisplayNickname } from '../../stores/nicknameOverridesStore';
 import { useCardAnimation } from '../../hooks/useCardAnimation';
@@ -234,6 +235,10 @@ export function MobilePokerTable({
   // Multi-table tournament felt: relocation toasts + bust/win routing to the
   // standings hub (no-op for non-tournament games). See useTournamentEvents.
   useTournamentEvents({ socketRef, connected: isConnected, gameId });
+
+  // Circuit Main Event countdown toasts (5 min / 1 min) while seated — so the
+  // registration deadline reaches the felt, not just the lobby card.
+  useGameMainEventCountdown({ socketRef, connected: isConnected });
 
   const { wrappedSendMessage, guestChatDisabled, guestFreeChatLocked, isGuest } = useGuestChatLimit(
     awaitingAction,
