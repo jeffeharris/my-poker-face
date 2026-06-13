@@ -82,7 +82,7 @@ for gid, hn, pname, snap in rows:
     act = ha[0]["action"]
     hero_act[act] += 1
     if act in AGG:
-        after = turn[turn.index(ha[0]) + 1:]
+        after = turn[turn.index(ha[0]) + 1 :]
         vresp = [a for a in after if a["player_name"] == cbettor]
         if vresp:
             foldeq["villain_folded" if vresp[0]["action"] == "fold" else "villain_continued"] += 1
@@ -102,10 +102,12 @@ for made, (n, b) in sorted(broad.items(), key=lambda x: -x[1][0]):
 
 tot = sum(hero_act.values())
 steal = sum(v for k, v in hero_act.items() if k in AGG)
-print(f"\n[give-up line] villain c-bet flop, hero floated IP, villain checked turn, air/weak hero:")
+print("\n[give-up line] villain c-bet flop, hero floated IP, villain checked turn, air/weak hero:")
 print(f"  spots: {giveup['spots']}   hero action: {dict(hero_act.most_common())}")
-print(f"  hero STEAL: {steal} = {pct(steal, tot)}   hero CHECK (missed): "
-      f"{hero_act.get('check', 0)} = {pct(hero_act.get('check', 0), tot)}")
+print(
+    f"  hero STEAL: {steal} = {pct(steal, tot)}   hero CHECK (missed): "
+    f"{hero_act.get('check', 0)} = {pct(hero_act.get('check', 0), tot)}"
+)
 fe_f = foldeq.get("villain_folded", 0)
 fe_tot = fe_f + foldeq.get("villain_continued", 0)
 print(f"  fold equity when hero bet: {dict(foldeq)}  → villain fold-to-steal = {pct(fe_f, fe_tot)}")

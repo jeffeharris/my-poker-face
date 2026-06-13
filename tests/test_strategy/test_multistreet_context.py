@@ -334,9 +334,14 @@ class TestH3StealGiveUp:
     def test_skips_when_target_zero(self):
         sp = self._sp()
         out, tr = apply_multistreet_context(
-            sp, signals=self._giveup_sig(), hand_class='air_no_draw',
-            action_context='unopened', active_count=2, street='turn',
-            steal_target=0.0, steal_fold_to_big_bet=0.6,
+            sp,
+            signals=self._giveup_sig(),
+            hand_class='air_no_draw',
+            action_context='unopened',
+            active_count=2,
+            street='turn',
+            steal_target=0.0,
+            steal_fold_to_big_bet=0.6,
         )
         assert not tr.fired and out is sp
 
@@ -385,7 +390,9 @@ class TestH3StealGiveUp:
         assert not tr.fired
 
     def test_disabled_via_ablation(self):
-        _, tr = self._steal(self._giveup_sig(), disable_rules=frozenset({('multistreet_context', 'steal')}))
+        _, tr = self._steal(
+            self._giveup_sig(), disable_rules=frozenset({('multistreet_context', 'steal')})
+        )
         assert not tr.fired
 
     def test_derive_signals_sets_opp_cbet_flop(self):
@@ -406,9 +413,7 @@ class TestControllerStealIntegration:
 
         from poker.tiered_bot_controller import TieredBotController
 
-        with patch(
-            'poker.tiered_bot_controller.AIPlayerController.__init__', return_value=None
-        ):
+        with patch('poker.tiered_bot_controller.AIPlayerController.__init__', return_value=None):
             c = TieredBotController.__new__(TieredBotController)
         c.player_name = 'Hero'
         c.memory_manager = None
