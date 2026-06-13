@@ -17,6 +17,7 @@ function champ(over: Partial<CircuitChampion>): CircuitChampion {
     tournament_id: 't',
     winner_name: 'Mervin',
     field_size: 9,
+    your_finish: null,
     buy_in: 0,
     prize_pool: 0,
     completed_at: new Date().toISOString(),
@@ -50,5 +51,21 @@ describe('CircuitChampionsCard', () => {
     expect(screen.getByText('You')).toBeTruthy();
     // Only the event the player sat out carries the world-runs-without-you tag.
     expect(screen.getAllByText('ran without you')).toHaveLength(1);
+  });
+
+  it('shows your finish on a played-and-lost event but not when you won', async () => {
+    vi.spyOn(api, 'getCircuitHistory').mockResolvedValue({
+      events: [
+        // Played, lost → champion is someone else; show "you finished 4th".
+        champ({ tournament_id: 't1', winner_name: 'Mervin', played: true, your_finish: 4 }),
+        // Played, won → "You" is the champion; the finish line is redundant, omit it.
+        champ({ tournament_id: 't2', winner_name: 'You', played: true, your_finish: 1 }),
+      ],
+    });
+    render(<CircuitChampionsCard />);
+
+    expect(await screen.findByText('you finished 4th')).toBeTruthy();
+    expect(screen.queryByText('you finished 1st')).toBeNull();
+    expect(screen.queryByText('ran without you')).toBeNull(); // both were played
   });
 });

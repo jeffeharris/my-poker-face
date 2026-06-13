@@ -233,6 +233,8 @@ def get_circuit_history():
             'tournament_id': r['tournament_id'],
             'winner_name': _winner_label(r['winner_pid']),
             'field_size': r['field_size'],
+            # The player's own finish on events they played (1 = won), else null.
+            'your_finish': r['human_finish'],
             'buy_in': r['buy_in'],
             'prize_pool': r['prize_pool'],
             'completed_at': r['completed_at'],

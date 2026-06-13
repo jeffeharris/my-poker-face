@@ -95,6 +95,9 @@ export interface CircuitChampion {
    *  when unresolved (a pre-stamp legacy row). */
   winner_name: string | null;
   field_size: number | null;
+  /** The player's finishing position on events they played (1 = won), else null
+   *  (events they let run without them, or pre-stamp legacy rows). */
+  your_finish: number | null;
   buy_in: number;
   prize_pool: number;
   /** ISO completion time. */

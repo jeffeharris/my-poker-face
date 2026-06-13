@@ -105,6 +105,14 @@
   font-size: 0.62rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+/* Sat-out events: a quiet, muted "ran without you". */
+.champions-card__tag--absent {
   color: #807b71;
   font-style: italic;
+}
+/* Your own result on an event you played: warmer and clearer than the absent tell. */
+.champions-card__tag--finish {
+  color: #c9b78a;
+  font-weight: 600;
 }

@@ -28,23 +28,44 @@ def _utcnow_iso() -> str:
     return datetime.utcnow().isoformat()
 
 
-def _winner_and_field_size(session_json: Optional[str]) -> tuple[Optional[str], Optional[int]]:
-    """`(winner_pid, field_size)` extracted from a serialized session, mirroring
-    `TournamentField.winner()` / `.field_size`: the sole remaining stack is the
-    champion; the field size is the entry count. `winner_pid` is None until the
-    field collapses (so this is safe to call on every save — it only yields a
-    winner once the tournament is actually decided). Best-effort: any shape
-    mismatch returns `(None, None)`."""
+def _completion_stamp(
+    session_json: Optional[str],
+) -> tuple[Optional[str], Optional[int], Optional[int]]:
+    """`(winner_pid, field_size, human_finish)` extracted from a serialized
+    session in a single parse, mirroring `TournamentField`:
+
+    - `winner_pid` — the sole remaining stack (None until the field collapses, so
+      this is safe to call on every save: it only yields a winner once decided).
+    - `field_size` — the entry count (stable from the first save).
+    - `human_finish` — the human seat's finishing position (1 = champion, else
+      their elimination position), or None when the human wasn't a participant
+      (every autonomous/declined event — the field ran without them). Gated on the
+      human being in `entries` so a non-seated `human_id` never fabricates a finish.
+
+    Best-effort: any shape mismatch returns `(None, None, None)`."""
     if not session_json:
-        return None, None
+        return None, None, None
     try:
-        field = (json.loads(session_json) or {}).get('field') or {}
+        data = json.loads(session_json) or {}
+        field = data.get('field') or {}
         entries = field.get('entries') or {}
         stacks = field.get('stacks') or {}
         winner = next(iter(stacks)) if len(stacks) == 1 else None
-        return winner, (len(entries) or None)
+        field_size = len(entries) or None
+
+        human_id = data.get('human_id')
+        human_finish: Optional[int] = None
+        if human_id and human_id in entries:
+            if winner == human_id:
+                human_finish = 1
+            else:
+                for elim in field.get('eliminations') or []:
+                    if elim.get('player_id') == human_id:
+                        human_finish = elim.get('finishing_position')
+                        break
+        return winner, field_size, human_finish
     except (TypeError, ValueError, KeyError):
-        return None, None
+        return None, None, None
 
 
 # Recency window for the double-presence exclusion: a tournament whose row hasn't
@@ -78,10 +99,12 @@ class TournamentSessionRepository(BaseRepository):
             'bank_overlay': row['bank_overlay'] if 'bank_overlay' in keys else 0,
             'prize_pool': row['prize_pool'] if 'prize_pool' in keys else 0,
             'payout_status': row['payout_status'] if 'payout_status' in keys else 'skipped',
-            # Denormalized champion + field size (Champions Roll). Stamped at the
-            # save chokepoint once the field collapses; NULL on pre-stamp rows.
+            # Denormalized champion + field size + the human's finish (Champions
+            # Roll). Stamped at the save chokepoint once the field collapses; NULL
+            # on pre-stamp rows and on events the human didn't play.
             'winner_pid': row['winner_pid'] if 'winner_pid' in keys else None,
             'field_size': row['field_size'] if 'field_size' in keys else None,
+            'human_finish': row['human_finish'] if 'human_finish' in keys else None,
         }
 
     def save(
@@ -98,19 +121,20 @@ class TournamentSessionRepository(BaseRepository):
         """Insert or update a tournament row. `created_at` is set on first
         insert and preserved on update; `updated_at` is stamped every save."""
         now = _utcnow_iso()
-        # Stamp the champion + field size off the session being saved. `winner_pid`
-        # stays None until the field collapses, so this is correct on every save;
-        # COALESCE in the upsert keeps a stamped winner from being nulled by a
-        # later save (none of the completion paths re-open a decided field, but the
-        # guard makes the chokepoint robust regardless of save order).
-        winner_pid, field_size = _winner_and_field_size(session_json)
+        # Stamp the champion + field size + the human's finish off the session being
+        # saved. `winner_pid`/`human_finish` stay None until the field collapses, so
+        # this is correct on every save; COALESCE in the upsert keeps a stamped value
+        # from being nulled by a later save (no completion path re-opens a decided
+        # field, but the guard makes the chokepoint robust regardless of save order).
+        winner_pid, field_size, human_finish = _completion_stamp(session_json)
         with self._get_connection() as conn:
             conn.execute(
                 """
                 INSERT INTO tournaments
                     (tournament_id, owner_id, game_id, status, resolver_kind,
-                     created_at, updated_at, session_json, winner_pid, field_size)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     created_at, updated_at, session_json, winner_pid, field_size,
+                     human_finish)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tournament_id) DO UPDATE SET
                     owner_id=excluded.owner_id,
                     game_id=excluded.game_id,
@@ -119,7 +143,8 @@ class TournamentSessionRepository(BaseRepository):
                     updated_at=excluded.updated_at,
                     session_json=excluded.session_json,
                     winner_pid=COALESCE(excluded.winner_pid, tournaments.winner_pid),
-                    field_size=COALESCE(excluded.field_size, tournaments.field_size)
+                    field_size=COALESCE(excluded.field_size, tournaments.field_size),
+                    human_finish=COALESCE(excluded.human_finish, tournaments.human_finish)
                 """,
                 (
                     tournament_id,
@@ -132,6 +157,7 @@ class TournamentSessionRepository(BaseRepository):
                     session_json,
                     winner_pid,
                     field_size,
+                    human_finish,
                 ),
             )
 
@@ -257,8 +283,8 @@ class TournamentSessionRepository(BaseRepository):
         with self._get_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT t.tournament_id, t.winner_pid, t.field_size, t.buy_in,
-                       t.prize_pool, t.updated_at, MIN(i.status) AS invite_status
+                SELECT t.tournament_id, t.winner_pid, t.field_size, t.human_finish,
+                       t.buy_in, t.prize_pool, t.updated_at, MIN(i.status) AS invite_status
                 FROM tournaments t
                 JOIN tournament_invites i ON i.tournament_id = t.tournament_id
                 WHERE i.owner_id = ? AND t.status = 'complete'
@@ -280,6 +306,7 @@ class TournamentSessionRepository(BaseRepository):
                 'tournament_id': r['tournament_id'],
                 'winner_pid': r['winner_pid'],
                 'field_size': r['field_size'],
+                'human_finish': r['human_finish'],
                 'buy_in': r['buy_in'],
                 'prize_pool': r['prize_pool'],
                 'completed_at': r['updated_at'],

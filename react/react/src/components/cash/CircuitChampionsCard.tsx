@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 
 import { getCircuitHistory, type CircuitChampion } from './tournamentApi';
 import { avatarUrlForName } from './avatarUrl';
+import { getOrdinal } from '../../types/tournament';
 import './CircuitChampionsCard.css';
 
 const MAX_ROWS = 6;
@@ -42,6 +43,16 @@ function ChampionRow({ event }: { event: CircuitChampion }) {
   const fieldLabel = event.field_size ? `${event.field_size}-player Main Event` : 'Main Event';
   const age = ago(event.completed_at);
 
+  // Right-side tell. Played-and-lost shows your finish; played-and-won is already
+  // conveyed by the gold "You" champion row, so it gets no tag; sat-out events
+  // carry the quiet "ran without you" — the heart of the living-world theme.
+  let tag: { text: string; tone: 'finish' | 'absent' } | null = null;
+  if (!event.played) {
+    tag = { text: 'ran without you', tone: 'absent' };
+  } else if (event.your_finish != null && event.your_finish > 1) {
+    tag = { text: `you finished ${getOrdinal(event.your_finish)}`, tone: 'finish' };
+  }
+
   return (
     <li className={`champions-card__row${isYou ? ' champions-card__row--you' : ''}`}>
       <span className="champions-card__avatar" aria-hidden="true">
@@ -58,8 +69,9 @@ function ChampionRow({ event }: { event: CircuitChampion }) {
           {age ? ` · ${age}` : ''}
         </span>
       </span>
-      {/* The quiet "ran without you" tell — the heart of the living-world theme. */}
-      {!event.played && <span className="champions-card__tag">ran without you</span>}
+      {tag && (
+        <span className={`champions-card__tag champions-card__tag--${tag.tone}`}>{tag.text}</span>
+      )}
     </li>
   );
 }
