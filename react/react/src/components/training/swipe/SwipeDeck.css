@@ -28,7 +28,10 @@
   border: 1px solid var(--color-border-default);
   box-shadow: var(--shadow-md);
   cursor: grab;
-  touch-action: pan-y;
+  /* The card captures the whole gesture (incl. the upward "call" swipe). The
+     drill stage locks page scroll, so nothing is lost by not panning here — and
+     pan-y would otherwise steal a vertical drag from the up-swipe. */
+  touch-action: none;
   overflow: hidden;
 }
 .swipedeck-card__body {
@@ -36,7 +39,7 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-4);
-  padding: var(--space-6) var(--space-3) var(--space-5);
+  padding: var(--space-5) var(--space-3) var(--space-4);
 }
 
 /* Tinder-style drag stamps (front card only). */

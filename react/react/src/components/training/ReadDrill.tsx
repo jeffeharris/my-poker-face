@@ -1,23 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { SlidersHorizontal, Shuffle } from 'lucide-react';
-import { PageLayout, MenuBar } from '../shared';
 import { ActionButtons } from '../game/ActionButtons';
-import toast from 'react-hot-toast';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
-import { SwipeDeck, type SwipeDeckHandle, type SwipeDir } from './swipe/SwipeDeck';
+import { SwipeDeck, type SwipeDir } from './swipe/SwipeDeck';
 import { PreflopCardFace } from './preflop/PreflopCard';
-import { drawNext, pct, RFI_POS, type Spot, type Grade } from './preflop/preflopUtils';
+import { RFI_POS, type Grade, type Spot } from './preflop/preflopUtils';
+import { DrillStage } from './DrillStage';
+import { DrillResultOverlay } from './DrillResultOverlay';
+import { useDrillRunner } from './useDrillRunner';
 
 // Read drill: "Would a <archetype> open this?" — predict a player type's RFI
 // decision (raise/fold), graded against that archetype's own width-tier chart.
-// Fully chart-faithful: the archetype chart IS that player's strategy.
-//
-// Two filter axes (each defaults to a mix): the opponent type and the seat. They
-// live as separate pill groups in the settings popover; "mix" fans out over the
-// whole set. Scenario stays RFI here — facing-a-raise reads need per-opener
-// vs_open data we don't have yet, so that axis isn't offered.
+// Two filter axes (opponent type, seat) each default to a mix. Built on the
+// shared drill shell.
 
 const ARCHETYPES: { key: string; label: string }[] = [
   { key: 'nit', label: 'A nit' },
@@ -32,8 +29,6 @@ const ARCH_LABEL: Record<string, string> = Object.fromEntries(
 type ArchMode = 'mix' | string;
 type PosMode = 'mix' | (typeof RFI_POS)[number];
 
-const HOLD_MS: Record<Grade['verdict'], number> = { good: 700, thin: 1050, leak: 1800 };
-
 // "Would they open" is a fold/raise read — drive the game bar (no call, no sizing).
 const BIG_BLIND = 100;
 const READ_BETTING = {
@@ -45,6 +40,17 @@ const READ_BETTING = {
   bigBlind: BIG_BLIND,
   potSize: BIG_BLIND + BIG_BLIND / 2,
 };
+
+// What the read drill calls each verdict (it grades a prediction, not your play).
+const READ_HEADING: Record<Grade['verdict'], string> = {
+  good: 'Right read.',
+  thin: 'Close — they mix this.',
+  leak: 'Off — they rarely do that.',
+};
+
+const dirToAction = (dir: SwipeDir) => (dir === 'right' ? 'raise' : 'fold');
+const actionToDir = (action: string): SwipeDir => (action === 'fold' ? 'left' : 'right');
+const answerExtra = (spot: Spot) => ({ archetype: spot.archetype });
 
 interface ReadDrillProps {
   onBack: () => void;
@@ -61,13 +67,6 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
   const [pool, setPool] = useState<Spot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [grade, setGrade] = useState<Grade | null>(null);
-  const [grading, setGrading] = useState(false);
-  const [solid, setSolid] = useState(0);
-  const [answered, setAnswered] = useState(0);
-
-  const deckRef = useRef<SwipeDeckHandle>(null);
 
   // Keep both axes in the URL so a leak nudge can deep-link a specific read.
   const syncParams = (arch: ArchMode, pos: PosMode) => {
@@ -89,13 +88,9 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
     setLoading(true);
     setError(null);
     setPool([]);
-    setGrade(null);
-    setSolid(0);
-    setAnswered(0);
 
     // Position 'mix' fans out server-side (one call per archetype), so the worst
-    // case is 4 requests — not 4×5, which bursts the limiter. Each archetype is
-    // its own call because they grade against different charts.
+    // case is 4 requests — not 4×5, which bursts the limiter.
     const fetchSpots = async (archetype: string): Promise<Spot[]> => {
       const resp = await fetch(
         `${config.API_URL}/api/coach/drill?scenario=rfi&position=${posMode}&archetype=${archetype}`,
@@ -124,71 +119,19 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
     load();
   }, [load]);
 
-  const draw = useCallback((avoid: Spot | null) => drawNext(pool, avoid), [pool]);
-
-  const onSwipe = useCallback(async (spot: Spot, dir: SwipeDir) => {
-    const action = dir === 'right' ? 'raise' : 'fold';
-    setGrading(true);
-    try {
-      const resp = await fetch(`${config.API_URL}/api/coach/drill/answer`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenario: spot.scenario,
-          position: spot.position,
-          hand: spot.hand,
-          action,
-          archetype: spot.archetype,
-        }),
-      });
-      if (!resp.ok) throw new Error(`grade ${resp.status}`);
-      const g: Grade = await resp.json();
-      setGrade(g);
-      setAnswered((n) => n + 1);
-      if (g.verdict === 'good') setSolid((n) => n + 1);
-    } catch (err) {
-      // Grading failed (network / limiter). The card is already flung off-screen,
-      // so recover instead of soft-locking: drop it, rise the next, and tell the
-      // user this spot didn't count rather than failing silently.
-      logger.error('Failed to grade answer:', err);
-      toast.error("Couldn't grade that hand — skipping it.");
-      deckRef.current?.advance();
-    } finally {
-      setGrading(false);
-    }
-  }, []);
-
-  const interactive = !grade && !grading;
-
-  const next = useCallback(() => {
-    setGrade(null);
-    deckRef.current?.advance();
-  }, []);
-
-  useEffect(() => {
-    if (!grade) return;
-    const t = setTimeout(next, HOLD_MS[grade.verdict]);
-    return () => clearTimeout(t);
-  }, [grade, next]);
-
-  const onBarAction = useCallback(
-    (action: string) => {
-      if (grade || grading) return;
-      deckRef.current?.swipe(action === 'fold' ? 'left' : 'right');
-    },
-    [grade, grading]
-  );
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (grade || grading) return;
-      if (e.key === 'ArrowRight') deckRef.current?.swipe('right');
-      if (e.key === 'ArrowLeft') deckRef.current?.swipe('left');
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [grade, grading]);
+  const runner = useDrillRunner(pool, { dirToAction, actionToDir, answerExtra });
+  const {
+    grade,
+    chosenDir,
+    draw,
+    deckRef,
+    interactive,
+    onSwipe,
+    next,
+    onBarAction,
+    solid,
+    answered,
+  } = runner;
 
   const ready = !loading && !error && pool.length > 0;
   const archLabel = archMode === 'mix' ? 'Mixed reads' : (ARCH_LABEL[archMode] ?? archMode);
@@ -196,11 +139,11 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
   const allMixed = archMode === 'mix' && posMode === 'mix';
 
   return (
-    <>
-      <MenuBar onBack={onBack} title="Read the Player" showUserInfo onMainMenu={onBack} />
-      <PageLayout variant="top" glowColor="emerald" maxWidth="md" hasMenuBar>
-        <p className="swd-subtitle">Would they open this — or fold?</p>
-
+    <DrillStage
+      title="Read the Player"
+      onBack={onBack}
+      subtitle="Would they open this — or fold?"
+      settings={
         <div className="swd-settings">
           <button
             type="button"
@@ -265,62 +208,43 @@ export function ReadDrill({ onBack }: ReadDrillProps) {
             </>
           )}
         </div>
-
-        {loading && <div className="swd-state">Dealing your spots…</div>}
-        {error && (
-          <div className="swd-state swd-error">
-            <p>{error}</p>
-            <button className="swd-next" onClick={load}>
-              Try again
-            </button>
-          </div>
-        )}
-
-        {ready && (
-          <div className="swd-body">
-            <SwipeDeck<Spot>
-              ref={deckRef}
-              draw={draw}
-              renderFace={(spot) => (
-                <PreflopCardFace
-                  spot={spot}
-                  headline={ARCH_LABEL[spot.archetype ?? ''] ?? 'A player'}
-                  tag="Folded to them"
-                />
-              )}
-              onSwipe={onSwipe}
-              interactive={interactive}
-              stamps={{ left: 'FOLDS', right: 'OPENS' }}
+      }
+      loading={loading}
+      error={error}
+      onRetry={load}
+      ready={ready}
+      deck={
+        <SwipeDeck<Spot>
+          ref={deckRef}
+          draw={draw}
+          renderFace={(spot) => (
+            <PreflopCardFace
+              spot={spot}
+              headline={ARCH_LABEL[spot.archetype ?? ''] ?? 'A player'}
+              tag="Folded to them"
             />
-
-            <p className="swd-stats">
-              {solid}/{answered} read · swipe or use ← →
-            </p>
-
-            <div className="pf-control">
-              {grade ? (
-                <button
-                  type="button"
-                  className={`swd-feedback swd-feedback--${grade.verdict}`}
-                  onClick={next}
-                  aria-label="Continue to next hand"
-                >
-                  <div className="swd-verdict">
-                    {grade.verdict === 'good' && 'Right read.'}
-                    {grade.verdict === 'thin' && 'Close — they mix this.'}
-                    {grade.verdict === 'leak' && 'Off — they rarely do that.'}
-                  </div>
-                  <div className="swd-freqs">
-                    they open {pct(grade.chart_freq.raise)}% · fold {pct(grade.chart_freq.fold)}%
-                  </div>
-                </button>
-              ) : (
-                <ActionButtons {...READ_BETTING} onAction={onBarAction} inline noSizing />
-              )}
-            </div>
-          </div>
-        )}
-      </PageLayout>
-    </>
+          )}
+          onSwipe={onSwipe}
+          interactive={interactive}
+          stamps={{ left: 'FOLDS', right: 'OPENS' }}
+        />
+      }
+      stats={`${solid}/${answered} read · swipe or use ← →`}
+      control={<ActionButtons {...READ_BETTING} onAction={onBarAction} inline noSizing />}
+      overlay={
+        grade && (
+          <DrillResultOverlay
+            verdict={grade.verdict}
+            heading={READ_HEADING[grade.verdict]}
+            chosen={chosenDir}
+            freqs={[
+              { dir: 'left', label: 'Folds', value: grade.chart_freq.fold },
+              { dir: 'right', label: 'Opens', value: grade.chart_freq.raise },
+            ]}
+            onDone={next}
+          />
+        )
+      }
+    />
   );
 }
