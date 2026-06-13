@@ -16,7 +16,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.json.JSONArray
-import org.json.JSONObject
 
 private const val TAG = "OnDeviceLLM"
 
@@ -175,23 +174,24 @@ class OnDeviceLLMPlugin : Plugin() {
                 val full = buildPrompt(prompt, system, tones)
                 Log.i(TAG, "suggestChatStream: streaming on-device (prompt ${full.length} chars)")
                 var acc = ""
-                var lastCount = 0
+                var lastJson = ""
                 var chunks = 0
                 model.generateContentStream(full).collect { resp ->
                     chunks++
                     val text = resp.candidates.firstOrNull()?.text ?: ""
                     // Tolerate either cumulative or delta chunk semantics.
                     acc = if (text.startsWith(acc) && text.length >= acc.length) text else acc + text
-                    val partial = parseStreamingSuggestions(acc, fallbackTone)
-                    Log.i(TAG, "stream chunk #$chunks: +${text.length}c acc=${acc.length}c parsed=${partial.length()}")
-                    if (partial.length() > lastCount) {
-                        lastCount = partial.length()
+                    // Extract the text-so-far (incl. the still-typing last line) and stream
+                    // it as it arrives — chips fill in character-by-character.
+                    val partial = extractSuggestionTexts(acc, fallbackTone)
+                    val js = partial.toString()
+                    if (partial.length() > 0 && js != lastJson) {
+                        lastJson = js
                         call.resolve(JSObject().put("suggestions", partial).put("done", false))
                     }
                 }
-                val finalList = parseStreamingSuggestions(acc, fallbackTone)
+                val finalList = extractSuggestionTexts(acc, fallbackTone)
                 Log.i(TAG, "suggestChatStream: ON-DEVICE OK — ${finalList.length()} suggestion(s) in $chunks chunk(s)")
-                Log.i(TAG, "stream raw: ${acc.replace("\n", "\\n").take(700)}")
                 call.resolve(JSObject().put("suggestions", finalList).put("done", true))
             } catch (e: Throwable) {
                 Log.w(TAG, "suggestChatStream: on-device failed (-> server): ${e.message}")
@@ -203,48 +203,66 @@ class OnDeviceLLMPlugin : Plugin() {
     }
 
     /**
-     * Extract every COMPLETE top-level {…} object from (possibly still-unclosed) JSON
-     * text and map to {text, tone}. Unlike parseSuggestions (which needs the whole
-     * array), this lets a streamed, not-yet-closed array surface the suggestions whose
-     * objects have already closed — enabling one-at-a-time reveal.
+     * Stream-friendly extraction: pull each suggestion's "text" value (and the "tone"
+     * that follows) directly out of the accumulating model output. Unlike strict JSON
+     * parsing, this is tolerant of the scaffolding, markdown fences, a still-typing final
+     * value, and the malformed JSON Nano sometimes emits (e.g. a missing comma between a
+     * value and the next key). Net effect: text streams into the chips character-by-
+     * character, and a bad comma no longer drops a whole suggestion.
      */
-    private fun parseStreamingSuggestions(raw: String, fallbackTone: String): JSArray {
+    private fun extractSuggestionTexts(raw: String, fallbackTone: String): JSArray {
         val out = JSArray()
-        var depth = 0
-        var start = -1
-        var inStr = false
-        var esc = false
-        for (i in raw.indices) {
-            val c = raw[i]
-            if (inStr) {
-                when {
-                    esc -> esc = false
-                    c == '\\' -> esc = true
-                    c == '"' -> inStr = false
+        var i = 0
+        while (true) {
+            val k = raw.indexOf("\"text\"", i)
+            if (k < 0) break
+            val open = openQuoteAfter(raw, k + 6) ?: run { i = k + 6; continue }
+            var p = open + 1 // past the opening quote
+            val sb = StringBuilder()
+            var closed = false
+            while (p < raw.length) {
+                val c = raw[p]
+                if (c == '\\' && p + 1 < raw.length) {
+                    val n = raw[p + 1]
+                    sb.append(when (n) { 'n' -> '\n'; 't' -> '\t'; 'r' -> '\r'; else -> n })
+                    p += 2
+                    continue
                 }
-                continue
+                if (c == '"') { closed = true; p++; break }
+                sb.append(c)
+                p++
             }
-            when (c) {
-                '"' -> inStr = true
-                '{' -> { if (depth == 0) start = i; depth++ }
-                '}' -> {
-                    if (depth > 0) depth--
-                    if (depth == 0 && start >= 0) {
-                        try {
-                            val o = JSONObject(raw.substring(start, i + 1))
-                            val text = o.optString("text", "").trim()
-                            if (text.isNotEmpty()) {
-                                val tone = o.optString("tone", fallbackTone).trim().ifEmpty { fallbackTone }
-                                out.put(JSObject().put("text", text).put("tone", tone))
-                            }
-                        } catch (_: Throwable) {
-                        }
-                        start = -1
-                    }
+            // Pair the "tone" that appears before the next "text", if it's arrived yet.
+            var tone = fallbackTone
+            val nextText = raw.indexOf("\"text\"", p)
+            val toneKey = raw.indexOf("\"tone\"", p)
+            if (toneKey >= 0 && (nextText < 0 || toneKey < nextText)) {
+                val tq = openQuoteAfter(raw, toneKey + 6)
+                if (tq != null) {
+                    var tp = tq + 1
+                    val tb = StringBuilder()
+                    while (tp < raw.length && raw[tp] != '"') { tb.append(raw[tp]); tp++ }
+                    if (tb.isNotBlank()) tone = tb.toString().trim()
                 }
             }
+            val t = sb.toString().trim()
+            if (t.isNotEmpty()) out.put(JSObject().put("text", t).put("tone", tone))
+            if (!closed) break // the final value is still being typed — nothing past it yet
+            i = p
         }
         return out
+    }
+
+    /** Index of the first `"` at/after [from], skipping only `:` and whitespace; null otherwise. */
+    private fun openQuoteAfter(raw: String, from: Int): Int? {
+        var p = from
+        while (p < raw.length) {
+            val c = raw[p]
+            if (c == '"') return p
+            if (c != ':' && !c.isWhitespace()) return null
+            p++
+        }
+        return null
     }
 
     private fun buildPrompt(prompt: String, system: String?, tones: List<String>): String {
