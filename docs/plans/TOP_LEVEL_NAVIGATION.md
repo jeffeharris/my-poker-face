@@ -20,19 +20,21 @@ and each surface holds only what belongs to it.
 
 ## Proposed information architecture
 
-Four persistent tabs. **Circuit is the landing.**
+Four persistent tabs, in this left-to-right order (per request):
 
 ```
-[ Circuit ]   [ Tournaments ]   [ Training ]   [ Career ]
-   ▲ default
+[ Career ]   [ Circuit ]   [ Training ]   [ Tournaments ]
 ```
+
+**Landing tab is an open question** — leftmost (Career) as a home/profile screen,
+or Circuit as a play-first default. See open question 0 below.
 
 | Tab | What it is | Holds |
 |-----|-----------|-------|
-| **Circuit** | The cash lobby — where you sit down and grind (already themed "The Circuit"). The landing. | Resume bar(s) · Main Event (invite + resume) · Tables (Cardroom/Casino) · stakable AIs · live activity feed |
-| **Tournaments** | Ad-hoc multi-table events (the current `/tournament` hub). | Register (field size) · standings · resume an active MTT |
-| **Training** | Practice, non-counting (the current `/menu/training`). | Drills, sparring, difficulty presets |
 | **Career** | Your record across the circuit — retrospective, not a place to act. | Career Highlights · Champions Roll · Reputation · circuit story (`/story`) |
+| **Circuit** | The cash lobby — where you sit down and grind (already themed "The Circuit"). | Resume bar(s) · Main Event (invite + resume) · Tables (Cardroom/Casino) · stakable AIs · live activity feed |
+| **Training** | Practice, non-counting (the current `/menu/training`). | Drills, sparring, difficulty presets |
+| **Tournaments** | Ad-hoc multi-table events (the current `/tournament` hub). | Register (field size) · standings · resume an active MTT |
 
 **Naming note (confirm):** "Circuit" = the cash lobby (the rooms you grind);
 "Career" = your story/record. These read as distinct surfaces. If "Circuit"
@@ -58,6 +60,12 @@ Career becomes a top-level tab instead of a nested view, so there's no tabs-insi
 
 ## Open questions (resolve before/within Phase 1)
 
+0. **Which tab is the landing?** Tab order is Career · Circuit · Training ·
+   Tournaments. Does the app land on **Career** (leftmost — a home/profile screen
+   you arrive at, then step into play) or **Circuit** (play-first, fewest taps to
+   sit down)? These can differ from left-to-right order. (Earlier, for the
+   in-lobby split, "play-first" won — but at the top level a Career/home landing
+   is a legitimate, different choice.)
 1. **Bankroll placement** — persistent header chip (always visible) vs. only inside
    a tab. Recommendation: persistent compact chip + full CareerHero in Career.
 2. **Desktop vs mobile nav** — mobile: bottom tab bar; desktop: top nav (reuse/extend
