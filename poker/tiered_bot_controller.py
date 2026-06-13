@@ -27,6 +27,8 @@ from .strategy.deviation_profiles import DeviationProfile, select_deviation_prof
 from .strategy.exploitation import (
     DEFAULT_MAX_TOTAL_SHIFT,
     GATING_FLOOR,
+    HIGH_FOLD_TO_3BET_THRESHOLD,
+    MIN_3BET_FACED_FOR_DETECTION,
     MIN_HANDS_DEFAULT,
     AggregatedOpponentStats,
     DecisionContext,
@@ -480,6 +482,36 @@ def _resolve_vs_squeeze_defense(pcfg, skill) -> float:
     return VS_SQUEEZE_DEFENSE_DEFAULT
 
 
+# Light 3-bet / squeeze vs a fold-happy opener (the fold_to_3bet counter). Bluff
+# hands hero ADDS to its 3-bet range when the opener over-folds to 3-bets — the
+# inverse of vs3bet_exploit (which folds MORE vs a value-3-bettor). Blocker-heavy,
+# suited, hands that play OK the times they get called. Tiers widen as the opener
+# reads foldier; the per-persona `light_3bet` knob scales the widen.
+LIGHT_3BET_TIERS = (
+    ('A5s', 'A4s', 'A3s', 'A2s'),  # tier 0 (floor): wheel-ace blockers
+    ('KJs', 'QTs', 'JTs', 'T9s', '98s'),  # tier 1: suited broadway / connectors
+    ('K9s', 'Q9s', 'J9s', '87s', '76s'),  # tier 2: wider suited vs a big folder
+)
+# Opener fold_to_3bet read → how deep to bluff-3bet (descending cutoffs). A bigger
+# over-folder unlocks deeper tiers; the knob shrinks the depth, never the floor.
+_LIGHT_3BET_FOLD_BANDS = ((0.82, 2), (0.72, 1), (0.62, 0))
+LIGHT_3BET_DEFAULT = 0.0  # un-tiered persona = off (no light 3-bets)
+
+
+def _resolve_light_3bet(pcfg, skill) -> float:
+    """Resolve a persona's light_3bet knob (graded read, no feature flag — gated
+    only by knob>0 + a foldy-opener read, like vs3bet_exploit). Precedence:
+    explicit ``light_3bet`` in config wins; else the skill tier; else 0.0."""
+    if isinstance(pcfg, dict) and 'light_3bet' in pcfg:
+        return float(pcfg['light_3bet'])
+    if skill:
+        from poker.strategy.skill_tiers import SKILL_TIERS
+
+        if skill in SKILL_TIERS and hasattr(SKILL_TIERS[skill], 'light_3bet'):
+            return SKILL_TIERS[skill].light_3bet
+    return LIGHT_3BET_DEFAULT
+
+
 def _resolve_steal_turn_target(pcfg, skill) -> float:
     """Resolve a persona's turn float-and-steal target (the bet frequency the H3
     steal pumps air to on the give-up line). Precedence: explicit
@@ -855,6 +887,13 @@ class TieredBotController(AIPlayerController):
         # knob>0, so it's live for the tiered field (a graded read, not a dormant
         # boolean). Live path only (sims/tests bypass __init__ → default 0.0 → no-op).
         self.vs_squeeze_defense: float = _resolve_vs_squeeze_defense(_pcfg, _skill)
+
+        # Light 3-bet / squeeze vs a fold-happy opener (the fold_to_3bet counter):
+        # ADD bluff 3-bets vs an opener that over-folds to 3-bets. Graded read,
+        # no feature flag — gated only by knob>0 + a foldy-opener read, like
+        # vs3bet_exploit. Default 0.0 (off) until EV-validated; sims/tests bypass
+        # __init__ → 0.0 → no-op.
+        self.light_3bet: float = _resolve_light_3bet(_pcfg, _skill)
 
         # Per-player turn float-and-steal target (the H3 bet frequency for air on
         # the give-up line: opp c-bets flop, hero floats, opp checks the turn).
@@ -1325,6 +1364,9 @@ class TieredBotController(AIPlayerController):
             base_strategy = self._apply_limp_exploit(base_strategy, node, game_state, player_idx)
             base_strategy = self._apply_vs_squeeze_defense(
                 base_strategy, node, game_state, player_idx, chart_lookup_source
+            )
+            base_strategy = self._apply_light_3bet_exploit(
+                base_strategy, node, game_state, player_idx
             )
 
         if self.debug_logging:
@@ -4906,6 +4948,90 @@ class TieredBotController(AIPlayerController):
                 'continued': True,
             }
         return StrategyProfile(action_probabilities={'call': 1.0})
+
+    def _opener_fold_to_3bet_read(self, game_state, player_idx):
+        """The opener's (fold_to_3bet, sample) — or None if no confident read.
+        The opener is the live raiser hero faces in a vs_open spot (the single
+        non-folded opponent with the largest current bet). Mirrors
+        _squeezer_width_read but returns the fold_to_3bet signal."""
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return None
+        opponents = [
+            (i, p)
+            for i, p in enumerate(game_state.players)
+            if i != player_idx and not getattr(p, 'is_folded', False)
+        ]
+        if not opponents:
+            return None
+        opener_idx, opener = max(opponents, key=lambda ip: getattr(ip[1], 'bet', 0))
+        if getattr(opener, 'bet', 0) <= 0:
+            return None
+        try:
+            model = manager.get_model(self.player_name, opener.name)
+        except (AttributeError, TypeError):
+            return None
+        t = getattr(model, 'tendencies', None)
+        if t is None:
+            return None
+        sample = getattr(t, '_threebet_faced_count', 0)
+        if sample < MIN_3BET_FACED_FOR_DETECTION:
+            return None
+        return (float(getattr(t, 'fold_to_3bet', 0.5)), sample)
+
+    def _apply_light_3bet_exploit(self, strategy, node, game_state, player_idx):
+        """Light 3-bet / squeeze vs a fold-happy opener (the fold_to_3bet counter).
+
+        When the opener over-folds to 3-bets, ADD bluff 3-bets from a
+        blocker-heavy suited range that the base chart folds — taking the dead
+        money via fold equity. The inverse of vs3bet_exploit (which folds MORE vs
+        a value-3-bettor). Mirrors _apply_vs_squeeze_defense's shape: read the
+        villain, pick a tiered range by how foldy they are (scaled by the knob),
+        convert a qualifying hand to a 3-bet.
+
+        No-op unless: knob>0 (the only gate — graded, no feature flag; sims/tests
+        bypass __init__ → 0.0 → no-op), scenario vs_open, a confident foldy-opener
+        read (fold_to_3bet > threshold + sample), hero's hand is in the unlocked
+        bluff tier, and the base chart is NOT already 3-betting it (we only add
+        bluffs where we'd otherwise fold/flat — never stomp a value 3-bet). knob 0
+        / no-read / not-foldy => byte-identical."""
+        knob = getattr(self, 'light_3bet', 0.0)
+        if knob <= 0 or getattr(node, 'scenario', '') != 'vs_open':
+            return strategy
+        read = self._opener_fold_to_3bet_read(game_state, player_idx)
+        if read is None:
+            return strategy
+        fold_to_3bet, _sample = read
+        if fold_to_3bet <= HIGH_FOLD_TO_3BET_THRESHOLD:
+            return strategy  # not a genuine over-folder
+        # Don't stomp a hand the chart already wants to 3-bet (it has raise mass).
+        probs = dict(strategy.action_probabilities)
+        if any(a == 'raise' or a.startswith('raise_') for a in probs):
+            return strategy
+        # Foldy read → tier depth; knob shrinks the widen, never the floor.
+        base_tier = next((d for cut, d in _LIGHT_3BET_FOLD_BANDS if fold_to_3bet >= cut), 0)
+        max_tier = int(round(base_tier * knob))
+        bluff_hands = {h for tier in LIGHT_3BET_TIERS[: max_tier + 1] for h in tier}
+        hand = getattr(node, 'hand', '')
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if hand not in bluff_hands:
+            if isinstance(snap, dict):
+                snap['light_3bet'] = {
+                    'knob': knob,
+                    'opener_fold_to_3bet': round(fold_to_3bet, 3),
+                    'max_tier': max_tier,
+                    'fired': False,
+                }
+            return strategy
+        if isinstance(snap, dict):
+            snap['light_3bet'] = {
+                'knob': knob,
+                'opener_fold_to_3bet': round(fold_to_3bet, 3),
+                'max_tier': max_tier,
+                'fired': True,
+            }
+        # vs_open 3-bets use the raise_3x sizing (the chart's value-3-bet label).
+        return StrategyProfile(action_probabilities={'raise_3x': 1.0})
 
     def _try_push_fold_lookup(
         self,
