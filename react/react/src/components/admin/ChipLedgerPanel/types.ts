@@ -121,6 +121,52 @@ export interface HoldingsHistoryResponse {
   requires_sandbox: boolean;
 }
 
+// --- Economy chairman (the Director thermostat) -----------------------------
+
+export interface ChairmanLevers {
+  rake: { tiers: number[]; rate: number };
+  vice_multiplier: number;
+  tournament_armed: boolean;
+}
+
+export interface ChairmanBand {
+  key: 'critical' | 'low' | 'climbing' | 'trigger';
+  label: string;
+  ratio_min: number;
+  ratio_max: number | null; // null → open-topped trigger band
+  blurb: string;
+  levers: ChairmanLevers;
+}
+
+export interface ChairmanResponse {
+  sandbox_id: string | null;
+  signal: {
+    reserves: number;
+    holdings: number;
+    ratio: number;
+    regime: 'flush' | 'neutral' | 'empty';
+  };
+  thresholds: {
+    critical: number;
+    healthy: number;
+    trigger: number;
+    vice_ceiling: number;
+  };
+  // null when the economy is cold (no chips yet) — the bands carry no signal.
+  current_band: ChairmanBand['key'] | null;
+  bands: ChairmanBand[];
+  levers: ChairmanLevers | null;
+  policy_lock: {
+    hold_enabled: boolean;
+    window_seconds: number;
+    tournament_cooldown_seconds: number;
+    registration_window_seconds: number;
+    last_computed: string | null;
+    seconds_remaining: number | null;
+  };
+  as_of: string;
+}
+
 export interface LifecycleResponse {
   window_hours: number;
   // event name → count over the window (started/left_clean/left_ghost/swept/broken/...)
