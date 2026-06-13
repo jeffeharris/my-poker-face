@@ -129,7 +129,7 @@ _RULE_IDS_BY_LAYER: Dict[str, frozenset] = {
     'strong_hand_override': frozenset({'default'}),
     'bluff_catch_override': frozenset({'default'}),
     'sizing_defense': frozenset({'default'}),
-    'multistreet_context': frozenset({'default', 'barrel', 'fold_barrel'}),
+    'multistreet_context': frozenset({'default', 'barrel', 'fold_barrel', 'steal'}),
     'overbet_context': frozenset({'default', 'overbet'}),
     'defense_floor': frozenset({'default'}),
     'stab_defense': frozenset({'default', 'defend'}),
