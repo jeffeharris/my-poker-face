@@ -230,6 +230,18 @@ CHANGES: Dict[str, ChangeSpec] = {
         champion_flags={'exploitation_strength': 1.0, 'bluff_catch_override_enabled': False},
         challenger_flags={'exploitation_strength': 1.0, 'bluff_catch_override_enabled': True},
     ),
+    # ── Light-3-bet counter: hero ADDS bluff 3-bets vs a fold-happy opener.
+    # champion knob OFF, challenger ON → the counter's standalone bb/100. Run vs
+    # a nit that over-folds to 3-bets (Nit3betFolder_clone backdrop). ──
+    'light_3bet': ChangeSpec(
+        description='light-3-bet knob OFF (champion) vs ON (challenger) — the '
+        'standalone bb/100 of 3-betting a fold-happy opener light (use a '
+        'Nit3betFolder_clone backdrop).',
+        champion_table=lambda: load_strategy_table(),
+        challenger_table=lambda: load_strategy_table(),
+        champion_flags={'light_3bet': 0.0},
+        challenger_flags={'light_3bet': 0.85},
+    ),
     # ── Depth-chart flavor: champion gets NO shallow depth charts (flat 100bb
     # preflop table at every effective-stack depth — the original
     # depth-agnostic behavior); challenger keeps the 50/25bb shallow charts
@@ -603,6 +615,13 @@ def run_cc_hand(
                         feed.manager.get_model(hero, opp_name).tendencies.update_fold_to_cbet(
                             folded
                         )
+            # Preflop 3-bet responses → each hero's fold_to_3bet tendency (the
+            # same divergent-feed crack the WTSD/cbet feeds fell through: this
+            # is a THIRD hand-driver and needs the 3bet feed wired explicitly).
+            for opener, folded3 in feed.cbet_detector.consume_threebet_response_events():
+                for hero in feed.hero_names:
+                    if hero != opener:
+                        feed.manager.get_model(hero, opener).tendencies.update_fold_to_3bet(folded3)
 
         advanced = advance_to_next_active_player(new_gs)
         sm.game_state = advanced if advanced is not None else new_gs

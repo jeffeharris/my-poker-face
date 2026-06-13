@@ -488,13 +488,62 @@ def _resolve_vs_squeeze_defense(pcfg, skill) -> float:
 # suited, hands that play OK the times they get called. Tiers widen as the opener
 # reads foldier; the per-persona `light_3bet` knob scales the widen.
 LIGHT_3BET_TIERS = (
-    ('A5s', 'A4s', 'A3s', 'A2s'),  # tier 0 (floor): wheel-ace blockers
-    ('KJs', 'QTs', 'JTs', 'T9s', '98s'),  # tier 1: suited broadway / connectors
-    ('K9s', 'Q9s', 'J9s', '87s', '76s'),  # tier 2: wider suited vs a big folder
+    # tier 0 (floor): the core — suited aces (blockers) + suited broadway +
+    # best suited connectors. Plays OK the ~28% they don't fold.
+    (
+        'A5s',
+        'A4s',
+        'A3s',
+        'A2s',
+        'A9s',
+        'A8s',
+        'A7s',
+        'A6s',
+        'KJs',
+        'KTs',
+        'QTs',
+        'QJs',
+        'JTs',
+        'T9s',
+        '98s',
+        '87s',
+    ),
+    # tier 1: wider suited + suited gappers + offsuit broadway/ace blockers
+    (
+        'K9s',
+        'Q9s',
+        'J9s',
+        'T8s',
+        '97s',
+        '76s',
+        '65s',
+        '54s',
+        'ATo',
+        'AJo',
+        'KJo',
+        'KQo',
+        'QJo',
+    ),
+    # tier 2 (vs a huge folder): wide suited + more offsuit blockers
+    (
+        'K8s',
+        'Q8s',
+        'J8s',
+        'T7s',
+        '86s',
+        '75s',
+        '64s',
+        '53s',
+        'A9o',
+        'A8o',
+        'KTo',
+        'QTo',
+        'JTo',
+    ),
 )
 # Opener fold_to_3bet read → how deep to bluff-3bet (descending cutoffs). A bigger
 # over-folder unlocks deeper tiers; the knob shrinks the depth, never the floor.
-_LIGHT_3BET_FOLD_BANDS = ((0.82, 2), (0.72, 1), (0.62, 0))
+_LIGHT_3BET_FOLD_BANDS = ((0.80, 2), (0.70, 1), (0.62, 0))
 LIGHT_3BET_DEFAULT = 0.0  # un-tiered persona = off (no light 3-bets)
 
 
@@ -5004,10 +5053,11 @@ class TieredBotController(AIPlayerController):
         fold_to_3bet, _sample = read
         if fold_to_3bet <= HIGH_FOLD_TO_3BET_THRESHOLD:
             return strategy  # not a genuine over-folder
-        # Don't stomp a hand the chart already wants to 3-bet (it has raise mass).
-        probs = dict(strategy.action_probabilities)
-        if any(a == 'raise' or a.startswith('raise_') for a in probs):
-            return strategy
+        # NB: we deliberately do NOT skip hands the chart already 3-bets *some*
+        # of the time. The exploit is to 3-bet a fold-happy opener MORE, so a
+        # mixed call/3-bet hand should become a pure 3-bet here — gating on "not
+        # already raising" excluded exactly the mixed bluff hands (most of the
+        # range in HU BB-defense) and starved the rule to ~0 fires.
         # Foldy read → tier depth; knob shrinks the widen, never the floor.
         base_tier = next((d for cut, d in _LIGHT_3BET_FOLD_BANDS if fold_to_3bet >= cut), 0)
         max_tier = int(round(base_tier * knob))
