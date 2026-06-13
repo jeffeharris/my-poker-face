@@ -1,0 +1,19 @@
+{
+  "source_player": "Nit3betFolder",
+  "hands_observed": 1000,
+  "vpip": 0.20,
+  "pfr": 0.16,
+  "aggression_factor": 0.9,
+  "fold_to_cbet": 0.65,
+  "bluff_frequency": 0.03,
+  "showdown_win_rate": 0.52,
+  "wtsd": 0.22,
+  "threebet_rate": 0.04,
+  "flop_af": 0.8,
+  "turn_af": 0.8,
+  "river_af": 0.8,
+  "bluff_air_freq": 0.0,
+  "overfold_factor": 1.5,
+  "fold_to_3bet": 0.72,
+  "_comment": "Faithful tight-passive NIT: opens ~16% and OVER-FOLDS to 3-bets/squeezes (~72%) via the fold_to_3bet lever (human_clone.py). The bed the light-3-bet / squeeze counter needs. The AF-gated vs-3bet split alone would keep a low-AF passive bed's FULL open (never folds to a 3-bet in play); the lever overrides it so the opener lays down the bottom (1-0.72)=28% of its open. overfold_factor 1.5 keeps it foldy postflop too."
+}

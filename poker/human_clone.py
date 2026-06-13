@@ -103,6 +103,14 @@ class CloneProfile:
     # this extends past 1.0. e.g. 1.8 → folds hands needing up to ~1.8× pot odds.
     overfold_factor: float = 1.0
 
+    # Preflop over-fold-to-3-bet lever (hand-authored profiles only). When set,
+    # the opener continues only the top (1 - fold_to_3bet) slice of its OPENING
+    # (pfr) range facing a 3-bet/squeeze and folds the rest — overriding the
+    # AF-gated vs-3bet split (which keeps a low-AF passive bed's FULL open, so a
+    # nit never folds to a 3-bet in play). The faithful "nit that over-folds to
+    # 3-bets ~72%" bed the light-3-bet exploit needs. None = legacy AF-gated.
+    fold_to_3bet: Optional[float] = None
+
     @property
     def display_name(self) -> str:
         return f"{self.source_player}_clone"
@@ -412,6 +420,14 @@ def build_clone_strategy(profile: CloneProfile, oracle_punish_overbets: bool = F
     vs_3bet_continue_tier = (
         _tier_for_frequency(profile.pfr * _VS_3BET_CONTINUE_FRAC) if is_disciplined else vpip_tier
     )
+    # Authored preflop over-fold-to-3-bet: continue only the top
+    # (1 - fold_to_3bet) slice of the OPENING range, regardless of AF. Lets a
+    # tight-passive nit genuinely fold most of its open to a 3-bet/squeeze (the
+    # faithful bed the detector + light-3-bet counter need to be validated).
+    if profile.fold_to_3bet is not None:
+        vs_3bet_continue_tier = _tier_for_frequency(
+            profile.pfr * max(0.0, 1.0 - profile.fold_to_3bet)
+        )
 
     # P(raise | committing to play postflop) = AF / (AF + 1).
     # AF=2 → raise 67% of betting opportunities; AF=0.5 → raise 33%; AF=1 → raise 50%.
