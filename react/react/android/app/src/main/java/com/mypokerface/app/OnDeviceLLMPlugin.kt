@@ -5,6 +5,7 @@ import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
+import android.util.Log
 import com.getcapacitor.annotation.CapacitorPlugin
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.prompt.Generation
@@ -15,6 +16,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
+
+private const val TAG = "OnDeviceLLM"
 
 /**
  * Android counterpart to iOS's FoundationModelsBridgePlugin.swift — on-device
@@ -50,7 +54,9 @@ class OnDeviceLLMPlugin : Plugin() {
     fun availability(call: PluginCall) {
         scope.launch {
             try {
-                when (model.checkStatus()) {
+                val status = model.checkStatus()
+                Log.i(TAG, "availability: checkStatus=$status (AVAILABLE=${FeatureStatus.AVAILABLE})")
+                when (status) {
                     FeatureStatus.AVAILABLE ->
                         call.resolve(JSObject().put("available", true))
                     FeatureStatus.DOWNLOADABLE ->
@@ -75,14 +81,22 @@ class OnDeviceLLMPlugin : Plugin() {
     fun prewarm(call: PluginCall) {
         scope.launch {
             try {
-                when (model.checkStatus()) {
+                val status = model.checkStatus()
+                Log.i(TAG, "prewarm: checkStatus=$status")
+                when (status) {
                     FeatureStatus.AVAILABLE -> {
                         model.warmup()
+                        Log.i(TAG, "prewarm: model warmed")
                         call.resolve(JSObject().put("warmed", true))
                     }
                     FeatureStatus.DOWNLOADABLE -> {
                         // Fire-and-forget the download; report not-yet-warm.
-                        scope.launch { runCatching { model.download().collect { } } }
+                        Log.i(TAG, "prewarm: starting Gemini Nano model download")
+                        scope.launch {
+                            runCatching {
+                                model.download().collect { st -> Log.i(TAG, "download: $st") }
+                            }.onFailure { Log.w(TAG, "download failed: ${it.message}") }
+                        }
                         call.resolve(JSObject().put("warmed", false))
                     }
                     else -> call.resolve(JSObject().put("warmed", false))
@@ -117,6 +131,7 @@ class OnDeviceLLMPlugin : Plugin() {
         scope.launch {
             try {
                 val full = buildPrompt(prompt, system, tones)
+                Log.i(TAG, "suggestChat: generating on-device (prompt ${full.length} chars)")
                 // genai-prompt exposes a String overload of generateContent — no need
                 // to build a GenerateContentRequest/TextPart for a plain text prompt.
                 val response = model.generateContent(full)
@@ -124,11 +139,112 @@ class OnDeviceLLMPlugin : Plugin() {
                     ?: throw IllegalStateException("empty response")
                 val suggestions = parseSuggestions(text, tones.firstOrNull() ?: "")
                 if (suggestions.length() == 0) throw IllegalStateException("no parseable suggestions")
+                Log.i(TAG, "suggestChat: ON-DEVICE OK — ${suggestions.length()} suggestion(s)")
                 call.resolve(JSObject().put("suggestions", suggestions))
             } catch (e: Throwable) {
+                Log.w(TAG, "suggestChat: on-device failed (-> server): ${e.message}")
                 call.reject("on-device generation failed: ${e.message}")
             }
         }
+    }
+
+    /**
+     * Streaming variant of [suggestChat] — the Android side of the JS
+     * `suggestChatStream` contract (callback return type: resolve() fires repeatedly
+     * with cumulative `{suggestions, done}` until done=true). Collects the Gemini
+     * Nano token stream via `generateContentStream` and surfaces each suggestion as
+     * its JSON object closes, so the UI shows the first line before the rest finish.
+     * The JS self-heals to non-streaming generation if this errors.
+     */
+    @PluginMethod(returnType = PluginMethod.RETURN_CALLBACK)
+    fun suggestChatStream(call: PluginCall) {
+        val prompt = call.getString("prompt")
+        if (prompt.isNullOrEmpty()) {
+            call.reject("prompt is required")
+            return
+        }
+        val system = call.getString("system")
+        val tones: List<String> = call.getArray("tones", JSArray())?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optString(it, null) }
+        } ?: emptyList()
+        val fallbackTone = tones.firstOrNull() ?: ""
+
+        call.setKeepAlive(true)
+        scope.launch {
+            try {
+                val full = buildPrompt(prompt, system, tones)
+                Log.i(TAG, "suggestChatStream: streaming on-device (prompt ${full.length} chars)")
+                var acc = ""
+                var lastCount = 0
+                var chunks = 0
+                model.generateContentStream(full).collect { resp ->
+                    chunks++
+                    val text = resp.candidates.firstOrNull()?.text ?: ""
+                    // Tolerate either cumulative or delta chunk semantics.
+                    acc = if (text.startsWith(acc) && text.length >= acc.length) text else acc + text
+                    val partial = parseStreamingSuggestions(acc, fallbackTone)
+                    Log.i(TAG, "stream chunk #$chunks: +${text.length}c acc=${acc.length}c parsed=${partial.length()}")
+                    if (partial.length() > lastCount) {
+                        lastCount = partial.length()
+                        call.resolve(JSObject().put("suggestions", partial).put("done", false))
+                    }
+                }
+                val finalList = parseStreamingSuggestions(acc, fallbackTone)
+                Log.i(TAG, "suggestChatStream: ON-DEVICE OK — ${finalList.length()} suggestion(s) in $chunks chunk(s)")
+                Log.i(TAG, "stream raw: ${acc.replace("\n", "\\n").take(700)}")
+                call.resolve(JSObject().put("suggestions", finalList).put("done", true))
+            } catch (e: Throwable) {
+                Log.w(TAG, "suggestChatStream: on-device failed (-> server): ${e.message}")
+                call.reject("on-device streaming failed: ${e.message}")
+            } finally {
+                bridge?.releaseCall(call)
+            }
+        }
+    }
+
+    /**
+     * Extract every COMPLETE top-level {…} object from (possibly still-unclosed) JSON
+     * text and map to {text, tone}. Unlike parseSuggestions (which needs the whole
+     * array), this lets a streamed, not-yet-closed array surface the suggestions whose
+     * objects have already closed — enabling one-at-a-time reveal.
+     */
+    private fun parseStreamingSuggestions(raw: String, fallbackTone: String): JSArray {
+        val out = JSArray()
+        var depth = 0
+        var start = -1
+        var inStr = false
+        var esc = false
+        for (i in raw.indices) {
+            val c = raw[i]
+            if (inStr) {
+                when {
+                    esc -> esc = false
+                    c == '\\' -> esc = true
+                    c == '"' -> inStr = false
+                }
+                continue
+            }
+            when (c) {
+                '"' -> inStr = true
+                '{' -> { if (depth == 0) start = i; depth++ }
+                '}' -> {
+                    if (depth > 0) depth--
+                    if (depth == 0 && start >= 0) {
+                        try {
+                            val o = JSONObject(raw.substring(start, i + 1))
+                            val text = o.optString("text", "").trim()
+                            if (text.isNotEmpty()) {
+                                val tone = o.optString("tone", fallbackTone).trim().ifEmpty { fallbackTone }
+                                out.put(JSObject().put("text", text).put("tone", tone))
+                            }
+                        } catch (_: Throwable) {
+                        }
+                        start = -1
+                    }
+                }
+            }
+        }
+        return out
     }
 
     private fun buildPrompt(prompt: String, system: String?, tones: List<String>): String {
