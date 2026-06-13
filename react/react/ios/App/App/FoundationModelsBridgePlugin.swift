@@ -124,10 +124,12 @@ public class FoundationModelsBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         }
         let system = call.getString("system")
         let tones = call.getArray("tones", String.self) ?? []
-        call.keepAlive = true  // resolve() fires once per snapshot, not once total
 
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
+            // Mark kept-alive only once we're committed to streaming — the unsupported
+            // path below rejects without releaseCall, so it must not leave keepAlive set.
+            call.keepAlive = true  // resolve() fires once per snapshot, not once total
             Task {
                 do {
                     let instructions = system ?? Self.defaultInstructions
