@@ -679,6 +679,76 @@ class TestWinnerStamp:
         assert repo.load('t-coalesce')['winner_pid'] == 'b'
 
 
+def _session_with_human(human_id, entries, stacks, eliminations=None) -> str:
+    """session_json carrying a human seat + eliminations, for human_finish tests."""
+    return json.dumps(
+        {
+            'human_id': human_id,
+            'field': {
+                'entries': {e: 0 for e in entries},
+                'stacks': stacks,
+                'eliminations': eliminations or [],
+            },
+        }
+    )
+
+
+class TestHumanFinish:
+    """`save()` also stamps the human seat's finishing position — the Champions
+    Roll's "you finished Nth" on events the player actually sat in."""
+
+    HUMAN = f'human:{OWNER}'
+
+    def test_human_wins_finishes_first(self, kit):
+        repo = kit['session_repo']
+        repo.save(
+            tournament_id='t-win',
+            owner_id=OWNER,
+            status='complete',
+            resolver_kind='single',
+            session_json=_session_with_human(
+                self.HUMAN, [self.HUMAN, 'mervin'], {self.HUMAN: 18_000}
+            ),
+            created_at='2026-06-01T00:00:00',
+        )
+        assert repo.load('t-win')['human_finish'] == 1
+
+    def test_human_busts_uses_elimination_position(self, kit):
+        repo = kit['session_repo']
+        repo.save(
+            tournament_id='t-bust',
+            owner_id=OWNER,
+            status='complete',
+            resolver_kind='single',
+            session_json=_session_with_human(
+                self.HUMAN,
+                [self.HUMAN, 'mervin', 'sun_tzu'],
+                {'mervin': 27_000},  # mervin is champion
+                eliminations=[
+                    {'player_id': 'sun_tzu', 'finishing_position': 3, 'eliminator': 'mervin'},
+                    {'player_id': self.HUMAN, 'finishing_position': 2, 'eliminator': 'mervin'},
+                ],
+            ),
+            created_at='2026-06-01T00:00:00',
+        )
+        row = repo.load('t-bust')
+        assert row['winner_pid'] == 'mervin'
+        assert row['human_finish'] == 2  # human's elimination position
+
+    def test_autonomous_event_has_no_human_finish(self, kit):
+        # The human seat isn't in the field (declined/expired → ran without them).
+        repo = kit['session_repo']
+        repo.save(
+            tournament_id='t-auto',
+            owner_id=OWNER,
+            status='complete',
+            resolver_kind='fake',
+            session_json=_session_with_human(self.HUMAN, ['mervin', 'sun_tzu'], {'mervin': 18_000}),
+            created_at='2026-06-01T00:00:00',
+        )
+        assert repo.load('t-auto')['human_finish'] is None  # not a participant
+
+
 class TestCircuitHistory:
     """`list_circuit_history_for_owner` = the Champions Roll: completed
     invite-linked events (incl. ones the player passed on), newest first."""
@@ -721,6 +791,7 @@ class TestCircuitHistory:
         assert by_id['t-passed']['played'] is False  # ran without the player
         assert by_id['t-passed']['winner_pid'] == 'mervin'
         assert by_id['t-played']['field_size'] == 2
+        assert 'human_finish' in by_id['t-played']  # the query plumbs the finish through
 
     def test_dedups_a_tournament_with_two_linked_invites(self, kit):
         # The invite→tournament link isn't unique at the schema level. A stray
