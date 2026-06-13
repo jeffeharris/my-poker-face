@@ -215,6 +215,21 @@ CHANGES: Dict[str, ChangeSpec] = {
         },
         challenger_flags={'disable_rules': frozenset()},
     ),
+    # ── Bluff-catch HARD override isolation: both arms run the FULL exploitation
+    # layer (strength 1.0); only `_maybe_bluff_catch_override` differs. Champion
+    # has it OFF, challenger ON, so the paired edge is the hard override's
+    # STANDALONE bb/100 contribution on top of everything else — the validation
+    # of the new detect/exploit pair vs an over-bluffing field. Run vs a
+    # ManiacOverBluff backdrop (the faithful over-bluffer bed). ──
+    'bluff_catch': ChangeSpec(
+        description='bluff-catch HARD override OFF (champion) vs ON (challenger), '
+        'both with full exploitation — the override\'s standalone bb/100 vs an '
+        'over-bluffing field (use a ManiacOverBluff backdrop).',
+        champion_table=lambda: load_strategy_table(),
+        challenger_table=lambda: load_strategy_table(),
+        champion_flags={'exploitation_strength': 1.0, 'bluff_catch_override_enabled': False},
+        challenger_flags={'exploitation_strength': 1.0, 'bluff_catch_override_enabled': True},
+    ),
     # ── Depth-chart flavor: champion gets NO shallow depth charts (flat 100bb
     # preflop table at every effective-stack depth — the original
     # depth-agnostic behavior); challenger keeps the 50/25bb shallow charts
