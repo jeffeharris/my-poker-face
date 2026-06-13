@@ -1241,12 +1241,19 @@ class TestArchetypeRawVsDisplay(unittest.TestCase):
         # Every non-archetype exploit gate CLOSED, so only the archetype-derived
         # read (station/maniac) can fire — isolating the raw-vs-display bug.
         return SimpleNamespace(
-            _barrel_opportunity_count=0, _postflop_seen_as_pfr_count=0,
-            cbet_attempt_rate=0.0, barrel_frequency=0.5,
-            _cbet_faced_count=0, fold_to_cbet=0.5,
-            _big_bet_faced_count=0, fold_to_big_bet=0.3,
-            _equity_betting_big_count=0, _equity_betting_small_count=0,
-            sizing_polarization_score=0.0, _preflop_open_opportunities=0, limp_rate=0.0,
+            _barrel_opportunity_count=0,
+            _postflop_seen_as_pfr_count=0,
+            cbet_attempt_rate=0.0,
+            barrel_frequency=0.5,
+            _cbet_faced_count=0,
+            fold_to_cbet=0.5,
+            _big_bet_faced_count=0,
+            fold_to_big_bet=0.3,
+            _equity_betting_big_count=0,
+            _equity_betting_small_count=0,
+            sizing_polarization_score=0.0,
+            _preflop_open_opportunities=0,
+            limp_rate=0.0,
         )
 
     def test_raw_drives_detection_display_does_not(self):
