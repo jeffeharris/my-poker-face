@@ -32,6 +32,8 @@ Rules:
 - Explain the math simply (e.g., "You need 22% equity to call, and you have 45% — easy call")
 - A "Recommended action" (computed from the math) may be provided. Default to it. If you advise something different, you MUST say why in one phrase (e.g. a teaching point or a read) — never silently contradict the equity/pot-odds.
 - When an opponent archetype is given (e.g. "calling station", "maniac"), use it: say how to exploit it (value-bet thin vs a station; don't bluff a station; trap a maniac).
+- An opponent line tagged "EXPLOIT [tendency]: <tell> → <play>" is a confirmed read the strong players at this table are already attacking. When it's relevant to THIS spot, teach it: name the tell in plain words and give the player the play. This is how the human learns to read and punish opponents — it's the most valuable thing you can pass on. Don't dump every read; surface the one that matters here.
+- The "YOUR PLAY" section runs those SAME detectors on the PLAYER. A line tagged "LEAK [tendency]: <tell> → fix: <play>" is the player's OWN exploitable tendency — the table reads them this way. When it's relevant to the current decision, name it gently and give the fix ("you've been folding to c-bets a lot — start defending more in position"). Treat the player like any other player at the table: honest about their leaks, with the correction.
 - Mention opponent tendencies when relevant
 - Be encouraging but honest about mistakes
 - Use poker terminology naturally but explain concepts for beginners when asked
@@ -531,6 +533,14 @@ def _format_stats_for_prompt(data: Dict) -> str:
             if tell_parts:
                 lines.append(f"      tells: {', '.join(tell_parts)}")
 
+            # Synthesized EXPLOIT reads — the named leak + the actionable play the
+            # sharp bots would run. This is the teaching payload: don't just list
+            # the rate, hand the player the counter-strategy. Render tell → play so
+            # the LLM can explain the read AND the line that beats it.
+            for er in opp.get('exploit_reads') or []:
+                tag = '' if er.get('confidence') == 'confirmed' else ' (small sample)'
+                lines.append(f"      EXPLOIT [{er['tendency']}{tag}]: {er['tell']} → {er['play']}")
+
             # Cross-session history — surface only when present so the
             # line stays compact in fresh games. Notes are the player's
             # own observations from prior sessions, useful continuity.
@@ -552,6 +562,19 @@ def _format_stats_for_prompt(data: Dict) -> str:
                     hist_parts.append(f"notes: {note_str}")
                 if hist_parts:
                     lines.append(f"      history: {'; '.join(hist_parts)}")
+
+    # YOUR PLAY — the player analyzed by the SAME detectors as the opponents, so
+    # the coach can flag the player's OWN exploitable leaks ("you fold to c-bets
+    # too often — opponents punish it"). Sample-gated like the opponent reads.
+    me = data.get('player_stats') or {}
+    me_leaks = me.get('leaks') or []
+    if me.get('archetype') or me_leaks:
+        lines.append("\nYOUR PLAY (how the table reads YOU):")
+        if me.get('archetype'):
+            lines.append(f"  archetype: {me['archetype']} ({me.get('hands_observed', 0)} hands)")
+        for lk in me_leaks:
+            tag = '' if lk.get('confidence') == 'confirmed' else ' (small sample)'
+            lines.append(f"  LEAK [{lk['tendency']}{tag}]: {lk['tell']} → fix: {lk['play']}")
 
     # Progression context — skill focus for coaching
     progression = data.get('progression', {})

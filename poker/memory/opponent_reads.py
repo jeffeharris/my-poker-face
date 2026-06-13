@@ -200,3 +200,164 @@ def deep_reads_from_tendencies(t) -> Optional[Dict[str, Any]]:
         'equity_when_raising': _mean(t._equity_raising_sum, t._equity_raising_count),
         'equity_when_calling': _mean(t._equity_calling_sum, t._equity_calling_count),
     }
+
+
+# Perspective-keyed (tell, play) text per detected tendency. 'opponent' = how YOU
+# beat this villain; 'self' = YOUR leak + the fix (the same leak, framed as something
+# opponents punish). Same detection, flipped framing — so the coach analyzes every
+# player, including the human, the SAME way.
+_EXPLOIT_READ_TEXT = {
+    'station': {
+        'opponent': (
+            "calls far too much and almost never folds postflop",
+            "value-bet thin and big with any real hand, and STOP bluffing — he calls "
+            "you down, so only bet when you want to be called",
+        ),
+        'self': (
+            "you call too much postflop and rarely fold",
+            "tighten up — fold your weak made hands instead of paying off; right now "
+            "you're a target for thin value and your bluffs can't get through",
+        ),
+    },
+    'maniac': {
+        'opponent': (
+            "over-bets and bluffs far too often",
+            "let him do the betting — check-call / trap with your strong hands and "
+            "bluff-catch wider; don't bluff a player who won't fold",
+        ),
+        'self': (
+            "you bet and bluff too often",
+            "dial back the aggression and pick better spots — you're getting called "
+            "down and trapped by players who let you hang yourself",
+        ),
+    },
+    'one_and_done': {
+        'opponent': (
+            "c-bets the flop a lot but rarely fires a second barrel on the turn",
+            "float his flop c-bet (call in position) and bet when he checks "
+            "the turn — he gives up most of his air there",
+        ),
+        'self': (
+            "you c-bet the flop a lot but give up the turn too often",
+            "barrel more turns when you have a plan (or c-bet the flop less) — sharp "
+            "opponents float you and steal the pot when you check the turn",
+        ),
+    },
+    'folds_to_cbet': {
+        'opponent': (
+            "folds to a flop c-bet too often",
+            "c-bet relentlessly when you take the betting lead — almost any "
+            "two cards show a profit",
+        ),
+        'self': (
+            "you fold to flop c-bets too often",
+            "defend more — float in position or check-raise; folding to every c-bet "
+            "lets opponents barrel you off pots with any two cards",
+        ),
+    },
+    'over_folds_big': {
+        'opponent': (
+            "folds too much to big bets and overbets",
+            "size UP your bluffs against him — a big bet or overbet folds him "
+            "out where a small one wouldn't",
+        ),
+        'self': (
+            "you over-fold to big bets and overbets",
+            "don't let big sizing scare you off a good hand — call down more vs "
+            "polarized bettors; you're being bluffed off the best hand",
+        ),
+    },
+    'sizing_tell': {
+        'opponent': (
+            "bets big with strong hands and small with weak ones — his sizing is face-up",
+            "respect his big bets (fold marginal hands) and attack his small "
+            "ones (call or raise — they're weak)",
+        ),
+        'self': (
+            "your bet sizing telegraphs your strength (big = strong)",
+            "use the same sizes with your bluffs and your value — right now you're an "
+            "open book and good players just read your bet size",
+        ),
+    },
+    'habitual_limper': {
+        'opponent': (
+            "limps into pots a lot instead of raising",
+            "raise (isolate) his limps with a wide range — he enters weak and "
+            "folds or plays a capped hand out of position",
+        ),
+        'self': (
+            "you limp into pots too often instead of raising",
+            "raise or fold — limping is weak and invites opponents to isolate you and "
+            "play big pots against you in position",
+        ),
+    },
+}
+
+
+def exploit_reads_from_tendencies(
+    t, *, archetype: Optional[str] = None, perspective: str = 'opponent'
+):
+    """Synthesize an `OpponentTendencies` into actionable reads — the same leaks the
+    tiered bots detect+attack, named with a tell + the play.
+
+    `perspective` decides the framing (same detection either way):
+      - 'opponent' (default): how YOU beat this villain (the exploit).
+      - 'self': YOUR leak + the fix — run the SAME detectors on the human so the
+        coach analyzes every player at the table the same way and flags the player's
+        own exploitable tendencies.
+
+    Returns a list of ``{tendency, confidence, tell, play}`` dicts (possibly empty).
+    Each read mirrors the bot's OWN detection thresholds and is sample-gated on its
+    own counter — an unobserved/immature read is omitted rather than asserted on a
+    neutral prior. `archetype` is the already-classified label; when None, the
+    archetype-derived reads (station / maniac) are skipped.
+
+    Thresholds: high_fold_to_cbet (0.60 / ≥5 faced), the float-steal one-and-done gate
+    (low barrel_frequency / ≥5 opps), the air-barrel & steal foldable read
+    (fold_to_big_bet ≥ 0.50), limp_exploit (LIMP_GAP_MIN 0.20), sizing_defense
+    (polarization ≥ 0.15), and classify_opponent_archetype.
+    """
+    if t is None:
+        return []
+
+    from poker.memory.opponent_model import (
+        SIZING_MIN_BIG_BET_FACED,
+        SIZING_MIN_BIN_SAMPLE,
+    )
+
+    def _conf(count, minimum):
+        return 'confirmed' if count >= 2 * minimum else 'developing'
+
+    # Detection only — collect (tendency, confidence); the text comes from the
+    # perspective table so the same gates serve both opponent and self framing.
+    fired = []
+    if archetype in ('pure_station', 'loose_passive'):
+        fired.append(('station', 'confirmed'))
+    if archetype == 'hyper_aggressive':
+        fired.append(('maniac', 'confirmed'))
+    if (
+        t._barrel_opportunity_count >= 5
+        and t._postflop_seen_as_pfr_count >= 5
+        and t.cbet_attempt_rate >= 0.55
+        and t.barrel_frequency <= 0.35
+    ):
+        fired.append(('one_and_done', _conf(t._barrel_opportunity_count, 5)))
+    if t._cbet_faced_count >= 5 and t.fold_to_cbet >= 0.60:
+        fired.append(('folds_to_cbet', _conf(t._cbet_faced_count, 5)))
+    if t._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED and t.fold_to_big_bet >= 0.50:
+        fired.append(('over_folds_big', _conf(t._big_bet_faced_count, SIZING_MIN_BIG_BET_FACED)))
+    sizing_ready = (
+        t._equity_betting_big_count >= SIZING_MIN_BIN_SAMPLE
+        and t._equity_betting_small_count >= SIZING_MIN_BIN_SAMPLE
+    )
+    if sizing_ready and t.sizing_polarization_score >= 0.15:
+        fired.append(('sizing_tell', 'confirmed'))
+    if t._preflop_open_opportunities >= 8 and t.limp_rate >= 0.20:
+        fired.append(('habitual_limper', _conf(t._preflop_open_opportunities, 8)))
+
+    persp = perspective if perspective in ('opponent', 'self') else 'opponent'
+    reads = []
+    for tendency, confidence in fired:
+        tell, play = _EXPLOIT_READ_TEXT[tendency][persp]
+        reads.append({'tendency': tendency, 'confidence': confidence, 'tell': tell, 'play': play})
+    return reads

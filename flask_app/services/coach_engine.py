@@ -401,27 +401,33 @@ def _get_style_label(vpip: float, aggression: float) -> str:
 # stays silent rather than guessing.
 _ARCHETYPE_COACH_LABELS = {
     'pure_station': 'calling station (calls too much, rarely raises)',
+    'loose_passive': 'loose-passive station (loose preflop, passive postflop)',
     'hyper_aggressive': 'maniac (over-aggressive — bets/raises relentlessly)',
     'sticky_jammer': 'sticky jammer (calls light, then jams)',
 }
 
 
-def _classify_opp_archetype(tendencies) -> Optional[str]:
-    """Coach-friendly opponent archetype from the tiered bots' detection layer.
-
-    Reuses the exact classifier the AI uses to exploit opponents, so the coach's
-    read matches the table's reality. Best-effort: returns None on any issue or
-    below the classifier's sample gate.
-    """
+def _classify_opp_archetype_raw(tendencies) -> Optional[str]:
+    """RAW detection-layer archetype label ('pure_station' / 'loose_passive' /
+    'hyper_aggressive' / 'sticky_jammer'), or None below the classifier's sample
+    gate. This is what the exploit-read detectors gate on — NOT the coach-friendly
+    display string (passing the display string silently disables the station/maniac
+    reads, since it never matches the raw labels)."""
     try:
         from poker.memory.opponent_model import _build_aggregate_from_single
         from poker.strategy.exploitation import classify_opponent_archetype
 
-        label = classify_opponent_archetype(_build_aggregate_from_single(tendencies))
-        return _ARCHETYPE_COACH_LABELS.get(label) if label else None
+        return classify_opponent_archetype(_build_aggregate_from_single(tendencies))
     except Exception as e:
-        logger.debug(f"_classify_opp_archetype failed: {e}")
+        logger.debug(f"_classify_opp_archetype_raw failed: {e}")
         return None
+
+
+def _archetype_display(raw: Optional[str]) -> Optional[str]:
+    """Coach-friendly display string for a raw archetype label (for the prompt).
+    The raw label (`_classify_opp_archetype_raw`) drives the exploit-read detection
+    gate; this is only the human-readable phrasing shown in the prompt."""
+    return _ARCHETYPE_COACH_LABELS.get(raw) if raw else None
 
 
 def _opponent_deep_reads(tendencies, model, memory_manager, user_id):
@@ -470,6 +476,8 @@ def _get_opponent_stats(
         block with cross-session data.
     """
     stats = []
+
+    from poker.memory.opponent_reads import exploit_reads_from_tendencies
 
     # Validate required game data
     state_machine = game_data.get('state_machine')
@@ -529,6 +537,11 @@ def _get_opponent_stats(
                 try:
                     model = omm.models[human_name][player.name]
                     tendencies = model.tendencies
+                    # RAW label drives the exploit-read detection gate; the DISPLAY
+                    # string is for the prompt. (Passing the display string to
+                    # exploit_reads_from_tendencies silently kills the station/maniac
+                    # reads — it never matches the raw labels.)
+                    _archetype_raw = _classify_opp_archetype_raw(tendencies)
                     opp_data.update(
                         {
                             'vpip': round(tendencies.vpip, 2),
@@ -540,7 +553,7 @@ def _get_opponent_stats(
                             # tiered bots exploit. A diagnosis ("calling
                             # station") is far more actionable for the coach
                             # than raw VPIP/PFR/AF. None below the sample gate.
-                            'archetype': _classify_opp_archetype(tendencies),
+                            'archetype': _archetype_display(_archetype_raw),
                             # Tier-2 postflop tells (fold-to-cbet, barreling,
                             # polarization, limp rate, …) — the same deep reads
                             # the dossier surfaces, so the coach can give
@@ -548,6 +561,13 @@ def _get_opponent_stats(
                             # him"). Each rate is None until its spot is seen.
                             'deep_reads': _opponent_deep_reads(
                                 tendencies, model, memory_manager, user_id
+                            ),
+                            # Synthesized EXPLOIT reads — the named leak + the
+                            # actionable play the tiered bots would run, so the
+                            # coach teaches the read AND the exploit, not just the
+                            # raw rate. Mirrors the bots' own detection thresholds.
+                            'exploit_reads': exploit_reads_from_tendencies(
+                                tendencies, archetype=_archetype_raw
                             ),
                         }
                     )
@@ -603,12 +623,29 @@ def _get_player_self_stats(game_data: dict, human_name: str) -> Optional[Dict]:
                     best_hands = t.hands_observed
 
         if best and best_hands >= 1:
+            # Run the SAME detectors on the human as on the opponents — treat every
+            # player the same — but framed as the player's own leak + fix
+            # (perspective='self'). Guarded on its own so a malformed tendency can't
+            # wipe out the headline self-stats (vpip/pfr/style).
+            self_arch_raw, self_leaks = None, []
+            try:
+                from poker.memory.opponent_reads import exploit_reads_from_tendencies
+
+                # RAW label for detection (see _classify_opp_archetype_raw).
+                self_arch_raw = _classify_opp_archetype_raw(best)
+                self_leaks = exploit_reads_from_tendencies(
+                    best, archetype=self_arch_raw, perspective='self'
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"self-leak synthesis failed: {e}")
             return {
                 'vpip': round(best.vpip, 2),
                 'pfr': round(best.pfr, 2),
                 'aggression': round(best.aggression_factor, 1),
                 'style': best.get_play_style_label(),
                 'hands_observed': best.hands_observed,
+                'archetype': _archetype_display(self_arch_raw),
+                'leaks': self_leaks,
             }
     except Exception as e:
         logger.warning(f"Player self-stats extraction failed: {e}")
