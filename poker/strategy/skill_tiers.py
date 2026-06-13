@@ -197,3 +197,12 @@ def apply_skill_tier(controller, tier: str = DEFAULT_SKILL_TIER) -> None:
     controller.river_bluff_fraction = spec.river_bluff_fraction
     controller.stab_defense_intensity = spec.stab_defense_intensity
     controller.overbet_fraction = spec.overbet_fraction
+    # NOTE: the exploitation knobs on SkillTier (vs3bet_exploit / limp_exploit /
+    # vs_squeeze_defense / steal_turn_target) are deliberately NOT set here. They
+    # carry a per-persona override path (a personality can set the value directly
+    # in personalities.json), so they're resolved in TieredBotController.__init__
+    # via _resolve_*(pcfg, skill) — which checks the pcfg override FIRST, then this
+    # tier. This function only receives (controller, tier) with no pcfg, so setting
+    # them here would silently clobber a persona's hand-tuned override. Add new
+    # tier-ONLY intensities here; add new override-aware knobs to the __init__
+    # resolvers instead.
