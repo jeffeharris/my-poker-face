@@ -471,6 +471,8 @@ def _get_opponent_stats(
     """
     stats = []
 
+    from poker.memory.opponent_reads import exploit_reads_from_tendencies
+
     # Validate required game data
     state_machine = game_data.get('state_machine')
     if not state_machine:
@@ -529,6 +531,7 @@ def _get_opponent_stats(
                 try:
                     model = omm.models[human_name][player.name]
                     tendencies = model.tendencies
+                    _archetype = _classify_opp_archetype(tendencies)
                     opp_data.update(
                         {
                             'vpip': round(tendencies.vpip, 2),
@@ -540,7 +543,7 @@ def _get_opponent_stats(
                             # tiered bots exploit. A diagnosis ("calling
                             # station") is far more actionable for the coach
                             # than raw VPIP/PFR/AF. None below the sample gate.
-                            'archetype': _classify_opp_archetype(tendencies),
+                            'archetype': _archetype,
                             # Tier-2 postflop tells (fold-to-cbet, barreling,
                             # polarization, limp rate, …) — the same deep reads
                             # the dossier surfaces, so the coach can give
@@ -548,6 +551,13 @@ def _get_opponent_stats(
                             # him"). Each rate is None until its spot is seen.
                             'deep_reads': _opponent_deep_reads(
                                 tendencies, model, memory_manager, user_id
+                            ),
+                            # Synthesized EXPLOIT reads — the named leak + the
+                            # actionable play the tiered bots would run, so the
+                            # coach teaches the read AND the exploit, not just the
+                            # raw rate. Mirrors the bots' own detection thresholds.
+                            'exploit_reads': exploit_reads_from_tendencies(
+                                tendencies, archetype=_archetype
                             ),
                         }
                     )

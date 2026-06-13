@@ -200,3 +200,118 @@ def deep_reads_from_tendencies(t) -> Optional[Dict[str, Any]]:
         'equity_when_raising': _mean(t._equity_raising_sum, t._equity_raising_count),
         'equity_when_calling': _mean(t._equity_calling_sum, t._equity_calling_count),
     }
+
+
+def exploit_reads_from_tendencies(t, *, archetype: Optional[str] = None):
+    """Synthesize an `OpponentTendencies` into actionable EXPLOIT reads — the same
+    leaks the tiered bots detect+attack, phrased as a player-facing tell + the play
+    that beats it. This is the teaching layer over `deep_reads_from_tendencies`
+    (which surfaces the raw rates): it names the tendency and hands the human the
+    exploit the sharp bots would run.
+
+    Returns a list of ``{tendency, confidence, tell, play}`` dicts (possibly empty).
+    Each read mirrors the bot's OWN detection thresholds (so the coach teaches
+    exactly what the bots do) and is sample-gated on its own counter — an
+    unobserved/immature read is omitted rather than asserted on a neutral prior.
+    `archetype` is the already-classified label (the coach computes it); when None,
+    the archetype-derived reads (station / maniac) are skipped.
+
+    Sources for the thresholds: high_fold_to_cbet (0.60 / ≥5 faced), the float-steal
+    one-and-done gate (low barrel_frequency / ≥5 opps), the air-barrel & steal
+    foldable read (fold_to_big_bet ≥ 0.50), limp_exploit (LIMP_GAP_MIN 0.20),
+    sizing_defense (polarization ≥ 0.15), and classify_opponent_archetype.
+    """
+    if t is None:
+        return []
+
+    from poker.memory.opponent_model import (
+        SIZING_MIN_BIG_BET_FACED,
+        SIZING_MIN_BIN_SAMPLE,
+    )
+
+    reads = []
+
+    def _conf(count, minimum):
+        return 'confirmed' if count >= 2 * minimum else 'developing'
+
+    # ── Station: calls too much, won't fold. Value-bet thin/big; stop bluffing. ──
+    if archetype in ('pure_station', 'loose_passive'):
+        reads.append({
+            'tendency': 'station',
+            'confidence': 'confirmed',
+            'tell': "calls far too much and almost never folds postflop",
+            'play': "value-bet thin and big with any real hand, and STOP bluffing — "
+                    "he calls you down, so only bet when you want to be called",
+        })
+
+    # ── Maniac: over-bets/over-bluffs. Trap and call down wider. ──
+    if archetype == 'hyper_aggressive':
+        reads.append({
+            'tendency': 'maniac',
+            'confidence': 'confirmed',
+            'tell': "over-bets and bluffs far too often",
+            'play': "let him do the betting — check-call / trap with your strong "
+                    "hands and bluff-catch wider; don't bluff a player who won't fold",
+        })
+
+    # ── One-and-done c-bettor: fires the flop, gives up the turn. Float & steal. ──
+    if (
+        t._barrel_opportunity_count >= 5
+        and t._postflop_seen_as_pfr_count >= 5
+        and t.cbet_attempt_rate >= 0.55
+        and t.barrel_frequency <= 0.35
+    ):
+        reads.append({
+            'tendency': 'one_and_done',
+            'confidence': _conf(t._barrel_opportunity_count, 5),
+            'tell': "c-bets the flop a lot but rarely fires a second barrel on the turn",
+            'play': "float his flop c-bet (call in position) and bet when he checks "
+                    "the turn — he gives up most of his air there",
+        })
+
+    # ── Over-folds to c-bets: c-bet relentlessly. ──
+    if t._cbet_faced_count >= 5 and t.fold_to_cbet >= 0.60:
+        reads.append({
+            'tendency': 'folds_to_cbet',
+            'confidence': _conf(t._cbet_faced_count, 5),
+            'tell': "folds to a flop c-bet too often",
+            'play': "c-bet relentlessly when you take the betting lead — almost any "
+                    "two cards show a profit",
+        })
+
+    # ── Over-folds to big bets/overbets: size up your bluffs. ──
+    if t._big_bet_faced_count >= SIZING_MIN_BIG_BET_FACED and t.fold_to_big_bet >= 0.50:
+        reads.append({
+            'tendency': 'over_folds_big',
+            'confidence': _conf(t._big_bet_faced_count, SIZING_MIN_BIG_BET_FACED),
+            'tell': "folds too much to big bets and overbets",
+            'play': "size UP your bluffs against him — a big bet or overbet folds him "
+                    "out where a small one wouldn't",
+        })
+
+    # ── Sizing tell: bet size telegraphs strength. Read his sizing. ──
+    sizing_ready = (
+        t._equity_betting_big_count >= SIZING_MIN_BIN_SAMPLE
+        and t._equity_betting_small_count >= SIZING_MIN_BIN_SAMPLE
+    )
+    if sizing_ready and t.sizing_polarization_score >= 0.15:
+        reads.append({
+            'tendency': 'sizing_tell',
+            'confidence': 'confirmed',
+            'tell': "bets big with strong hands and small with weak ones — his sizing "
+                    "is face-up",
+            'play': "respect his big bets (fold marginal hands) and attack his small "
+                    "ones (call or raise — they're weak)",
+        })
+
+    # ── Habitual limper: limps instead of raising. Isolate him. ──
+    if t._preflop_open_opportunities >= 8 and t.limp_rate >= 0.20:
+        reads.append({
+            'tendency': 'habitual_limper',
+            'confidence': _conf(t._preflop_open_opportunities, 8),
+            'tell': "limps into pots a lot instead of raising",
+            'play': "raise (isolate) his limps with a wide range — he enters weak and "
+                    "folds or plays a capped hand out of position",
+        })
+
+    return reads
