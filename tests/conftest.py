@@ -201,6 +201,7 @@ RESET_ECONOMY_FLAGS = (
     "DIRECTOR_POLICY_HOLD",
     "CASINO_RELATIVE_THRESHOLDS",
     "CASINO_RESEED_ON_SPENT",
+    "WHALE_RESERVE_GATED",
     # PRESENCE_AUTHORITY_ENABLED is no longer an `_env_flag(...)` read (the
     # Presence cutover hardwired it True; the old shadow flag was removed), so
     # it's intentionally absent here — `test_economy_flag_defaults` only tracks

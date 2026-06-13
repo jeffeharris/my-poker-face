@@ -1547,6 +1547,44 @@ def _open_lobby_table_for_stake(
     return None
 
 
+def _whale_can_spawn(chip_ledger_repo, stake_label: str, *, sandbox_id: str) -> bool:
+    """Can the pool fund a whale at `stake_label` right now?
+
+    `WHALE_RESERVE_GATED` → the chairman decides off the reserve ratio
+    (`economy_signal.can_fund_whale`: the whale's worst-case prefund must leave
+    reserves at/above the healthy floor). Otherwise the legacy per-stake absolute
+    high-watermark (`WHALE_POOL_THRESHOLDS`)."""
+    from cash_mode import economy_flags as _eflags
+
+    if _eflags.WHALE_RESERVE_GATED:
+        from core.economy.economy_signal import can_fund_whale, signal as _signal
+
+        _, hi = _prefund_mults(whale=True)
+        _, _, max_buy_in = table_buy_in_window(stake_label)
+        prefund_cost = int(max_buy_in * hi)
+        state = _signal(chip_ledger_repo, sandbox_id=sandbox_id)
+        return can_fund_whale(state, prefund_cost=prefund_cost)
+    threshold = WHALE_POOL_THRESHOLDS[stake_label]
+    return compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) >= threshold
+
+
+def _whale_should_wind_down(chip_ledger_repo, stake_label: str, *, sandbox_id: str) -> bool:
+    """Should a live whale at `stake_label` be recalled (the dam relief valve)?
+
+    `WHALE_RESERVE_GATED` → the chairman recalls when reserves hit the CRITICAL
+    band (`economy_signal.should_recall_whale`). Otherwise the legacy per-stake
+    absolute low-watermark (`WHALE_POOL_FLOORS`)."""
+    from cash_mode import economy_flags as _eflags
+
+    if _eflags.WHALE_RESERVE_GATED:
+        from core.economy.economy_signal import should_recall_whale, signal as _signal
+
+        state = _signal(chip_ledger_repo, sandbox_id=sandbox_id)
+        return should_recall_whale(state)
+    floor = WHALE_POOL_FLOORS[stake_label]
+    return compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < floor
+
+
 def resolve_whale_provisioning(
     *,
     cash_table_repo,
@@ -1594,11 +1632,9 @@ def resolve_whale_provisioning(
     seated = _find_seated_whale(cash_table_repo, sandbox_id=sandbox_id)
     if seated is not None:
         table, seat_idx, pid = seated
-        floor = WHALE_POOL_FLOORS.get(table.stake_label)
-        if floor is None:
+        if table.stake_label not in WHALE_POOL_THRESHOLDS:
             return batch  # stake not whale-eligible (config changed) — leave it
-        pool = compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id)
-        if pool >= floor:
+        if not _whale_should_wind_down(chip_ledger_repo, table.stake_label, sandbox_id=sandbox_id):
             return batch  # reservoir healthy — let the whale ride
         teardown = _wind_down_whale(
             cash_table_repo,
@@ -1614,10 +1650,9 @@ def resolve_whale_provisioning(
         if teardown is not None:
             batch.teardown = teardown
             logger.info(
-                "[CASH][WHALE] %s wind-down at %s (pool below %d floor)",
+                "[CASH][WHALE] %s wind-down at %s (reserves below the recall band)",
                 pid,
                 table.table_id,
-                floor,
             )
         return batch
 
@@ -1635,8 +1670,7 @@ def resolve_whale_provisioning(
     # release first (a $200 whale over a $50 whale when reserves allow).
     eligible_stakes = [s for s in STAKES_ORDER if s in WHALE_POOL_THRESHOLDS]
     for stake_label in reversed(eligible_stakes):
-        threshold = WHALE_POOL_THRESHOLDS[stake_label]
-        if compute_bank_pool_reserves(chip_ledger_repo, sandbox_id=sandbox_id) < threshold:
+        if not _whale_can_spawn(chip_ledger_repo, stake_label, sandbox_id=sandbox_id):
             continue
         lobby_table = _open_lobby_table_for_stake(
             cash_table_repo,

@@ -278,6 +278,18 @@ CASINO_RELATIVE_THRESHOLDS: bool = _flag("CASINO_RELATIVE_THRESHOLDS")
 # flow over time, no crashes). Default OFF — sim-validate with the thermostat.
 CASINO_RESEED_ON_SPENT: bool = _flag("CASINO_RESEED_ON_SPENT")
 
+# Whale deploy/recall at the chairman's discretion. The cardroom whale is a
+# one-at-a-time, pool-funded distribution (a deep "rich fish" the field farms), so
+# whether to deploy one is the same "is there money?" question the other
+# distribution levers ask. When on, `resolve_whale_provisioning` routes spawn and
+# the dam wind-down through `economy_signal.can_fund_whale` / `should_recall_whale`
+# (reserves vs the canonical RESERVE_* ladder) instead of the per-stake absolute
+# `WHALE_POOL_THRESHOLDS` / `WHALE_POOL_FLOORS` watermarks, which were tuned once at
+# launch holdings and don't rescale. The threshold dict's KEYS still define which
+# stakes are whale-eligible; only the absolute values are bypassed. Default OFF —
+# sim-validate the cadence with the rest of the thermostat before flipping.
+WHALE_RESERVE_GATED: bool = _flag("WHALE_RESERVE_GATED")
+
 
 # --- Player-prestige hook 4: AI demeanor ----------------------------------
 
