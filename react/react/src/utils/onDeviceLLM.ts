@@ -91,15 +91,21 @@ export async function suggestChatOnDevice(opts: {
 
 /**
  * Load the on-device model ahead of a request — call when the chat options are
- * presented so the first suggestion doesn't pay cold model-load latency. The model
- * then stays resident, so subsequent generations that session are warm. Best-effort,
- * gated like generation, and cheap to call repeatedly.
+ * presented so the first suggestion doesn't pay cold model-load latency.
+ *
+ * Deliberately NOT gated on `isOnDeviceLLMAvailable()`: prewarm's job is to *make*
+ * the model available. On Android the model is `DOWNLOADABLE` on first run and
+ * `prewarm()` kicks off the one-time download — gating on availability would be a
+ * catch-22 (model only downloads via prewarm, prewarm only runs once available), so
+ * it would never download and on-device would never engage. On iOS, prewarming when
+ * the model isn't available is a safe no-op (the OS manages the model download).
+ * Best-effort and cheap to call repeatedly.
  */
 export async function prewarmOnDevice(): Promise<void> {
-  if (!(await isOnDeviceLLMAvailable())) return;
+  if (isKillSwitched() || !isNativePlatform()) return;
   try {
     await FoundationModels.prewarm();
   } catch {
-    // best-effort — generation will still work, just colder
+    // best-effort — generation still works (or falls back), just colder
   }
 }
