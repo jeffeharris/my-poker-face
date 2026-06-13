@@ -613,12 +613,28 @@ def _get_player_self_stats(game_data: dict, human_name: str) -> Optional[Dict]:
                     best_hands = t.hands_observed
 
         if best and best_hands >= 1:
+            # Run the SAME detectors on the human as on the opponents — treat every
+            # player the same — but framed as the player's own leak + fix
+            # (perspective='self'). Guarded on its own so a malformed tendency can't
+            # wipe out the headline self-stats (vpip/pfr/style).
+            self_arch, self_leaks = None, []
+            try:
+                from poker.memory.opponent_reads import exploit_reads_from_tendencies
+
+                self_arch = _classify_opp_archetype(best)
+                self_leaks = exploit_reads_from_tendencies(
+                    best, archetype=self_arch, perspective='self'
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"self-leak synthesis failed: {e}")
             return {
                 'vpip': round(best.vpip, 2),
                 'pfr': round(best.pfr, 2),
                 'aggression': round(best.aggression_factor, 1),
                 'style': best.get_play_style_label(),
                 'hands_observed': best.hands_observed,
+                'archetype': self_arch,
+                'leaks': self_leaks,
             }
     except Exception as e:
         logger.warning(f"Player self-stats extraction failed: {e}")
