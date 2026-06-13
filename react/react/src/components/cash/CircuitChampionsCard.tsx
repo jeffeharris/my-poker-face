@@ -2,17 +2,17 @@
  * CircuitChampionsCard — the Champions Roll in the cash lobby.
  *
  * The circuit crowns a Main Event winner every cycle whether or not the player
- * sits down, so this is world history, not a personal scorecard: it lists recent
- * champions (personas you may never have played), with the player's own titles
- * highlighted and a quiet marker for the events that ran without them. Reinforces
- * that the personas have careers accruing independent of the player.
+ * sits down, so this is world history, not a personal scorecard. It stays small:
+ * collapsed it shows only the LATEST champion; click to expand the recent roll
+ * (personas you may never have played, your own titles highlighted, and a quiet
+ * marker for the events that ran without you).
  *
  * Self-fetching and best-effort like CareerHighlightsCard: renders nothing until
  * the circuit has crowned at least one champion, so a brand-new player sees no
  * empty shell. Reads the denormalized winner/field-size off `/circuit-history`
  * (no per-row session deserialization).
  */
-import { Trophy, Crown } from 'lucide-react';
+import { Trophy, Crown, ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { getCircuitHistory, type CircuitChampion } from './tournamentApi';
@@ -54,7 +54,7 @@ function ChampionRow({ event }: { event: CircuitChampion }) {
   }
 
   return (
-    <li className={`champions-card__row${isYou ? ' champions-card__row--you' : ''}`}>
+    <div className={`champions-card__row${isYou ? ' champions-card__row--you' : ''}`}>
       <span className="champions-card__avatar" aria-hidden="true">
         {avatar ? (
           <img src={avatar} alt="" loading="lazy" />
@@ -72,12 +72,13 @@ function ChampionRow({ event }: { event: CircuitChampion }) {
       {tag && (
         <span className={`champions-card__tag champions-card__tag--${tag.tone}`}>{tag.text}</span>
       )}
-    </li>
+    </div>
   );
 }
 
 export function CircuitChampionsCard() {
   const [events, setEvents] = useState<CircuitChampion[] | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -95,19 +96,35 @@ export function CircuitChampionsCard() {
 
   if (!events || events.length === 0) return null;
 
+  const hasMore = events.length > 1;
+  // Collapsed: just the latest champion. Expanded: the recent roll.
+  const shown = expanded ? events.slice(0, MAX_ROWS) : events.slice(0, 1);
+
   return (
     <section className="champions-card" aria-label="Circuit champions">
-      <div className="champions-card__head">
+      <button
+        type="button"
+        className="champions-card__toggle"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        disabled={!hasMore}
+      >
         <span className="champions-card__eyebrow">
           <Trophy size={14} aria-hidden="true" />
-          Circuit champions
+          {expanded ? 'Circuit champions' : 'Latest champion'}
         </span>
-      </div>
-      <ul className="champions-card__list">
-        {events.slice(0, MAX_ROWS).map((e) => (
+        {hasMore &&
+          (expanded ? (
+            <ChevronUp size={16} className="champions-card__caret" aria-hidden="true" />
+          ) : (
+            <ChevronDown size={16} className="champions-card__caret" aria-hidden="true" />
+          ))}
+      </button>
+      <div className="champions-card__list">
+        {shown.map((e) => (
           <ChampionRow key={e.tournament_id} event={e} />
         ))}
-      </ul>
+      </div>
     </section>
   );
 }

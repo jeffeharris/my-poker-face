@@ -10,10 +10,29 @@
   color: #e9e6df;
 }
 
-.champions-card__head {
+.champions-card__toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+}
+.champions-card__toggle:disabled {
+  cursor: default;
+}
+
+.champions-card__caret {
+  color: #f4d58d;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+.champions-card__toggle:hover:not(:disabled) .champions-card__caret,
+.champions-card__toggle:focus-visible .champions-card__caret {
+  opacity: 1;
 }
 
 .champions-card__eyebrow {

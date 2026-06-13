@@ -1,10 +1,11 @@
 /**
  * Tests for CircuitChampionsCard — the lobby Champions Roll. Verifies it stays
- * hidden until the circuit has a champion, lists champions, highlights the
- * player's own titles ("You"), and flags the events that ran without them.
+ * hidden until the circuit has a champion, shows only the latest champion when
+ * collapsed, and expands on click to reveal the recent roll (champions, your own
+ * finishes, and the "ran without you" markers).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 import { CircuitChampionsCard } from './CircuitChampionsCard';
 import * as api from './tournamentApi';
@@ -38,34 +39,43 @@ describe('CircuitChampionsCard', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('lists champions, flags passed events, and highlights your own titles', async () => {
+  it('collapsed by default: shows only the latest champion', async () => {
     vi.spyOn(api, 'getCircuitHistory').mockResolvedValue({
       events: [
-        champ({ tournament_id: 't1', winner_name: 'Mervin', played: false }),
-        champ({ tournament_id: 't2', winner_name: 'You', field_size: 6, played: true }),
+        champ({ tournament_id: 't1', winner_name: 'Mervin' }), // latest
+        champ({ tournament_id: 't2', winner_name: 'Napoleon' }),
       ],
     });
     render(<CircuitChampionsCard />);
 
     expect(await screen.findByText('Mervin')).toBeTruthy();
-    expect(screen.getByText('You')).toBeTruthy();
-    // Only the event the player sat out carries the world-runs-without-you tag.
-    expect(screen.getAllByText('ran without you')).toHaveLength(1);
+    expect(screen.getByText('Latest champion')).toBeTruthy();
+    expect(screen.queryByText('Napoleon')).toBeNull(); // hidden until expanded
   });
 
-  it('shows your finish on a played-and-lost event but not when you won', async () => {
+  it('expands on click to reveal the roll with finishes and absent markers', async () => {
     vi.spyOn(api, 'getCircuitHistory').mockResolvedValue({
       events: [
-        // Played, lost → champion is someone else; show "you finished 4th".
+        // latest: you played and lost → your finish shows
         champ({ tournament_id: 't1', winner_name: 'Mervin', played: true, your_finish: 4 }),
-        // Played, won → "You" is the champion; the finish line is redundant, omit it.
+        // you played and won → "You" champion row, no redundant finish line
         champ({ tournament_id: 't2', winner_name: 'You', played: true, your_finish: 1 }),
+        // ran without you
+        champ({ tournament_id: 't3', winner_name: 'Napoleon', played: false }),
       ],
     });
     render(<CircuitChampionsCard />);
 
-    expect(await screen.findByText('you finished 4th')).toBeTruthy();
+    await screen.findByText('Mervin');
+    expect(screen.queryByText('You')).toBeNull(); // collapsed: rest hidden
+
+    fireEvent.click(screen.getByRole('button')); // the toggle
+
+    expect(await screen.findByText('You')).toBeTruthy();
+    expect(screen.getByText('Napoleon')).toBeTruthy();
+    expect(screen.getByText('Circuit champions')).toBeTruthy();
+    expect(screen.getByText('you finished 4th')).toBeTruthy();
     expect(screen.queryByText('you finished 1st')).toBeNull();
-    expect(screen.queryByText('ran without you')).toBeNull(); // both were played
+    expect(screen.getByText('ran without you')).toBeTruthy();
   });
 });

@@ -985,11 +985,6 @@ export function Lobby() {
             />
           )}
 
-          {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
-
-          {/* The circuit's running record — champions crowned with or without you. */}
-          {bankroll !== null && <CircuitChampionsCard />}
-
           {/* First-ever load (no SWR snapshot yet): shape the hero + table rows so
               the lobby fills in place instead of blank-then-pop. A returning user
               is seeded from cache before paint, so bankroll is already set here. */}
@@ -1224,6 +1219,11 @@ export function Lobby() {
             onStake={handleStakeClick}
             onOpenDossier={setDossier}
           />
+
+          {/* Retrospective content sits below the tables: your own story, then the
+              circuit's running record (champions crowned with or without you). */}
+          {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
+          {bankroll !== null && <CircuitChampionsCard />}
         </div>
         <SponsorModal
           isOpen={sponsorState !== null}
