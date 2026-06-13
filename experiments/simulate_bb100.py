@@ -961,6 +961,12 @@ def run_hand(
                     continue  # hero observing hero is not useful
                 model = opponent_manager.get_model(hero_name, opp_name)
                 model.tendencies.update_fold_to_cbet(folded)
+            # Preflop 3-bet responses: the opener's fold_to_3bet.
+            for opener, folded3 in cbet_detector.consume_threebet_response_events():
+                if opener == hero_name:
+                    continue
+                model = opponent_manager.get_model(hero_name, opener)
+                model.tendencies.update_fold_to_3bet(folded3)
 
     drive_hand(
         sm,

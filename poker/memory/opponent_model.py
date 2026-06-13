@@ -88,6 +88,7 @@ class OpponentTendencies:
     pfr: float = 0.5  # Pre-flop raise % (how often they raise pre-flop)
     aggression_factor: float = 1.0  # (bet+raise+all-in) / call ratio
     fold_to_cbet: float = 0.5  # Fold to continuation bet %
+    fold_to_3bet: float = 0.5  # Opener's fold rate facing a 3-bet/squeeze
     cbet_attempt_rate: float = 0.5  # Phase 8.1a: PFR's c-bet attempt rate
     # Phase B Item 1: street-resolved barrel rates. The exploit
     # induce_override targets is "PFR fires multiple streets after
@@ -163,6 +164,8 @@ class OpponentTendencies:
     _all_in_count: int = 0  # Total all-in actions (subset of _bet_raise_count)
     _fold_to_cbet_count: int = 0
     _cbet_faced_count: int = 0
+    _fold_to_3bet_count: int = 0
+    _threebet_faced_count: int = 0
     # Phase 8.1a: PFR-side c-bet attempt tracking. Denominator is hands
     # where this player WAS the preflop aggressor AND had a clean c-bet
     # opportunity on the flop (i.e. wasn't donk-bet into). Numerator is
@@ -604,6 +607,15 @@ class OpponentTendencies:
             self._fold_to_cbet_count += 1
         self._recalculate_stats()
 
+    def update_fold_to_3bet(self, folded: bool):
+        """Record one open-faces-a-3-bet event: did the opener fold to the
+        3-bet/squeeze? Numerator is folds, denominator is times-opened-and-
+        faced-a-3-bet. Mirrors update_fold_to_cbet."""
+        self._threebet_faced_count += 1
+        if folded:
+            self._fold_to_3bet_count += 1
+        self._recalculate_stats()
+
     def update_cbet_attempt(self, attempted: bool):
         """Phase 8.1a: record one PFR-flop-attempt event.
 
@@ -808,6 +820,13 @@ class OpponentTendencies:
 
         if self._cbet_faced_count > 0:
             self.fold_to_cbet = sd.fold_to_cbet(self._fold_to_cbet_count, self._cbet_faced_count)
+
+        # fold_to_3bet — same "neutral prior 0.5 until observed" stance as
+        # fold_to_cbet. The over-folder leak the light-3-bet counter reads.
+        if self._threebet_faced_count > 0:
+            self.fold_to_3bet = sd.fold_to_3bet(
+                self._fold_to_3bet_count, self._threebet_faced_count
+            )
 
         # Phase 8.1a: cbet_attempt_rate. Stays at the 0.5 neutral
         # default until we have at least one observed opportunity —
@@ -1557,6 +1576,8 @@ def _build_aggregate_from_single(t: OpponentTendencies):
         all_in_frequency=t.all_in_frequency,
         fold_to_cbet=t.fold_to_cbet,
         cbet_faced_count=t._cbet_faced_count,
+        fold_to_3bet=t.fold_to_3bet,
+        threebet_faced_count=t._threebet_faced_count,
         cbet_attempt_rate=t.cbet_attempt_rate,
         postflop_seen_as_pfr_count=t._postflop_seen_as_pfr_count,
         barrel_frequency=t.barrel_frequency,

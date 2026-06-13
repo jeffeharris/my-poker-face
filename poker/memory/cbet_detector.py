@@ -39,6 +39,17 @@ class CbetDetector:
         self._pfr_attempt_recorded: bool = False
         self._flop_bet_made: bool = False
         self._pending_pfr_attempts: List[Tuple[str, bool]] = []
+        # Preflop 3-bet sequence for the OPENER's fold_to_3bet. Distinct from
+        # _preflop_raiser (which tracks the LAST raiser, for c-bet attribution):
+        # _open_raiser is the FIRST voluntary preflop raiser, and a second,
+        # different raiser (a straight 3-bet or a squeeze over an open+caller)
+        # makes the opener "face a 3-bet." We then record the opener's first
+        # response (fold = folded_to_3bet; call/4-bet = continued).
+        self._open_raiser: Optional[str] = None
+        self._threebettor: Optional[str] = None
+        self._open_faces_3bet: bool = False
+        self._open_3bet_recorded: bool = False
+        self._pending_threebet_responses: List[Tuple[str, bool]] = []
         # Phase B Item 1: barrel tracking.
         # The exploit induce_override targets is "PFR fires multiple
         # streets after being called." Phase A used AF_pf×cbet_attempt
@@ -102,6 +113,11 @@ class CbetDetector:
         self._pfr_attempt_recorded = False
         self._flop_bet_made = False
         self._pending_pfr_attempts = []
+        self._open_raiser = None
+        self._threebettor = None
+        self._open_faces_3bet = False
+        self._open_3bet_recorded = False
+        self._pending_threebet_responses = []
         self._cbet_called = False
         self._barrel_attempt_recorded = False
         self._turn_bet_made = False
@@ -157,6 +173,30 @@ class CbetDetector:
         #    preflop action and counts alongside raise.
         if phase == 'PRE_FLOP' and action in ('raise', 'all_in'):
             self._preflop_raiser = player_name
+
+        # 1b. Preflop 3-bet sequence (drives the OPENER's fold_to_3bet).
+        #     Two independent blocks so the opener's 4-bet (a continue, not a
+        #     fold) is recorded correctly rather than swallowed by the raise
+        #     branch.
+        if phase == 'PRE_FLOP' and action in ('raise', 'all_in'):
+            if self._open_raiser is None:
+                # First voluntary preflop raise = the open.
+                self._open_raiser = player_name
+            elif player_name != self._open_raiser and self._threebettor is None:
+                # A second, different raiser — a straight 3-bet or a squeeze
+                # over an open (+caller). The opener now faces a re-raise.
+                self._threebettor = player_name
+                self._open_faces_3bet = True
+        if (
+            phase == 'PRE_FLOP'
+            and self._open_faces_3bet
+            and not self._open_3bet_recorded
+            and player_name == self._open_raiser
+            and action in ('fold', 'call', 'raise', 'all_in')
+        ):
+            # The opener's first action facing the 3-bet/squeeze.
+            self._pending_threebet_responses.append((player_name, action == 'fold'))
+            self._open_3bet_recorded = True
 
         # 2. Phase 8.1a — PFR's first flop action. Only record an
         #    attempt event when the PFR has a CLEAN c-bet opportunity:
@@ -325,6 +365,18 @@ class CbetDetector:
         """
         events = self._pending_pfr_attempts
         self._pending_pfr_attempts = []
+        return events
+
+    def consume_threebet_response_events(self) -> List[Tuple[str, bool]]:
+        """Drain preflop 3-bet response events queued by record_action.
+
+        Returns `(opener_name, folded_to_3bet: bool)` tuples — typically zero
+        or one per hand. Caller applies each via
+        `OpponentTendencies.update_fold_to_3bet(folded)` on the opener's model.
+        Cleared on read so successive calls don't double-emit.
+        """
+        events = self._pending_threebet_responses
+        self._pending_threebet_responses = []
         return events
 
     def consume_barrel_attempt_events(self) -> List[Tuple[str, bool]]:

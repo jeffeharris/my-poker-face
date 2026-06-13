@@ -155,6 +155,13 @@ def fold_to_cbet(folds: int, faced: int) -> float:
     return safe_ratio(folds, faced)
 
 
+def fold_to_3bet(folds: int, faced: int) -> float:
+    """Fold-to-3bet = times the opener folded facing a 3-bet/squeeze of their
+    open / times they opened and faced a 3-bet. The over-folder (nit / weak-reg)
+    leak the light-3-bet / squeeze counter targets."""
+    return safe_ratio(folds, faced)
+
+
 def showdown_win_rate(won: int, showdowns: int) -> float:
     """W$SD = showdowns won / showdowns reached."""
     return safe_ratio(won, showdowns)

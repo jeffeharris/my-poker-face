@@ -653,6 +653,15 @@ class AIMemoryManager:
                     model = self.opponent_model_manager.get_model(observer, opp_name)
                     model.tendencies.update_fold_to_cbet(folded)
 
+        # Preflop 3-bet responses: the opener's fold_to_3bet (typically zero or
+        # one per hand). Apply to every observer's model of the opener.
+        for opener, folded3 in self._cbet_detector.consume_threebet_response_events():
+            logger.debug(f"{opener} {'folded to' if folded3 else 'continued vs'} 3-bet")
+            for observer in self.initialized_players:
+                if observer != opener:
+                    model = self.opponent_model_manager.get_model(observer, opener)
+                    model.tendencies.update_fold_to_3bet(folded3)
+
         # Phase 8.1a: drain PFR-attempt events (typically zero or one
         # per call). When the preflop aggressor takes their first
         # flop action with a clean c-bet decision (bet/raise/check
