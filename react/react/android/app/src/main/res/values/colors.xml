@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Capacitor's 6.x Android template references these colors from styles.xml but
+  does not ship the file, so the build fails with "resource color/colorPrimary
+  not found". Values mirror the app's chrome: the dark background (#0a0b10 — the
+  same color the iOS native shell pins via capacitor.config.ts `ios.backgroundColor`
+  and the web `theme-color`) and the brand red accent (#dc2626 — the PWA
+  `theme_color`). colorPrimaryDark drives the status-bar tint, keeping the strip
+  above the WebView dark instead of a default white/purple.
+-->
+<resources>
+    <color name="colorPrimary">#0a0b10</color>
+    <color name="colorPrimaryDark">#0a0b10</color>
+    <color name="colorAccent">#dc2626</color>
+
+    <!-- Net Worth home-screen widget (NetWorthWidgetProvider). -->
+    <color name="widget_background">#0a0b10</color>
+    <color name="widget_text_primary">#FFFFFF</color>
+    <color name="widget_text_secondary">#9AA0AA</color>
+</resources>

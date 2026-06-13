@@ -1,0 +1,35 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // Bumped from Capacitor 6's pinned AGP 8.2.1 so the build runs natively on
+        // JDK 21 (Android Studio's bundled JBR) — AGP 8.2 predates JDK 21 support.
+        // AGP 8.7 requires Gradle 8.9 (see gradle/wrapper/gradle-wrapper.properties).
+        classpath 'com.android.tools.build:gradle:8.7.3'
+        classpath 'com.google.gms:google-services:4.4.2'
+        // Kotlin support for OnDeviceLLMPlugin.kt. 2.2.x is required to read the
+        // genai-prompt artifacts' Kotlin metadata (compiled with Kotlin 2.2).
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.0'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

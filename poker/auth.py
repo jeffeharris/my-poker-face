@@ -180,12 +180,21 @@ class AuthManager:
     def _guest_minting_request(self) -> bool:
         """True when this request would mint a brand-new guest (PRH-26).
 
-        A guest login carrying a valid signed `guest_id` cookie is a returning
-        guest, not a mint; a non-guest (password) login isn't a mint either.
-        Used as the rate-limit's exempt condition so the cap bites only scripted
-        minting, never legit users (incl. many distinct users behind one
-        shared/CGNAT IP, who each carry their own cookie).
+        A web guest login carrying a valid signed `guest_id` cookie is a returning
+        guest, not a mint; a non-guest (password) login isn't a mint either. Used as
+        the rate-limit's exempt condition so the cap bites only scripted minting,
+        never legit users (incl. many distinct web users behind one shared/CGNAT IP,
+        who each carry their own cookie).
+
+        The native guest endpoint (`/api/auth/guest/native`) ALWAYS counts as a mint:
+        it carries no signed cookie, and its body `guest_id` is only format-checked
+        (not HMAC-signed like the cookie), so treating it as a "returning" signal
+        would let an attacker forge one and bypass the cap. Native returning-logins
+        are rare anyway — a returning guest holds a 30d JWT and never hits this
+        endpoint until it expires — so always-limiting per IP is safe and unobtrusive.
         """
+        if request.path.endswith('/auth/guest/native'):
+            return True
         data = request.get_json(silent=True) or {}
         if not data.get('guest'):
             return False
@@ -531,6 +540,52 @@ class AuthManager:
                 }
             )
 
+        @self.app.route('/api/auth/guest/native', methods=['POST'])
+        @self._guest_login_limit()
+        def guest_native_login():
+            """Native (mobile) guest sign-in.
+
+            The web guest login (/api/auth/login with guest=true) sets an HttpOnly
+            session + signed guest cookies — which don't bridge to the native WebView
+            (it's cross-origin to the API, so cookies never attach). So a native guest
+            had no auth at all and every owner-scoped route (cash/tournament) 404'd
+            with "No owner_id resolvable from request".
+
+            This mints the same kind of stateless JWT the Google-native path returns,
+            but **long-lived** (30d) and with **no refresh token**, since the refresh
+            endpoint only serves real accounts. The token carries the guest's name, so
+            it survives the full window without a refresh. Matches the 30-day guest
+            cookie's risk profile (guests own no real data and are recreatable).
+
+            Body: {"name": "...", "guest_id": "guest_..."?}  (guest_id optional — the
+            app passes the one it holds so the guest's games persist / migrate on a
+            later real sign-in, same as the Google-native path).
+            """
+            data = request.get_json(silent=True) or {}
+            guest_name = (
+                re.sub(r'[\x00-\x1f\x7f]', '', str(data.get('name', 'Guest'))).strip()[:50]
+                or 'Guest'
+            )
+
+            existing = data.get('guest_id')
+            guest_id = existing if self._is_valid_guest_id(existing) else None
+            user_data = self.create_guest_user(guest_name, guest_id=guest_id)
+            if not user_data:
+                return jsonify({'success': False, 'error': 'Could not create guest'}), 500
+
+            logger.info(f"Guest {user_data['id']} logged in via native guest sign-in")
+            return jsonify(
+                {
+                    'success': True,
+                    'user': user_data,
+                    'guest_id': user_data['id'],
+                    'token': self.generate_access_token(
+                        user_data, expires_in=REFRESH_TOKEN_EXPIRATION
+                    ),
+                    'expires_in': int(REFRESH_TOKEN_EXPIRATION.total_seconds()),
+                }
+            )
+
         @self.app.route('/api/auth/token/refresh', methods=['POST'])
         def refresh_token():
             """Exchange a valid refresh token for a fresh access token.
@@ -860,12 +915,21 @@ class AuthManager:
         payload = {'user': user_data, 'exp': datetime.utcnow() + JWT_EXPIRATION_DELTA}
         return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
-    def generate_access_token(self, user_data: Dict[str, Any]) -> str:
-        """Generate a short-lived access token (native sign-in)."""
+    def generate_access_token(
+        self,
+        user_data: Dict[str, Any],
+        expires_in: timedelta = ACCESS_TOKEN_EXPIRATION,
+    ) -> str:
+        """Generate an access token (native sign-in).
+
+        Defaults to the short-lived access window (refreshed via the rotating
+        refresh token). Native *guest* sign-in passes a long expiry because guests
+        have no refresh path — the refresh endpoint serves real accounts only.
+        """
         payload = {
             'user': user_data,
             'type': 'access',
-            'exp': datetime.utcnow() + ACCESS_TOKEN_EXPIRATION,
+            'exp': datetime.utcnow() + expires_in,
         }
         return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 

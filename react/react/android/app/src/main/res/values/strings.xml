@@ -1,0 +1,38 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">My Poker Face</string>
+    <string name="title_activity_main">My Poker Face</string>
+    <string name="package_name">com.mypokerface.app</string>
+    <string name="custom_url_scheme">com.mypokerface.app</string>
+
+    <!--
+      Google Sign-In (Android). Unlike iOS — which reads `iosClientId` /
+      `serverClientId` from capacitor.config.ts — the @codetrix-studio plugin
+      resolves the Android client id as: config `androidClientId` → config
+      `clientId` → THIS string resource `server_client_id`. We use the resource so
+      the shared capacitor.config.ts stays iOS-only and untouched.
+
+      The value is the WEB/server OAuth client id (same as capacitor.config.ts
+      `GoogleAuth.serverClientId`), NOT an Android-type client id: `requestIdToken`
+      is called with it, so the returned ID token's `aud` is the web client —
+      which the backend allowlists as GOOGLE_CLIENT_ID (see poker/auth.py and
+      flask_app/config.py GOOGLE_ALLOWED_AUDIENCES). It is a public client id, not
+      a secret. Keep it in sync with capacitor.config.ts.
+
+      NOTE: sign-in still requires an *Android-type* OAuth client (package
+      com.mypokerface.app + the build's SHA-1 fingerprint) registered in Google
+      Cloud Console, or Google returns status 10 (DEVELOPER_ERROR). See
+      docs/guides/ANDROID_APP.md.
+    -->
+    <string name="server_client_id">637263623890-93qcchki4jp5ll80t0sra22b4qpjbit7.apps.googleusercontent.com</string>
+
+    <!-- Net Worth home-screen widget. -->
+    <string name="widget_net_worth_name">Net Worth</string>
+    <string name="widget_net_worth_description">Your net worth trend, renown, and standing.</string>
+    <string name="widget_net_worth_label">NET WORTH</string>
+    <string name="widget_placeholder_amount">$0</string>
+    <string name="widget_unranked">Unranked</string>
+    <string name="widget_renown_placeholder">★ 0</string>
+    <string name="widget_regard_placeholder">♥ +0</string>
+    <string name="widget_empty_hint">Open the app to sync your stats.</string>
+</resources>

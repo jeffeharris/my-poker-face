@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { clearTokens, loadTokens, setTokens } from '../utils/nativeAuth';
+import { clearTokens, isNativePlatform, loadTokens, setTokens } from '../utils/nativeAuth';
 
 interface User {
   id: string;
@@ -157,6 +157,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (name: string, isGuest: boolean = true) => {
     try {
+      // Native guest sign-in needs a bearer JWT — cookies don't bridge to the
+      // native WebView (cross-origin), so the web cookie flow leaves a native guest
+      // unauthenticated. Use the native guest endpoint and stash the token (same as
+      // loginWithGoogleNative). Falls through to the cookie flow on any failure, so
+      // there's no regression if the backend endpoint isn't deployed yet.
+      if (isGuest && isNativePlatform()) {
+        try {
+          const storedGuestId = localStorage.getItem('mpf_guest_id') || undefined;
+          const res = await fetch(`${config.API_URL}/api/auth/guest/native`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, guest_id: storedGuestId }),
+          });
+          const native = await res.json();
+          if (native.success && native.token) {
+            await setTokens(native.token); // long-lived; no refresh token for guests
+            if (native.guest_id) localStorage.setItem('mpf_guest_id', native.guest_id);
+            setAuthState({ user: native.user, isLoading: false, isAuthenticated: true });
+            localStorage.setItem('currentUser', JSON.stringify(native.user));
+            return { success: true };
+          }
+        } catch {
+          // Endpoint unavailable (e.g. not yet deployed) — fall through to cookies.
+        }
+      }
+
       const response = await fetch(`${config.API_URL}/api/auth/login`, {
         method: 'POST',
         headers: {

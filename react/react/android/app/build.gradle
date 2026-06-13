@@ -1,0 +1,95 @@
+apply plugin: 'com.android.application'
+// Kotlin support — OnDeviceLLMPlugin.kt uses the coroutine-first ML Kit GenAI API.
+apply plugin: 'org.jetbrains.kotlin.android'
+
+// Release signing is driven by an (untracked) android/key.properties — see
+// docs/guides/ANDROID_APP.md. When it's absent (every dev checkout, CI, debug
+// builds) the release signingConfig is simply not applied, so `assembleDebug`
+// still works out of the box and no secrets live in the repo (mirrors how the
+// iOS App Store Connect API key is staged outside the tree).
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace "com.mypokerface.app"
+    compileSdk rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.mypokerface.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // Overridable from the CLI so `make android-release` can stamp a unique,
+        // increasing versionCode per upload (Play rejects duplicates) — the Android
+        // analogue of the iOS BUILD_NUMBER → CFBundleVersion in `make testflight`.
+        versionCode project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1
+        versionName project.hasProperty('versionName') ? project.property('versionName') : "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Only sign when a keystore is configured; otherwise the release build
+            // is left unsigned (you can still archive a debug APK to sideload).
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+
+    // On-device LLM: Gemini Nano via ML Kit GenAI Prompt API (OnDeviceLLMPlugin.kt).
+    // Requires minSdk 26 (see variables.gradle). Real generation needs AICore /
+    // Gemini Nano (Pixel 9/10-class); elsewhere checkStatus() reports UNAVAILABLE
+    // and the JS bridge falls back to the server route.
+    implementation "com.google.mlkit:genai-prompt:1.0.0-beta2"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

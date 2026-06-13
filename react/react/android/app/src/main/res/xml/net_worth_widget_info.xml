@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Net Worth app-widget metadata. Sizes cover the iOS small + medium families:
+  minWidth/Height allow a ~2x2 cell, target cells (Android 12+) default to 3x2,
+  and it's resizable. updatePeriodMillis is the framework fallback cadence
+  (~30 min, the system floor) — the app also pushes live updates through the
+  WidgetBridge plugin on each lobby refresh, mirroring the iOS reloadAllTimelines.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_net_worth"
+    android:previewLayout="@layout/widget_net_worth"
+    android:previewImage="@mipmap/ic_launcher"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />

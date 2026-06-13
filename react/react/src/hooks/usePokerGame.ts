@@ -912,12 +912,19 @@ export function usePokerGame({
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    // Network restored (e.g. after the device locked and Android tore down the app's
+    // TCP sockets): the visibility / app-resume signals only fire on an app-switch, so a
+    // Resume that raced the network coming back would stall on the shuffle screen until a
+    // manual background→foreground. The `online` event drives the same recovery path so
+    // it self-heals the moment connectivity returns. No-op when offline events don't fire.
+    window.addEventListener('online', recover);
     // Native: visibilitychange is unreliable in a WKWebView, so also drive
     // recovery off the Capacitor app-resume signal. No-op on web.
     const removeResume = onAppResume(recover);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', recover);
       removeResume();
     };
   }, [gameId, createSocket, refreshGameState, resetSequencer]);

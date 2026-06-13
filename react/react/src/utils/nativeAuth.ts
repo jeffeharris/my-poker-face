@@ -92,7 +92,11 @@ export function hasNativeSession(): boolean {
   return accessToken != null;
 }
 
-export async function setTokens(token: string, refresh: string): Promise<void> {
+export async function setTokens(token: string, refresh: string = ''): Promise<void> {
+  // refresh defaults to '' for the native guest flow, which issues a long-lived
+  // access token and no refresh token (the refresh endpoint serves real accounts
+  // only). refreshAccessToken() no-ops on a falsy refresh token, so a guest 401
+  // surfaces without logging them out.
   accessToken = token;
   refreshToken = refresh;
   if (storage) {

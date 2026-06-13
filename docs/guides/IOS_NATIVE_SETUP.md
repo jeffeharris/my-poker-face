@@ -39,8 +39,11 @@ web build is unchanged (verified: `tsc`, `vitest`, `vite build` all green).
 
 - **iOS client** — already created (Application type "iOS", bundle id
   `com.mypokerface.app`). ✅
-- **Android** — optional; add later (Application type "Android", package
-  `com.mypokerface.app` + debug/release SHA-1). Not needed for the iOS build.
+- **Android** — the Capacitor Android project now exists
+  (`react/react/android`, see [`ANDROID_APP.md`](./ANDROID_APP.md)). To make
+  Google sign-in work you still need an Android OAuth client (Application type
+  "Android", package `com.mypokerface.app` + debug/release SHA-1). Not needed for
+  the iOS build.
 
 Set the **backend** env vars (your `.env` + prod env) so the token audience is
 accepted:
@@ -106,6 +109,16 @@ npm run ios     # build + cap sync ios + cap open ios → run from Xcode
 Sign in with Google on a simulator/device → the plugin returns an ID token →
 `loginWithGoogleNative` posts it to `/api/auth/google/native` → tokens are stored
 in Preferences and every API/socket call is authenticated automatically.
+
+### 6. Android (already scaffolded)
+
+The Android equivalent of steps 3–5 is already done and committed at
+`react/react/android` (generated with `npm i @capacitor/android && npx cap add
+android`). The native config that differs from iOS — the Google
+`server_client_id` string resource, the Android OAuth client + SHA-1, the signing
+keystore, and the Play Store release — is documented in
+[`ANDROID_APP.md`](./ANDROID_APP.md). Build it with `make android-debug` (needs a
+JDK 17+ and the Android SDK).
 
 ## Troubleshooting
 
