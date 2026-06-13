@@ -2770,6 +2770,12 @@ class TieredBotController(AIPlayerController):
           - COMPOSED: tilt_factor >= 1.0. You can't be on tilt and hero-calling
             a maniac on a read — a tilted bot reverts to its base line.
         """
+        # Ablation seam (default on): lets the eval harness isolate this
+        # override's bb/100 contribution (exploit_bb100 --change bluff_catch)
+        # without disturbing the rest of the exploitation layer. Prod leaves it
+        # True, so no behavior change.
+        if not getattr(self, 'bluff_catch_override_enabled', True):
+            return strategy
         if hand_strength not in BLUFF_CATCH_TRIGGER_CLASSES:
             return strategy
         if call_amount <= 0 or 'call' not in valid_actions:
