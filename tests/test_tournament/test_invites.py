@@ -6,6 +6,7 @@ one-at-a-time guard, and affordability on accept.
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -624,3 +625,112 @@ class TestAcceptCannotField:
             )
         # The invite is still open (re-opened by the revert) for a later retry.
         assert inv.active_invite(kit['invite_repo'], OWNER) is not None
+
+
+def _field_json(entries: list[str], stacks: dict[str, int]) -> str:
+    """Minimal session_json matching the winner-stamp extraction contract
+    (TournamentField.to_dict: entries + stacks)."""
+    return json.dumps({'field': {'entries': {e: 0 for e in entries}, 'stacks': stacks}})
+
+
+class TestWinnerStamp:
+    """`save()` denormalizes the champion + field size off the session — the
+    Champions Roll reads these without deserializing session_json per row."""
+
+    def test_stamps_winner_and_field_size_when_field_collapses(self, kit):
+        repo = kit['session_repo']
+        repo.save(
+            tournament_id='t-done',
+            owner_id=OWNER,
+            status='complete',
+            resolver_kind='fake',
+            session_json=_field_json(['alice', 'bob', 'cara'], {'cara': 30_000}),
+            created_at='2026-06-01T00:00:00',
+        )
+        row = repo.load('t-done')
+        assert row['winner_pid'] == 'cara'  # sole remaining stack
+        assert row['field_size'] == 3
+
+    def test_no_winner_while_field_live_but_field_size_known(self, kit):
+        repo = kit['session_repo']
+        repo.save(
+            tournament_id='t-live',
+            owner_id=OWNER,
+            status='active',
+            resolver_kind='fake',
+            session_json=_field_json(['a', 'b'], {'a': 1, 'b': 2}),
+            created_at='2026-06-01T00:00:00',
+        )
+        row = repo.load('t-live')
+        assert row['winner_pid'] is None  # two stacks left → undecided
+        assert row['field_size'] == 2
+
+    def test_winner_not_nulled_by_a_later_blank_save(self, kit):
+        repo = kit['session_repo']
+        common = dict(
+            tournament_id='t-coalesce',
+            owner_id=OWNER,
+            status='complete',
+            resolver_kind='fake',
+            created_at='2026-06-01T00:00:00',
+        )
+        repo.save(session_json=_field_json(['a', 'b'], {'b': 2}), **common)
+        repo.save(session_json='{}', **common)  # COALESCE keeps the champion
+        assert repo.load('t-coalesce')['winner_pid'] == 'b'
+
+
+class TestCircuitHistory:
+    """`list_circuit_history_for_owner` = the Champions Roll: completed
+    invite-linked events (incl. ones the player passed on), newest first."""
+
+    def _complete(self, kit, tid: str, winner: str, when: str) -> None:
+        kit['session_repo'].save(
+            tournament_id=tid,
+            owner_id=OWNER,
+            status='complete',
+            resolver_kind='fake',
+            session_json=_field_json([winner, 'filler'], {winner: 9}),
+            created_at=when,
+        )
+
+    def _link_invite(self, kit, invite_id: str, tid: str, status: str) -> None:
+        kit['invite_repo'].create(
+            invite_id=invite_id,
+            owner_id=OWNER,
+            sandbox_id=SB,
+            buy_in=0,
+            field_size=2,
+            table_size=2,
+            starting_stack=9,
+        )
+        kit['invite_repo'].resolve(invite_id, status=status, tournament_id=tid)
+
+    def test_lists_circuit_events_with_disposition_excludes_adhoc(self, kit):
+        # Two circuit events: one accepted (played), one declined (passed).
+        self._complete(kit, 't-played', f'human:{OWNER}', '2026-06-01T00:00:00')
+        self._link_invite(kit, 'i1', 't-played', 'accepted')
+        self._complete(kit, 't-passed', 'mervin', '2026-06-02T00:00:00')
+        self._link_invite(kit, 'i2', 't-passed', 'declined')
+        # An ad-hoc tournament (no invite) must NOT appear in the circuit roll.
+        self._complete(kit, 't-adhoc', 'stranger', '2026-06-03T00:00:00')
+
+        roll = kit['session_repo'].list_circuit_history_for_owner(OWNER)
+        assert [e['tournament_id'] for e in roll] == ['t-passed', 't-played']  # newest first
+        by_id = {e['tournament_id']: e for e in roll}
+        assert by_id['t-played']['played'] is True
+        assert by_id['t-passed']['played'] is False  # ran without the player
+        assert by_id['t-passed']['winner_pid'] == 'mervin'
+        assert by_id['t-played']['field_size'] == 2
+
+    def test_dedups_a_tournament_with_two_linked_invites(self, kit):
+        # The invite→tournament link isn't unique at the schema level. A stray
+        # second invite pointing at the same tournament must not fan out the JOIN
+        # into duplicate roll rows (which LIMIT could then truncate).
+        self._complete(kit, 't-dup', 'mervin', '2026-06-01T00:00:00')
+        self._link_invite(kit, 'i-acc', 't-dup', 'accepted')
+        self._link_invite(kit, 'i-dec', 't-dup', 'declined')
+
+        roll = kit['session_repo'].list_circuit_history_for_owner(OWNER)
+        dup = [e for e in roll if e['tournament_id'] == 't-dup']
+        assert len(dup) == 1  # collapsed to a single row
+        assert dup[0]['played'] is True  # MIN(status) prefers 'accepted'

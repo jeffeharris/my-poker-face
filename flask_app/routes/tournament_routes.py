@@ -200,6 +200,49 @@ def get_lobby():
     )
 
 
+@tournament_bp.route('/api/tournament/circuit-history', methods=['GET'])
+@limiter.limit(config.RATE_LIMIT_POLLING)
+def get_circuit_history():
+    """The Champions Roll — completed circuit Main Events for the owner, newest
+    first, with the winning persona resolved for display. Includes events the
+    player declined/expired: the field crowns a champion whether or not they sat
+    down (the circuit runs without you). The human seat renders as "You"."""
+    try:
+        owner_id = _resolve_owner_id()
+    except ValueError:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    from flask_app import extensions
+    from tournament.identity import resolve_display_name
+
+    session_repo = getattr(extensions, 'tournament_session_repo', None)
+    personality_repo = getattr(extensions, 'personality_repo', None)
+    if session_repo is None:
+        return jsonify({'events': []})
+
+    def _winner_label(pid: str | None) -> str | None:
+        if not pid:
+            return None
+        if pid.startswith('human:'):  # the owner's own seat
+            return 'You'
+        return resolve_display_name(pid, personality_repo=personality_repo)
+
+    rows = session_repo.list_circuit_history_for_owner(owner_id, limit=25)
+    events = [
+        {
+            'tournament_id': r['tournament_id'],
+            'winner_name': _winner_label(r['winner_pid']),
+            'field_size': r['field_size'],
+            'buy_in': r['buy_in'],
+            'prize_pool': r['prize_pool'],
+            'completed_at': r['completed_at'],
+            'played': r['played'],
+        }
+        for r in rows
+    ]
+    return jsonify({'events': events})
+
+
 @tournament_bp.route('/api/tournament/<tournament_id>/standings', methods=['GET'])
 def get_standings(tournament_id):
     try:

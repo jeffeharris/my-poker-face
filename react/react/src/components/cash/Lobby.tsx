@@ -53,6 +53,7 @@ import { feedEventKey, renderEventIcon } from './tickerEvents';
 import { selectInterhandTicker } from './interhandTicker';
 import { CareerHero } from './CareerHero';
 import { CareerHighlightsCard } from './CareerHighlightsCard';
+import { CircuitChampionsCard } from './CircuitChampionsCard';
 import { ReputationPanel } from './ReputationPanel';
 import { NetWorthDrawer } from './NetWorthDrawer';
 import { IntelHub } from './IntelHub';
@@ -985,6 +986,9 @@ export function Lobby() {
           )}
 
           {bankroll !== null && <CareerHighlightsCard onOpen={() => navigate('/story')} />}
+
+          {/* The circuit's running record — champions crowned with or without you. */}
+          {bankroll !== null && <CircuitChampionsCard />}
 
           {/* First-ever load (no SWR snapshot yet): shape the hero + table rows so
               the lobby fills in place instead of blank-then-pop. A returning user
