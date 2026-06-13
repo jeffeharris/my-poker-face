@@ -69,6 +69,11 @@ class SkillTier:
     # (0.0), a shark reads the squeezer's width and defends graded (0.85). Scales
     # how DEEP into the tiered defense range the read is allowed to widen.
     vs_squeeze_defense: float = 0.5
+    # Turn float-and-steal: BET frequency the H3 steal pumps air to when a foldable
+    # one-and-done villain c-bets the flop, hero floats, and the villain checks the
+    # turn (give-up line). A rec gives up its air (0.0); a shark steals it (0.55).
+    # This is a bet-frequency TARGET, not a 0-1 knob (0.0 = off).
+    steal_turn_target: float = 0.0
 
 
 # The ladder, sharpest → weakest. `shark` equals the TieredBotController
@@ -87,6 +92,7 @@ SKILL_TIERS = {
         vs3bet_exploit=0.85,
         limp_exploit=0.85,
         vs_squeeze_defense=0.85,
+        steal_turn_target=0.55,
     ),
     # solid: softer reads, still balanced + defends.
     'reg': SkillTier(
@@ -98,6 +104,7 @@ SKILL_TIERS = {
         vs3bet_exploit=0.55,
         limp_exploit=0.55,
         vs_squeeze_defense=0.55,
+        steal_turn_target=0.40,
     ),
     # half-baked: semi-face-up river, soft adapt, half-hearted defense + sizing.
     'weak_reg': SkillTier(
@@ -109,6 +116,7 @@ SKILL_TIERS = {
         vs3bet_exploit=0.3,
         limp_exploit=0.3,
         vs_squeeze_defense=0.3,
+        steal_turn_target=0.20,
     ),
     # rec: face-up river, over-folds to stabs, barely adapts, no overbets.
     'rec': SkillTier(
@@ -120,6 +128,7 @@ SKILL_TIERS = {
         vs3bet_exploit=0.0,
         limp_exploit=0.0,
         vs_squeeze_defense=0.0,
+        steal_turn_target=0.0,
     ),
 }
 

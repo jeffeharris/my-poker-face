@@ -473,6 +473,22 @@ def _resolve_vs_squeeze_defense(pcfg, skill) -> float:
     return VS_SQUEEZE_DEFENSE_DEFAULT
 
 
+def _resolve_steal_turn_target(pcfg, skill) -> float:
+    """Resolve a persona's turn float-and-steal target (the bet frequency the H3
+    steal pumps air to on the give-up line). Precedence: explicit
+    ``steal_turn_target`` in config wins; else the skill tier grades it (shark
+    0.55 … rec 0.0 = off); else 0.0 (un-tiered persona = off). No feature flag —
+    gated only by target>0 + a foldable-villain read, like vs3bet_exploit."""
+    if isinstance(pcfg, dict) and 'steal_turn_target' in pcfg:
+        return float(pcfg['steal_turn_target'])
+    if skill:
+        from poker.strategy.skill_tiers import SKILL_TIERS
+
+        if skill in SKILL_TIERS:
+            return SKILL_TIERS[skill].steal_turn_target
+    return 0.0
+
+
 def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
     """β = bluff combos / total combos of the villain's 3-bet range, read from
     ``vs_open[villain_vs_hero].raise_3x`` (a hand is a bluff when its 3-bet weight
@@ -832,6 +848,14 @@ class TieredBotController(AIPlayerController):
         # knob>0, so it's live for the tiered field (a graded read, not a dormant
         # boolean). Live path only (sims/tests bypass __init__ → default 0.0 → no-op).
         self.vs_squeeze_defense: float = _resolve_vs_squeeze_defense(_pcfg, _skill)
+
+        # Per-player turn float-and-steal target (the H3 bet frequency for air on
+        # the give-up line: opp c-bets flop, hero floats, opp checks the turn).
+        # EXPLOITATION behaviour → grades with skill (shark 0.55 … rec 0.0), like
+        # vs_squeeze_defense. NO feature flag — gated by target>0 + a foldable
+        # villain read (rides on enable_multistreet_context, on by default). Live
+        # path only (sims/tests bypass __init__ → default 0.0 → no-op).
+        self.steal_turn_target: float = _resolve_steal_turn_target(_pcfg, _skill)
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -2224,6 +2248,17 @@ class TieredBotController(AIPlayerController):
             ms_prior_fired = (
                 induce_override_trace.fired or value_override_trace.fired or bluff_catch_trace.fired
             )
+            # Foldable-villain read (the active opp's fold_to_big_bet), shared by
+            # the air-barrel (H1, hero aggressor) and steal (H3, hero floated)
+            # branches — both bluff and so both need fold equity. Computed once,
+            # only when at least one branch is live.
+            _air_barrel_target = getattr(self, 'air_barrel_target', 0.0)
+            _steal_target = getattr(self, 'steal_turn_target', 0.0)
+            _ftbb = (
+                self._resolve_river_bluff_ftbb(game_state)
+                if (_air_barrel_target > 0.0 or _steal_target > 0.0)
+                else None
+            )
             modified_strategy, multistreet_trace = apply_multistreet_context(
                 modified_strategy,
                 signals=signals,
@@ -2235,13 +2270,12 @@ class TieredBotController(AIPlayerController):
                 h1_classes=getattr(self, 'multistreet_h1_classes', None),
                 h1_streets=getattr(self, 'multistreet_h1_streets', None),
                 street=node.street,
-                air_barrel_target=getattr(self, 'air_barrel_target', 0.0),
-                air_barrel_fold_to_big_bet=(
-                    self._resolve_river_bluff_ftbb(game_state)
-                    if getattr(self, 'air_barrel_target', 0.0) > 0.0
-                    else None
-                ),
+                air_barrel_target=_air_barrel_target,
+                air_barrel_fold_to_big_bet=(_ftbb if _air_barrel_target > 0.0 else None),
                 air_barrel_min_ftbb=getattr(self, 'river_bluff_min_ftbb', 0.6),
+                steal_target=_steal_target,
+                steal_fold_to_big_bet=(_ftbb if _steal_target > 0.0 else None),
+                steal_min_ftbb=getattr(self, 'steal_turn_min_ftbb', 0.45),
                 prior_layer_fired=ms_prior_fired,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )
