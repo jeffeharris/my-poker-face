@@ -60,7 +60,8 @@ export function SeatMap({ position }: { position: string }) {
   );
 }
 
-// The shared preflop card face. Anatomy: situation (top) → your cards (middle).
+// The shared preflop card face. Anatomy: a head row — the hand shorthand (JTo,
+// 72s) on the left, the situation on the right — then the hole cards below.
 // `tag` is the situational note ("Folded to you", "Facing a raise", …).
 // `headline` (optional) shows a prominent line above the position — e.g. the
 // opponent archetype in a "what would they do" read drill.
@@ -75,23 +76,23 @@ export function PreflopCardFace({
 }) {
   return (
     <>
-      <div className="oc-situation">
-        {headline && <span className="oc-archetype">{headline}</span>}
-        <span className="oc-pos">{POSITION_NAME[spot.position] ?? spot.position}</span>
-        <SeatMap position={spot.position} />
-        <div className="oc-context">
-          <span className="oc-chip">{spot.depth_bb}bb deep</span>
-          <span className="oc-chip">{spot.num_players}-max</span>
-          <span className="oc-chip oc-chip--tag">{tag}</span>
+      <div className="oc-head">
+        <div className="oc-hand">{spot.hand}</div>
+        <div className="oc-situation">
+          {headline && <span className="oc-archetype">{headline}</span>}
+          <span className="oc-pos">{POSITION_NAME[spot.position] ?? spot.position}</span>
+          <SeatMap position={spot.position} />
+          <div className="oc-context">
+            <span className="oc-chip">{spot.depth_bb}bb deep</span>
+            <span className="oc-chip">{spot.num_players}-max</span>
+            <span className="oc-chip oc-chip--tag">{tag}</span>
+          </div>
         </div>
       </div>
-      <div className="oc-cards">
-        <div className="oc-holes">
-          {handToCards(spot.hand).map((c, i) => (
-            <Card key={i} card={c} faceDown={false} size="xlarge" />
-          ))}
-        </div>
-        <div className="oc-hand">{spot.hand}</div>
+      <div className="oc-holes">
+        {handToCards(spot.hand).map((c, i) => (
+          <Card key={i} card={c} faceDown={false} size="xlarge" />
+        ))}
       </div>
     </>
   );

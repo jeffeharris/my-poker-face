@@ -20,6 +20,14 @@ export interface Grade {
 
 export const pct = (x: number) => Math.round(x * 100);
 
+// Default verdict copy for the result wash. Drills grading "would you" spots
+// share this; the read drill ("would THEY") supplies its own.
+export const VERDICT_HEADING: Record<Grade['verdict'], string> = {
+  good: 'Solid.',
+  thin: 'Thin — occasionally OK.',
+  leak: 'Leak — the solver rarely does this.',
+};
+
 // Long-form position names for the situation header.
 export const POSITION_NAME: Record<string, string> = {
   UTG: 'Under the gun',

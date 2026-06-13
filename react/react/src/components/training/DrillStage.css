@@ -1,0 +1,353 @@
+/* Drill chrome + non-scrolling stage layout + result overlay. Shared by every
+   preflop drill so they all look and behave identically. The card-face content
+   (oc-*) lives in preflop/preflop.css; the deck shell in swipe/SwipeDeck.css. */
+
+/* ── Non-scrolling stage ─────────────────────────────────────────────────────
+   Fill the viewport under the MenuBar and never scroll: head pinned top, deck
+   flexes in the middle, action bar pinned bottom. No page scroll means the card
+   owns every gesture — crucially the upward "call" swipe, which page scrolling
+   would otherwise steal. */
+.drill-page.page-layout--fixed {
+  align-items: stretch;
+}
+.drill-page > .page-layout__content {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.drill-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.drill-stage__head {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+.drill-stage__deck {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+.drill-stage__foot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding-top: var(--space-3);
+}
+
+/* ── Chrome (states, subtitle, settings popover, stats) ──────────────────────
+   Shared by the stage and the settings nodes each drill passes in. */
+.swd-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-8) auto;
+  max-width: 24rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  line-height: var(--line-height-normal);
+}
+.swd-error {
+  color: var(--color-rose);
+}
+
+.swd-subtitle {
+  margin: 0 0 var(--space-3);
+  text-align: center;
+  font-size: var(--font-size-sm);
+  letter-spacing: var(--letter-spacing-wide);
+  color: var(--color-text-tertiary);
+}
+
+/* Position / opponent / spot setting — subtle, sits above the deck. */
+.swd-settings {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 auto var(--space-3);
+}
+.swd-settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-hover);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-all-fast);
+}
+.swd-settings-toggle:hover {
+  border-color: var(--color-emerald-muted);
+  color: var(--color-emerald);
+}
+.swd-pos-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+/* A labelled filter dimension (e.g. Opponent / Position) — stack several inside
+   the settings popover when a drill filters on more than one axis. */
+.swd-filter-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+.swd-filter-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.swd-pos-chip {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-hover);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: var(--letter-spacing-wide);
+  cursor: pointer;
+  transition: var(--transition-all-fast);
+}
+.swd-pos-chip:hover {
+  border-color: var(--color-emerald-muted);
+}
+.swd-pos-chip--shuffle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.swd-pos-chip--active {
+  background: var(--color-emerald);
+  border-color: var(--color-emerald);
+  color: var(--color-bg-void);
+}
+
+/* Stats — small running line between the deck and the action bar. */
+.swd-stats {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.swd-next {
+  margin-top: var(--space-1);
+  padding: var(--space-3) var(--space-5);
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-emerald);
+  color: var(--color-bg-void);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+  transition: var(--transition-all-fast);
+}
+.swd-next:hover {
+  filter: brightness(1.08);
+}
+
+/* ── Action-bar control area ─────────────────────────────────────────────────
+   Holds the game ActionButtons, laid out horizontally (the in-game component
+   stacks to a column under 600px, which we don't want for a one-tap drill). */
+.pf-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 4.4rem;
+}
+.pf-control .action-panel,
+.pf-control .action-buttons {
+  width: 100%;
+}
+.pf-control .action-buttons {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.pf-control .action-button {
+  flex: 1 1 0;
+}
+
+/* ── Result overlay ──────────────────────────────────────────────────────────
+   A full-screen colour wash with the verdict centred and the solver
+   frequencies parked at the edge you swiped (fold ←, call ↑, raise →), so the
+   result is readable without ever looking down. Tap anywhere to skip the wait. */
+.drill-result {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font: inherit;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: drill-result-in 0.16s var(--ease-out-expo);
+}
+@keyframes drill-result-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.drill-result--good {
+  background: radial-gradient(circle at 50% 42%, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.34));
+}
+.drill-result--thin {
+  background: radial-gradient(circle at 50% 42%, rgba(245, 158, 11, 0.1), rgba(245, 158, 11, 0.32));
+}
+.drill-result--leak {
+  background: radial-gradient(circle at 50% 42%, rgba(244, 63, 94, 0.1), rgba(244, 63, 94, 0.34));
+}
+
+.drill-result__heading {
+  text-align: center;
+  padding: 0 var(--space-6);
+  font-size: clamp(1.7rem, 8vw, 2.8rem);
+  font-weight: var(--font-weight-extrabold);
+  letter-spacing: var(--letter-spacing-wide);
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+}
+.drill-result--good .drill-result__heading {
+  color: #6ee7b7;
+}
+.drill-result--thin .drill-result__heading {
+  color: #fcd34d;
+}
+.drill-result--leak .drill-result__heading {
+  color: #fda4af;
+}
+
+/* Frequency tags, parked at the swipe edges. */
+.drill-result__freq {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--color-text-secondary);
+  line-height: 1.1;
+}
+.drill-result__freq--left {
+  left: var(--space-4);
+  top: 50%;
+  transform: translateY(-50%);
+}
+.drill-result__freq--right {
+  right: var(--space-4);
+  top: 50%;
+  transform: translateY(-50%);
+}
+.drill-result__freq--up {
+  top: calc(56px + var(--space-4));
+  left: 50%;
+  transform: translateX(-50%);
+}
+/* The option the player actually swiped — brighten it. */
+.drill-result__freq--chosen {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(0, 0, 0, 0.72);
+  color: var(--color-text-primary);
+}
+.drill-result__arrow {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-tertiary);
+}
+.drill-result__freq--chosen .drill-result__arrow {
+  color: var(--color-text-primary);
+}
+.drill-result__freq-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wide);
+}
+.drill-result__freq-pct {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-extrabold);
+  color: var(--color-text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drill-result {
+    animation: none;
+  }
+}
+
+/* ── Short-screen fit ────────────────────────────────────────────────────────
+   On shorter phones (and landscape) tighten the vertical rhythm so the deck +
+   action bar still fit without scrolling or overlapping. */
+@media (max-height: 760px) {
+  .drill-stage__foot {
+    padding-top: var(--space-1);
+  }
+  .drill-page .swd-subtitle {
+    margin-bottom: var(--space-1);
+  }
+  .drill-page .swd-settings {
+    margin-bottom: var(--space-1);
+  }
+  .drill-page .swipedeck-card__body {
+    gap: var(--space-2);
+    padding: var(--space-3);
+  }
+  .drill-page .oc-head {
+    gap: var(--space-3);
+  }
+  .drill-page .oc-hand {
+    font-size: var(--font-size-3xl);
+  }
+}
+
+/* Genuinely too short (small/old phones, landscape) — let the stage scroll so the
+   controls never overlap the card. The card keeps touch-action:none, so swiping
+   still works; only the surrounding margins scroll. */
+@media (max-height: 620px) {
+  .drill-page.page-layout--fixed {
+    overflow-y: auto;
+  }
+  .drill-stage {
+    height: auto;
+    min-height: 100%;
+  }
+  /* Let the deck take its natural height so the foot is pushed below it and the
+     page scrolls, instead of the card overflowing on top of the action bar. */
+  .drill-stage__deck {
+    flex: 0 0 auto;
+    padding: var(--space-3) 0;
+  }
+}
