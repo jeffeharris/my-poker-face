@@ -1227,3 +1227,52 @@ class TestLiveLeakRecall:
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestArchetypeRawVsDisplay(unittest.TestCase):
+    """Regression: exploit reads must gate on the RAW archetype label, not the
+    coach-friendly DISPLAY string. The display string never matches the raw labels
+    ('pure_station'/'hyper_aggressive'), which silently disabled the station/maniac
+    reads for both opponents and the player's self-leaks."""
+
+    def _clean_tendency(self):
+        from types import SimpleNamespace
+
+        # Every non-archetype exploit gate CLOSED, so only the archetype-derived
+        # read (station/maniac) can fire — isolating the raw-vs-display bug.
+        return SimpleNamespace(
+            _barrel_opportunity_count=0, _postflop_seen_as_pfr_count=0,
+            cbet_attempt_rate=0.0, barrel_frequency=0.5,
+            _cbet_faced_count=0, fold_to_cbet=0.5,
+            _big_bet_faced_count=0, fold_to_big_bet=0.3,
+            _equity_betting_big_count=0, _equity_betting_small_count=0,
+            sizing_polarization_score=0.0, _preflop_open_opportunities=0, limp_rate=0.0,
+        )
+
+    def test_raw_drives_detection_display_does_not(self):
+        from unittest.mock import patch
+
+        from flask_app.services.coach_engine import (
+            _archetype_display,
+            _classify_opp_archetype_raw,
+        )
+        from poker.memory.opponent_reads import exploit_reads_from_tendencies
+
+        with (
+            patch(
+                'poker.strategy.exploitation.classify_opponent_archetype',
+                return_value='pure_station',
+            ),
+            patch('poker.memory.opponent_model._build_aggregate_from_single', return_value=None),
+        ):
+            raw = _classify_opp_archetype_raw(object())
+
+        display = _archetype_display(raw)
+        self.assertEqual(raw, 'pure_station')  # raw label (drives detection)
+        self.assertIn('calling station', display)  # display string (prompt only)
+
+        t = self._clean_tendency()
+        raw_reads = {r['tendency'] for r in exploit_reads_from_tendencies(t, archetype=raw)}
+        display_reads = {r['tendency'] for r in exploit_reads_from_tendencies(t, archetype=display)}
+        self.assertIn('station', raw_reads)  # raw label → read fires
+        self.assertNotIn('station', display_reads)  # display string → would NOT (the bug)
