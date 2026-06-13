@@ -53,11 +53,13 @@ poor compared to the cast. Concentration is cast-relative, so vice
 targets actual wealth concentration rather than personal comfort.
 """
 
-MIN_CAST_MEDIAN_FOR_VICE = 5_000
-"""Suppress the vice pass entirely when the cast median is below this.
-"Everyone is broke" should not produce vice — there's no real "top"
-to drain in a poor cast, and a near-zero median makes the
-concentration ratio meaningless (every chip is "concentrated")."""
+# The vice pass is gated on the field's Gini coefficient
+# (`economy_flags.MIN_GINI_FOR_VICE`), not an absolute median floor — see
+# `compute_cast_gini`. "Everyone is broke" only suppresses vice when everyone is
+# broke EQUALLY (low Gini); a drained field with a concentrated top still fires,
+# so the bank pool keeps refilling and the economy can climb back out. The old
+# absolute `MIN_CAST_MEDIAN_FOR_VICE = 5_000` floor turned "drained" into an
+# absorbing state and was removed.
 
 EXCESS_WEIGHT = 0.04
 """Per-unit excess_ratio contribution to vice probability."""
@@ -85,17 +87,29 @@ AMOUNT_JITTER_LOW = 0.5
 AMOUNT_JITTER_HIGH = 1.5
 """Multiplicative jitter so vice events aren't visually uniform."""
 
-MIN_VICE_AMOUNT = 50
-"""Below this raw amount, skip the event entirely. Backstop — by the
-time vice_prob is non-trivial, raw_amount is well above 50."""
-
 MAX_VICE_FRACTION = 0.15
 """Hard cap: never spend more than 15% of bankroll in one event."""
 
-FLOOR_PROTECTION_FRACTION = 0.5
-"""Post-vice bankroll must stay above starting_bankroll × this. With
-the wealth gate (COMFORT_FLOOR = 1.2) plus the max-fraction cap,
-this clause is a guardrail in case tuning shifts."""
+VICE_FLOOR_MEDIAN_MULT = 1.0
+"""FIELD-relative post-vice floor: never vice an AI below this multiple of the
+field median. Replaces the old `starting_bankroll × FLOOR_PROTECTION_FRACTION`
+PERSONA-absolute floor, which could "protect" a field-rich AI just because it sat
+below its own design-sheet wealth — the trap that, combined with the median gate,
+froze a drained economy. Scale-invariant: it tracks the field, not a fixed
+number. The concentration gate already only fires AIs above CONCENTRATION_FLOOR×
+the median, so a fired AI always has headroom above this floor. Sim-calibrated."""
+
+MIN_VICE_MEDIAN_FRACTION = 0.02
+"""FIELD-relative trivia floor: skip a vice worth less than this fraction of the
+field median (avoids ticker / ledger noise for near-nothing events). Replaces the
+absolute `MIN_VICE_AMOUNT = 50`, so it scales with the economy instead of
+blocking vice in a small-denominated field. Sim-calibrated."""
+
+RECOVERY_REFERENCE_AMOUNT = 50
+"""Reference spend for the recovery curve ONLY (see `compute_recovery_factor`) —
+a psychology curve constant, NOT an economy gate: it never blocks a vice, it just
+anchors where log-scaled recovery starts. Kept fixed because it shapes a
+diminishing-returns curve, not a wealth threshold."""
 
 
 # --- Recovery constants -----------------------------------------------------
@@ -106,8 +120,8 @@ toward its baseline. The wealthy don't heal faster *per event* — they
 heal faster because they vice more often."""
 
 AMOUNT_BONUS = 0.05
-"""Bonus recovery per log10(amount/MIN_VICE_AMOUNT). A $5K vice gets
-0.10 bonus over baseline; a $50K vice would get 0.15 but is capped."""
+"""Bonus recovery per log10(amount / RECOVERY_REFERENCE_AMOUNT). ~100× the
+reference gets 0.10 bonus over baseline; ~1000× would get 0.15 but is capped."""
 
 MAX_RECOVERY = 0.40
 """Hard ceiling on the recovery factor regardless of amount."""
@@ -230,6 +244,22 @@ def compute_cast_median(bankrolls: List[int]) -> int:
     return int((sorted_brs[n // 2 - 1] + sorted_brs[n // 2]) // 2)
 
 
+def compute_cast_gini(bankrolls: List[int]) -> float:
+    """Gini coefficient of a cast's chip counts — the scale-invariant "is there
+    a top worth draining?" signal that gates the vice pass.
+
+    0 = everyone equal (no top to drain → suppress vice), → 1 = one holder has
+    it all (highly concentrated → drain it). Dimensionless, so unlike an absolute
+    median floor it doesn't create a death spiral: a drained-but-unequal field
+    still reads high-Gini and keeps recycling chips into the bank pool. Shares
+    the one Gini implementation in `field_wealth` so the snapshot path and this
+    bankroll-list path agree. Returns 0.0 for an empty / all-zero cast.
+    """
+    from cash_mode.field_wealth import gini
+
+    return gini(tuple(sorted(int(b) for b in bankrolls)))
+
+
 def compute_excess_ratio(bankroll: int, cast_median: int) -> float:
     """Wealth concentration above the floor, used to drive vice_prob.
 
@@ -290,21 +320,24 @@ def compute_vice_probability(
 
 def compute_vice_amount(
     bankroll: int,
-    starting_bankroll: int,
     excess_ratio: float,
     rng: random.Random,
+    *,
+    field_median: int,
 ) -> int:
-    """Compute the chip amount for a fired vice.
+    """Compute the chip amount for a fired vice. FIELD-relative floors.
 
-    Returns 0 if the result is below `MIN_VICE_AMOUNT` (skip the
-    event entirely) or if the post-vice bankroll would breach the
-    floor-protection guard.
+    Returns 0 if the post-vice bankroll would breach the field-relative floor
+    (`field_median × VICE_FLOOR_MEDIAN_MULT`) or if the sized amount is below the
+    field-relative trivia floor (`field_median × MIN_VICE_MEDIAN_FRACTION`). Both
+    floors scale with the economy — there is no persona-absolute or magic-number
+    floor that can strand a field-rich AI as "too poor to touch."
 
     Order of clamps:
       1. raw_amount = bankroll × spend_fraction × jitter
       2. apply MAX_VICE_FRACTION cap
-      3. apply floor protection (skip if it would breach)
-      4. drop to 0 if final amount < MIN_VICE_AMOUNT
+      3. apply field-relative floor protection (skip if it would breach)
+      4. drop to 0 if final amount < the field-relative trivia floor
     """
     if bankroll <= 0 or excess_ratio <= 0:
         return 0
@@ -313,13 +346,13 @@ def compute_vice_amount(
     raw_amount = int(bankroll * spend_fraction * jitter)
     cap = int(bankroll * MAX_VICE_FRACTION)
     amount = min(raw_amount, cap)
-    floor_protection = int(starting_bankroll * FLOOR_PROTECTION_FRACTION)
+    floor_protection = int(field_median * VICE_FLOOR_MEDIAN_MULT)
     if bankroll - amount < floor_protection:
-        # Would strand the AI below half-starting. Skip rather than
-        # clamp — clamping could produce sub-MIN amounts that read as
-        # noise on the ticker.
+        # Would strand the AI below the field-relative floor. Skip rather than
+        # clamp — clamping could produce trivia amounts that read as ticker noise.
         return 0
-    if amount < MIN_VICE_AMOUNT:
+    min_amount = max(1, int(field_median * MIN_VICE_MEDIAN_FRACTION))
+    if amount < min_amount:
         return 0
     return amount
 
@@ -327,15 +360,16 @@ def compute_vice_amount(
 def compute_recovery_factor(amount: int) -> float:
     """Logarithmic recovery scaling — money buys some happiness but not unbounded.
 
-    A $50 vice yields BASE_RECOVERY (0.25); a $5,000 vice yields ~0.35;
-    a $50,000+ vice caps at MAX_RECOVERY (0.40). The wealthy recover
-    faster only because they vice more often, not because each event
-    is more powerful.
+    A reference-sized vice yields BASE_RECOVERY (0.25); ~100× that yields ~0.35;
+    ~1000×+ caps at MAX_RECOVERY (0.40). The wealthy recover faster only because
+    they vice more often, not because each event is more powerful. The reference
+    (`RECOVERY_REFERENCE_AMOUNT`) is a curve-shape constant, not an economy gate —
+    it never blocks a vice.
     """
     if amount <= 0:
         return 0.0
-    safe = max(MIN_VICE_AMOUNT, amount)
-    bonus = AMOUNT_BONUS * math.log10(safe / MIN_VICE_AMOUNT)
+    safe = max(RECOVERY_REFERENCE_AMOUNT, amount)
+    bonus = AMOUNT_BONUS * math.log10(safe / RECOVERY_REFERENCE_AMOUNT)
     return min(MAX_RECOVERY, BASE_RECOVERY + bonus)
 
 
@@ -775,14 +809,17 @@ def resolve_ai_vice_spending(
     `candidates` is the idle-pool AI set minus any AIs already on a
     vice (the lobby builds this set before calling). The dispatcher:
 
-      0. Loads ALL cast bankrolls once, computes cast median. If the
-         median is below MIN_CAST_MEDIAN_FOR_VICE, the whole pass
-         short-circuits (no point draining "the rich" when nobody is).
+      0. Loads ALL cast bankrolls once, computes the cast median (the
+         per-candidate concentration reference) AND the cast Gini. If the
+         Gini is below `economy_flags.MIN_GINI_FOR_VICE` — wealth too evenly
+         spread to have a "top" worth draining — the whole pass short-circuits.
+         Scale-invariant, so a drained-but-unequal field still fires.
       1. Per candidate, loads bankroll + psych snapshot + computes
          vice_prob using the concentration-based excess_ratio. Skips
          candidates with probability 0 or that fail the rng roll.
-      2. Computes the amount; skip if it falls below MIN_VICE_AMOUNT
-         or breaches floor protection (compute_vice_amount returns 0).
+      2. Computes the amount; skip if it falls below the field-relative trivia
+         floor or breaches the field-relative floor protection
+         (compute_vice_amount returns 0).
       3. Sorts the surviving fires by amount DESC, takes the top
          `max_starts`.
       4. For each fire: calls `narrate_fn` (sync — duration bucket
@@ -806,11 +843,11 @@ def resolve_ai_vice_spending(
     # their stacks); otherwise it's the legacy median of off-table
     # bankrolls only. Either way the per-candidate logic below is
     # identical — an idle candidate's `current` IS its liquid wealth.
-    if field_snapshot is not None:
-        from cash_mode import economy_flags as _eflags
+    from cash_mode import economy_flags as _eflags
 
+    if field_snapshot is not None:
         cast_median = field_snapshot.median()
-        min_median = _eflags.MIN_FIELD_MEDIAN_FOR_VICE
+        cast_gini = field_snapshot.gini()
     else:
         try:
             cast_chips = bankroll_repo.list_all_ai_bankroll_chips(
@@ -820,12 +857,13 @@ def resolve_ai_vice_spending(
             logger.warning("[VICE] list_all_ai_bankroll_chips failed: %s", exc)
             return []
         cast_median = compute_cast_median(cast_chips)
-        min_median = MIN_CAST_MEDIAN_FOR_VICE
-    if cast_median < min_median:
-        # Cast is too poor for the "drain the wealthy" framing to make
-        # sense. Skip the pass entirely; AIs grind back to wealth via
-        # the normal regen/play loop and vice resumes when the median
-        # crosses the floor.
+        cast_gini = compute_cast_gini(cast_chips)
+    if cast_gini < _eflags.MIN_GINI_FOR_VICE:
+        # Wealth is too EVENLY spread to have a "top" worth draining (low Gini).
+        # Skip the pass; vice resumes when concentration rebuilds. Scale-invariant
+        # — a drained-but-unequal field still fires, so the bank pool keeps
+        # refilling (no absolute-floor death spiral). `cast_median` still anchors
+        # each surviving candidate's concentration ratio below.
         return []
 
     # Reserve-aware intensity (flag-gated, OFF by default): vice is a refill
@@ -868,16 +906,6 @@ def resolve_ai_vice_spending(
         if current is None or current <= 0:
             continue
 
-        try:
-            knobs = bankroll_repo.load_personality_knobs(pid)
-        except Exception as exc:
-            logger.warning(
-                "[VICE] load_personality_knobs failed pid=%r: %s",
-                pid,
-                exc,
-            )
-            continue
-
         # Concentration gate (with optional test override).
         if concentration_floor != CONCENTRATION_FLOOR:
             concentration = current / cast_median if cast_median > 0 else 0.0
@@ -910,9 +938,9 @@ def resolve_ai_vice_spending(
 
         amount = compute_vice_amount(
             current,
-            knobs.starting_bankroll,
             excess,
             rng,
+            field_median=cast_median,
         )
         if amount <= 0:
             continue
@@ -959,6 +987,7 @@ def resolve_ai_vice_spending(
             ends_at=ends_at,
             excess_ratio=excess,
             pressure=pressure,
+            field_median=cast_median,
         )
         if committed:
             # Carry the psych snapshot so the async ticker narration can use it
@@ -1016,16 +1045,6 @@ def commit_leave_vice(
     if current is None or current <= 0:
         return None
 
-    try:
-        knobs = bankroll_repo.load_personality_knobs(personality_id)
-    except Exception as exc:
-        logger.warning(
-            "[VICE] leave-vice load_personality_knobs failed pid=%r: %s",
-            personality_id,
-            exc,
-        )
-        return None
-
     excess = compute_excess_ratio(current, cast_median)
     if excess <= 0:
         return None
@@ -1065,11 +1084,15 @@ def commit_leave_vice(
             psych['energy'],
         )
 
-    amount = compute_vice_amount(current, knobs.starting_bankroll, excess, rng)
-    # Apply the reserve gate so leave-path vice tapers with bank depth, matching
-    # the idle path.
+    amount = compute_vice_amount(current, excess, rng, field_median=cast_median)
+    # Apply the reserve gate so leave-path vice tapers with bank depth. (The idle
+    # path tapers PROBABILITY; the leave roll already happened, so here we taper
+    # the AMOUNT instead.) Because this scales the amount AFTER compute_vice_amount
+    # enforced its field-relative trivia floor, re-apply that floor: a small
+    # vice_mult can drag a just-above-floor amount below it, which would fire the
+    # exact ticker noise the floor exists to prevent. `> 0` alone is insufficient.
     amount = int(amount * vice_mult)
-    if amount <= 0:
+    if amount < max(1, int(cast_median * MIN_VICE_MEDIAN_FRACTION)):
         return None
 
     duration_bucket = pick_duration_bucket(pressure, rng)
@@ -1097,6 +1120,7 @@ def commit_leave_vice(
         ends_at=ends_at,
         excess_ratio=excess,
         pressure=pressure,
+        field_median=cast_median,
     )
     # Carry the psych snapshot for the async narration cue context (as above).
     return replace(committed, psychology_snapshot=psych) if committed else committed
@@ -1119,6 +1143,7 @@ def _commit_vice_start(
     ends_at: datetime,
     excess_ratio: float,
     pressure: float,
+    field_median: int,
 ) -> Optional[ViceStartResult]:
     """Apply the chip move + ledger entry + state row in one shot.
 
@@ -1167,8 +1192,9 @@ def _commit_vice_start(
     )
     # Defensive double-check: the candidate-set roll already ran the
     # floor-protection guard, but bankroll may have changed since
-    # (concurrent sim hand, race with another path). Skip if so.
-    floor_protection = int(knobs.starting_bankroll * FLOOR_PROTECTION_FRACTION)
+    # (concurrent sim hand, race with another path). Skip if so. FIELD-relative
+    # floor (same basis as compute_vice_amount), not the persona starting bankroll.
+    floor_protection = int(field_median * VICE_FLOOR_MEDIAN_MULT)
     if projected - amount < floor_protection:
         return None
 

@@ -31,8 +31,18 @@ public class FoundationModelsBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "availability", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "suggestChat", returnType: CAPPluginReturnPromise),
+        // Callback return type: resolve() fires repeatedly with partial snapshots
+        // until { done: true }. The JS bridge renders suggestions as they fill in.
+        CAPPluginMethod(name: "suggestChatStream", returnType: CAPPluginReturnCallback),
         CAPPluginMethod(name: "prewarm", returnType: CAPPluginReturnPromise)
     ]
+
+    /// Default instructions when the caller doesn't supply a server-composed system
+    /// prompt (e.g. the standalone test path).
+    private static let defaultInstructions = """
+    You write sharp, witty poker banter that reacts to the actual hand. \
+    Never generic — always specific callbacks to what just happened. Short and punchy.
+    """
 
     /// Holds a session so the shared on-device model stays resident between calls.
     /// Stored as AnyObject? to avoid @available on a stored property; cast on use.
@@ -104,6 +114,54 @@ public class FoundationModelsBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         call.reject("FoundationModels unavailable (needs iOS 26+)")
     }
 
+    /// Streaming variant: emits partial snapshots as the model fills the structure in,
+    /// so the UI can show the first suggestion before the second finishes. Each
+    /// resolve carries the cumulative `{ suggestions, done }`; the final has done=true.
+    @objc func suggestChatStream(_ call: CAPPluginCall) {
+        guard let prompt = call.getString("prompt"), !prompt.isEmpty else {
+            call.reject("prompt is required")
+            return
+        }
+        let system = call.getString("system")
+        let tones = call.getArray("tones", String.self) ?? []
+
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            // Mark kept-alive only once we're committed to streaming — the unsupported
+            // path below rejects without releaseCall, so it must not leave keepAlive set.
+            call.keepAlive = true  // resolve() fires once per snapshot, not once total
+            Task {
+                do {
+                    let instructions = system ?? Self.defaultInstructions
+                    var fullPrompt = prompt
+                    if system == nil, !tones.isEmpty {
+                        fullPrompt += "\n\nFavor these tones: \(tones.joined(separator: ", "))."
+                    }
+                    let session = LanguageModelSession(instructions: instructions)
+                    let stream = session.streamResponse(to: fullPrompt, generating: ChatSuggestions.self)
+                    var latest: [[String: String]] = []
+                    for try await partial in stream {
+                        // Each emission is a Snapshot; the partially-generated value is
+                        // under `.content`, with optional fields as the model fills in.
+                        latest = (partial.content.suggestions ?? []).compactMap { s in
+                            let text = s.text ?? ""
+                            return text.isEmpty ? nil : ["text": text, "tone": s.tone ?? ""]
+                        }
+                        call.resolve(["suggestions": latest, "done": false])
+                    }
+                    call.resolve(["suggestions": latest, "done": true])
+                    self.bridge?.releaseCall(call)
+                } catch {
+                    call.reject("on-device streaming failed: \(error.localizedDescription)")
+                    self.bridge?.releaseCall(call)
+                }
+            }
+            return
+        }
+        #endif
+        call.reject("FoundationModels unavailable (needs iOS 26+)")
+    }
+
     #if canImport(FoundationModels)
     /// The structure the model is constrained to emit (guided generation).
     @available(iOS 26.0, *)
@@ -131,10 +189,7 @@ public class FoundationModelsBridgePlugin: CAPPlugin, CAPBridgedPlugin {
         // Server-composes mode: use the server's system text as-is and don't append
         // our tone hint (the server prompt is already complete). Standalone mode
         // (e.g. the /dev/fmtest page): fall back to our generic instructions + hint.
-        let instructions = system ?? """
-        You write sharp, witty poker banter that reacts to the actual hand. \
-        Never generic — always specific callbacks to what just happened. Short and punchy.
-        """
+        let instructions = system ?? Self.defaultInstructions
         var fullPrompt = prompt
         if system == nil, !tones.isEmpty {
             fullPrompt += "\n\nFavor these tones: \(tones.joined(separator: ", "))."

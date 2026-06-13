@@ -36,6 +36,7 @@ import { gameAPI } from '../../../utils/api';
 import { config } from '../../../config';
 import { usePokerGame } from '../../../hooks/usePokerGame';
 import { useTournamentEvents } from '../../../hooks/useTournamentEvents';
+import { useGameMainEventCountdown } from '../../../hooks/useMainEventCountdown';
 import { useCommunityCardAnimation } from '../../../hooks/useCommunityCardAnimation';
 import { useDisplayNickname } from '../../../stores/nicknameOverridesStore';
 import { isBettingPhase } from '../../../constants/gamePhases';
@@ -144,6 +145,10 @@ export function PokerTable({
   // Multi-table tournament felt: relocation toasts + bust/win routing to the
   // standings hub (no-op for non-tournament games). See useTournamentEvents.
   useTournamentEvents({ socketRef, connected: isConnected, gameId });
+
+  // Circuit Main Event countdown toasts (5 min / 1 min) while seated — so the
+  // registration deadline reaches the felt, not just the lobby card.
+  useGameMainEventCountdown({ socketRef, connected: isConnected });
 
   // Community-card deal-in animation timing (flop cascade, turn/river single).
   const communityCardAnimations = useCommunityCardAnimation(

@@ -1,8 +1,8 @@
 ---
-purpose: Narrative log of integrating Apple's on-device Foundation Models to generate quick-chat suggestions on iPhone, with server-composed prompt parity and a prewarm latency fix
+purpose: Narrative log of integrating Apple's on-device Foundation Models to generate quick-chat suggestions on iPhone — server-composed prompt parity, prewarm, prompt prefetch, and streaming
 type: guide
 created: 2026-06-12
-last_updated: 2026-06-12
+last_updated: 2026-06-13
 ---
 
 # On-device LLM (Apple Foundation Models) — captain's log
@@ -104,6 +104,46 @@ post-round winner screen) mount — i.e. the "user is about to chat" signal, wit
 second or two of read-time as lead. `gen` dropped to ~1.5s. Prompt trimming is the
 remaining lever if we ever want sub-1s, at a small parity cost; not needed yet.
 
+## Removing the network round-trip (prefetch)
+Prewarm fixed `gen`. The other half was `net` — the `render_only` fetch that gets the
+composed prompt. Usually quick, but it spiked to ~4s sometimes (cold server / slow
+query), stalling the whole suggestion. Key observation: the expensive part of the prompt
+(hand context + opponent social read) is identical across every tone/length/intensity;
+only the knobs change. So the server gained a `render_only: "batch"` mode that builds the
+common context once and renders every variant in one response (`{ system, variants }`, a
+few dozen short prompts, a few KB). The client prefetches that when the chat options mount
+(same trigger as prewarm) and caches it keyed by game+target+last-action. A tone tap is
+then a pure cache lookup → on-device generate, with zero network. Misses (the hand moved
+on) fall back to a live `render_only`, then the server LLM. (PR #326.)
+
+## Streaming (the felt-latency win)
+~1.5s is fine but still a blank-then-pop. The tempting "it's free, pre-generate all 36
+variations" idea is a trap: the on-device model is a *serialized* resource, so queuing
+dozens of generations cooks the battery/thermal budget and can make the user's actual
+pick *slower* (it waits behind the others). The right tool is streaming the one
+generation they asked for: `session.streamResponse(...)` emits cumulative snapshots, so
+the first line appears before the second finishes. Same total time, feels near-instant.
+
+Plumbing notes:
+- Capacitor streaming = a callback method (`CAPPluginReturnCallback`): `call.resolve()`
+  fires once per snapshot until `{ done: true }`; the JS `registerPlugin` proxy invokes
+  the passed callback each time.
+- The streamed element is a `Snapshot`, not the partial directly — the compiler taught
+  us it's `partial.content.suggestions` (each field optional as it fills in).
+- The JS wrapper self-heals: if the stream errors it falls back to one non-streaming
+  generation, so a caller always gets a result.
+- Latent bug caught in review: `call.keepAlive = true` was set *before* the
+  `#available(iOS 26)` gate, and the unsupported path rejects without `releaseCall` → a
+  leak if reached. Unreachable today (deployment target is 26.1, so the gate is always
+  true), but moved keepAlive inside the available branch anyway. (PR #341.)
+
+## Is the prompt too big? (measured, then left alone)
+Sized the targeted prompt: ~205 tokens quiet, ~366 tokens busy (10 table-talk lines is
+the biggest variable; the `Return JSON` tail is ~31 redundant tokens under guided
+generation). After prewarm + streaming, prefill is not the bottleneck — a warm long
+prompt runs about the same as a short one — so trimming buys ~100-200ms, not worth the
+parity divergence now that streaming carries the felt latency. Left as-is.
+
 ## Shipping mishaps
 - `render_only` (the server half) went in as PR #310. Then "merged it" turned out to
   have merged the *wrong* PR (#311, an unrelated bot change); #310 was still open.
@@ -120,5 +160,8 @@ remaining lever if we ever want sub-1s, at a small parity cost; not needed yet.
   *server owns the context, device runs the inference.*
 - **Cold model load** is the hidden latency cost; `prewarm()` on the "about to use it"
   signal is the single biggest win.
+- For the rest of the latency: **prefetch** the prompt off the critical path, and
+  **stream** the generation so it *feels* instant. Do NOT pre-generate every variation —
+  the on-device model is serialized, and "free" ignores battery and thermals.
 - The cost savings are modest (fast-tier calls). The real value is a genuine,
   shipping Apple Intelligence integration.

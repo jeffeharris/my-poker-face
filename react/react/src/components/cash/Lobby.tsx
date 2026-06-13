@@ -59,6 +59,7 @@ import { IntelHub } from './IntelHub';
 import type { FileCabinetPerson } from './types';
 import { readLobbyCache, writeLobbyCache } from './lobbyCache';
 import { useAuth } from '../../hooks/useAuth';
+import { useCountdownToasts } from '../../hooks/useMainEventCountdown';
 import { StakeOfferModal } from './StakeOfferModal';
 import { IdleStakablePanel } from './IdleStakablePanel';
 import type {
@@ -341,6 +342,12 @@ export function Lobby() {
    *  accepted, so without this there's no way back to an in-progress event. */
   const [activeTournamentId, setActiveTournamentId] = useState<string | null>(null);
   const loadActiveTournamentRef = useRef<() => Promise<void>>(async () => {});
+
+  // Fire the "Main Event starts in N min" countdown toasts off the open invite
+  // the lobby already keeps fresh (mount + slow poll + post-action refetch) — no
+  // extra network. The same toasts fire in-game via useGameMainEventCountdown;
+  // module-level dedup keeps a threshold from re-firing across the handoff.
+  useCountdownToasts(mainEventInvite?.expires_at ?? null, mainEventInvite?.invite_id ?? null);
 
   /** Set of stake labels whose tier section is currently collapsed.
    *  Initialized once per mount: mobile → all collapsed except the

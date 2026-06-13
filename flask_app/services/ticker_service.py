@@ -1119,7 +1119,7 @@ def _maybe_tick_tournament(owner_id: str, sandbox_id: str) -> None:
                     cash_table_repo=cash_table_repo,
                     sandbox_id=sandbox_id,  # only sweep this sandbox (the lock we hold)
                 )
-                invites.maybe_offer_main_event(
+                offered = invites.maybe_offer_main_event(
                     invite_repo=invite_repo,
                     session_repo=session_repo,
                     ledger_repo=ledger_repo,
@@ -1127,6 +1127,24 @@ def _maybe_tick_tournament(owner_id: str, sandbox_id: str) -> None:
                     sandbox_id=sandbox_id,
                     draw_ctx=draw_ctx,
                 )
+                # A fresh invite was offered this tick — push its deadline to the
+                # owner's lobby room so a seated (in-game) client can fire the
+                # "Main Event starts in N min" countdown toasts without polling the
+                # expensive GET /invite. The lobby card learns it via its own
+                # refresh; this push is what reaches the felt mid-session.
+                if offered is not None:
+                    from flask_app.extensions import socketio
+                    from flask_app.services import presence
+
+                    if socketio is not None:
+                        socketio.emit(
+                            "main_event_invite",
+                            {
+                                "invite_id": offered.get("invite_id"),
+                                "expires_at": offered.get("expires_at"),
+                            },
+                            to=presence.lobby_room_name(owner_id),
+                        )
             except Exception:  # noqa: BLE001 — surfacing is best-effort
                 logger.exception("[TICKER] invite sweep failed for owner=%s", owner_id)
 

@@ -15,11 +15,21 @@ import { isNativePlatform } from './nativeAuth';
  * A/B'd against the server output without shipping it on by default.
  */
 
+interface StreamSnapshot {
+  suggestions: Array<{ text: string; tone: string }>;
+  done: boolean;
+}
 interface FoundationModelsPlugin {
   availability(): Promise<{ available: boolean; reason?: string }>;
   suggestChat(options: { prompt: string; system?: string; tones?: string[] }): Promise<{
     suggestions: Array<{ text: string; tone: string }>;
   }>;
+  // Callback-style: the native side resolves repeatedly with partial snapshots
+  // (Capacitor invokes `callback` once per resolve) until `done: true`.
+  suggestChatStream(
+    options: { prompt: string; system?: string; tones?: string[] },
+    callback: (data: StreamSnapshot | null, err?: string) => void
+  ): Promise<string>;
   prewarm(): Promise<{ warmed: boolean }>;
 }
 
@@ -87,6 +97,51 @@ export async function suggestChatOnDevice(opts: {
     throw new Error('on-device model returned no suggestions');
   }
   return typeof count === 'number' ? suggestions.slice(0, count) : suggestions;
+}
+
+/**
+ * Streaming variant: invokes `onPartial` with the suggestions filled in so far, so the
+ * UI can show the first line before the second finishes, then resolves with the final
+ * list. Self-heals to a single non-streaming generation if the stream errors, so the
+ * caller still gets a result. Throws only when on-device generation fails outright.
+ */
+export async function suggestChatOnDeviceStream(
+  opts: { prompt: string; system?: string; tones?: string[]; count?: number },
+  onPartial?: (suggestions: ChatSuggestion[]) => void
+): Promise<ChatSuggestion[]> {
+  const { prompt, system, tones, count } = opts;
+  const cap = (list: ChatSuggestion[]) => (typeof count === 'number' ? list.slice(0, count) : list);
+  try {
+    return await new Promise<ChatSuggestion[]>((resolve, reject) => {
+      let settled = false;
+      Promise.resolve(
+        FoundationModels.suggestChatStream({ prompt, system, tones }, (data, err) => {
+          if (settled) return;
+          if (err || !data) {
+            settled = true;
+            reject(new Error(err || 'on-device stream error'));
+            return;
+          }
+          const list = cap(Array.isArray(data.suggestions) ? data.suggestions : []);
+          if (data.done) {
+            settled = true;
+            if (list.length === 0) reject(new Error('on-device model returned no suggestions'));
+            else resolve(list);
+          } else if (onPartial && list.length) {
+            onPartial(list);
+          }
+        })
+      ).catch((e) => {
+        if (!settled) {
+          settled = true;
+          reject(e instanceof Error ? e : new Error(String(e)));
+        }
+      });
+    });
+  } catch {
+    // Streaming unsupported/failed — fall back to a single non-streaming generation.
+    return suggestChatOnDevice(opts);
+  }
 }
 
 /**

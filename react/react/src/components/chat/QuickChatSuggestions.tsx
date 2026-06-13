@@ -241,7 +241,16 @@ export function QuickChatSuggestions({
           tone,
           length,
           intensity,
-          lastAction
+          lastAction,
+          // On-device streaming: render suggestions as they fill in, and drop the
+          // spinner the moment the first line appears. Only fires on the on-device path.
+          (partial) => {
+            if (partial.length) {
+              setSuggestions(partial);
+              setLoading(false);
+              setContainerHeight(null);
+            }
+          }
         );
         if (response.fallback) {
           logger.warn('[QuickChat] Using fallback suggestions! API error:', response.error);

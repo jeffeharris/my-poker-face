@@ -84,6 +84,17 @@ H2_FOLD_TARGET: Dict[str, float] = {
     'medium_made': 0.60,
 }
 
+# ── H3: float-and-steal vs a one-and-done c-bettor (the give-up line) ──
+# The mirror of H1: H1 continues the hero's OWN aggression (it was the
+# aggressor); H3 attacks the OPPONENT's give-up. When the opp c-bet the flop,
+# hero FLOATED (`not was_prev_street_aggressor`), and the opp then checks the
+# turn (`unopened`), that check is a give-up → hero bets to steal. Gated to the
+# air classes (no showdown value to protect — the +EV is pure fold equity),
+# HU + turn, and a FOLDABLE villain read (fold_to_big_bet >= min) so it never
+# bluffs into a station. Measured leak (historical give-up-line decisions): hero
+# checks back air ~77% in this spot at ~48% fold equity → betting air is +EV.
+H3_STEAL_CLASSES = frozenset({'air_no_draw', 'air_strong_draw'})
+
 
 @dataclass(frozen=True)
 class MultiStreetSignals:
@@ -91,6 +102,10 @@ class MultiStreetSignals:
 
     was_prev_street_aggressor: bool  # hero had/took initiative the prior round
     facing_double_barrel: bool  # opp bet flop AND the immediately-prior street
+    # Opp bet the flop (c-bet). With `was_prev_street_aggressor=False` + a turn
+    # `unopened` node this is the give-up line: hero FLOATED the c-bet, the opp
+    # then checked the turn (gave up) → the float-and-steal spot (H3).
+    opp_cbet_flop: bool = False
 
 
 # ── Signal derivation ──────────────────────────────────────────────────────
@@ -167,9 +182,15 @@ def derive_signals(controller, street: str) -> MultiStreetSignals:
     else:
         facing_db = False
 
+    # Did the opp c-bet the flop? On the turn, combined with
+    # was_prev_street_aggressor=False + an `unopened` node, this is the give-up
+    # line (hero floated the c-bet, opp checked the turn) the H3 steal targets.
+    opp_cbet_flop = bool(opp_bet.get('FLOP'))
+
     return MultiStreetSignals(
         was_prev_street_aggressor=was_prev,
         facing_double_barrel=facing_db,
+        opp_cbet_flop=opp_cbet_flop,
     )
 
 
@@ -305,6 +326,11 @@ def apply_multistreet_context(
     air_barrel_fold_to_big_bet: Optional[float] = None,
     air_barrel_min_ftbb: float = 0.6,
     air_barrel_streets: Optional[frozenset] = None,
+    steal_target: float = 0.0,
+    steal_fold_to_big_bet: Optional[float] = None,
+    steal_min_ftbb: float = 0.45,
+    steal_classes: Optional[frozenset] = None,
+    steal_streets: Optional[frozenset] = None,
     prior_layer_fired: bool = False,
     disable_rules=None,
 ) -> Tuple[StrategyProfile, InterventionTrace]:
@@ -386,6 +412,45 @@ def apply_multistreet_context(
         return strategy, make_no_op_trace(
             LAYER,
             'barrel',
+            order,
+            reason_code='no_bet_action_or_above_target',
+        )
+
+    # ── H3: float-and-steal vs the give-up line ─────────────────────────────
+    # Disjoint from H1/air_barrel (those require hero WAS the aggressor; this
+    # requires it FLOATED). Fires only with a foldable-villain read so it never
+    # bluffs into a station. Sits before H1 — the gates are mutually exclusive,
+    # so order is immaterial; placed here to keep all bet-pumps together.
+    steal_applies = (
+        steal_target > 0.0
+        and steal_fold_to_big_bet is not None
+        and steal_fold_to_big_bet >= steal_min_ftbb
+        and not signals.was_prev_street_aggressor
+        and signals.opp_cbet_flop
+        and action_context == 'unopened'
+        and active_count <= H1_MAX_ACTIVE_PLAYERS
+        and hand_class in (steal_classes if steal_classes is not None else H3_STEAL_CLASSES)
+        and (street or '').upper() in (steal_streets or frozenset({'TURN'}))
+    )
+    if steal_applies:
+        if is_rule_disabled(disable_rules, LAYER, 'steal'):
+            return strategy, make_disabled_trace(LAYER, 'steal', order)
+        new = _pump_bet(strategy, steal_target)
+        if new is not strategy:
+            return new, _fire_trace(
+                strategy,
+                new,
+                rule_id='steal',
+                effect='pump_bet_steal',
+                reason_code='steal_giveup_turn',
+                signals=signals,
+                hand_class=hand_class,
+                action_context=action_context,
+                target=steal_target,
+            )
+        return strategy, make_no_op_trace(
+            LAYER,
+            'steal',
             order,
             reason_code='no_bet_action_or_above_target',
         )

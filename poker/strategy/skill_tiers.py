@@ -63,6 +63,17 @@ class SkillTier:
     # exploitation axis as vs3bet_exploit — a rec doesn't read/attack limpers
     # (0.0); a shark hammers them (0.85). Default 0.5 for an un-tiered persona.
     limp_exploit: float = 0.5
+    # Blind squeeze-defense: continue a value-floor that widens vs a read-wide
+    # squeezer instead of folding the whole blind range to an open+3-bet
+    # (VS_SQUEEZE_DEFENSE_HANDOFF). Same exploitation axis — a rec folds everything
+    # (0.0), a shark reads the squeezer's width and defends graded (0.85). Scales
+    # how DEEP into the tiered defense range the read is allowed to widen.
+    vs_squeeze_defense: float = 0.5
+    # Turn float-and-steal: BET frequency the H3 steal pumps air to when a foldable
+    # one-and-done villain c-bets the flop, hero floats, and the villain checks the
+    # turn (give-up line). A rec gives up its air (0.0); a shark steals it (0.55).
+    # This is a bet-frequency TARGET, not a 0-1 knob (0.0 = off).
+    steal_turn_target: float = 0.0
 
 
 # The ladder, sharpest → weakest. `shark` equals the TieredBotController
@@ -80,6 +91,8 @@ SKILL_TIERS = {
         overbet_fraction=1.0,
         vs3bet_exploit=0.85,
         limp_exploit=0.85,
+        vs_squeeze_defense=0.85,
+        steal_turn_target=0.55,
     ),
     # solid: softer reads, still balanced + defends.
     'reg': SkillTier(
@@ -90,6 +103,8 @@ SKILL_TIERS = {
         overbet_fraction=1.0,
         vs3bet_exploit=0.55,
         limp_exploit=0.55,
+        vs_squeeze_defense=0.55,
+        steal_turn_target=0.40,
     ),
     # half-baked: semi-face-up river, soft adapt, half-hearted defense + sizing.
     'weak_reg': SkillTier(
@@ -100,6 +115,8 @@ SKILL_TIERS = {
         overbet_fraction=0.5,
         vs3bet_exploit=0.3,
         limp_exploit=0.3,
+        vs_squeeze_defense=0.3,
+        steal_turn_target=0.20,
     ),
     # rec: face-up river, over-folds to stabs, barely adapts, no overbets.
     'rec': SkillTier(
@@ -110,6 +127,8 @@ SKILL_TIERS = {
         overbet_fraction=0.0,
         vs3bet_exploit=0.0,
         limp_exploit=0.0,
+        vs_squeeze_defense=0.0,
+        steal_turn_target=0.0,
     ),
 }
 

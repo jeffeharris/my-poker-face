@@ -3,11 +3,17 @@ import type {
   ChatTone,
   ChatLength,
   ChatIntensity,
+  TargetedSuggestion,
   TargetedSuggestionsResponse,
   PostRoundTone,
   PostRoundSuggestionsResponse,
 } from '../types/chat';
-import { isOnDeviceLLMAvailable, suggestChatOnDevice } from './onDeviceLLM';
+import {
+  isOnDeviceLLMAvailable,
+  suggestChatOnDevice,
+  suggestChatOnDeviceStream,
+  type ChatSuggestion,
+} from './onDeviceLLM';
 
 // Common fetch options to ensure credentials are included
 const fetchOptions: RequestInit = {
@@ -230,23 +236,27 @@ export const gameAPI = {
     tone: ChatTone,
     length: ChatLength,
     intensity: ChatIntensity,
-    lastAction?: { type: string; player: string; amount?: number }
+    lastAction?: { type: string; player: string; amount?: number },
+    onPartial?: (suggestions: TargetedSuggestion[]) => void
   ): Promise<TargetedSuggestionsResponse> => {
     const body = { playerName, targetPlayer, tone, length, intensity, lastAction };
+    // Map on-device partial snapshots to the UI's shape (the requested tone) so the
+    // panel can render suggestions as they stream in.
+    const streamPartial = onPartial
+      ? (partial: ChatSuggestion[]) => onPartial(partial.map((s) => ({ text: s.text, tone })))
+      : undefined;
 
     if (await isOnDeviceLLMAvailable()) {
       // Fastest path: a prefetched variant for this exact spot. Generates on-device
-      // with NO network round-trip.
+      // with NO network round-trip, streaming suggestions as they fill in.
       const entry = prefetchCache.get(prefetchKey(gameId, targetPlayer, lastAction));
       const cachedUser = entry?.variants[`${tone}|${length}|${intensity}`];
       if (entry && cachedUser) {
         try {
-          const suggestions = await suggestChatOnDevice({
-            prompt: cachedUser,
-            system: entry.system,
-            tones: [tone],
-            count: entry.count ?? 2,
-          });
+          const suggestions = await suggestChatOnDeviceStream(
+            { prompt: cachedUser, system: entry.system, tones: [tone], count: entry.count ?? 2 },
+            streamPartial
+          );
           return {
             suggestions: suggestions.map((s) => ({ text: s.text, tone })),
             targetPlayer,
@@ -273,12 +283,15 @@ export const gameAPI = {
           const payload = await composed.json();
           const parsed = parseComposedPrompt(payload);
           if (parsed) {
-            const suggestions = await suggestChatOnDevice({
-              prompt: parsed.user,
-              system: parsed.system,
-              tones: [tone],
-              count: parsed.count ?? 2,
-            });
+            const suggestions = await suggestChatOnDeviceStream(
+              {
+                prompt: parsed.user,
+                system: parsed.system,
+                tones: [tone],
+                count: parsed.count ?? 2,
+              },
+              streamPartial
+            );
             return {
               suggestions: suggestions.map((s) => ({ text: s.text, tone })),
               targetPlayer,

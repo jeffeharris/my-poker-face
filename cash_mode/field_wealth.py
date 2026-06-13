@@ -65,6 +65,31 @@ def _percentile(sorted_values: Tuple[int, ...], q: float) -> float:
     return sorted_values[lo] * (1 - w) + sorted_values[hi] * w
 
 
+def gini(sorted_values: Tuple[int, ...]) -> float:
+    """Gini coefficient of a pre-sorted, non-negative sequence.
+
+    0.0 = perfect equality (everyone holds the same), 1.0 = one holder has
+    everything. Standard formula (twice the area between the Lorenz curve and
+    the equality line). DIMENSIONLESS — scale-invariant: a field's Gini is the
+    same whether its chips are denominated in thousands or millions. That's the
+    whole point of using it to gate vice — "is wealth concentrated?" is a
+    question about distribution shape, not absolute level, so the gate can't
+    create the absolute-floor death spiral (drained field -> vice off -> can
+    never refill the bank pool -> stays drained).
+
+    A degenerate field (empty, or total 0) returns 0.0 — no concentration, so
+    no "top" to drain.
+    """
+    n = len(sorted_values)
+    if n == 0:
+        return 0.0
+    total = sum(sorted_values)
+    if total == 0:
+        return 0.0
+    weighted = sum(i * v for i, v in enumerate(sorted_values, start=1))
+    return (2 * weighted) / (n * total) - (n + 1) / n
+
+
 @dataclass(frozen=True)
 class FieldWealthSnapshot:
     """Immutable per-tick view of the field's liquid wealth.
@@ -103,6 +128,14 @@ class FieldWealthSnapshot:
     def percentile(self, q: float) -> float:
         """q-percentile liquid value (q in [0,1])."""
         return _percentile(self._sorted, q)
+
+    def gini(self) -> float:
+        """Gini coefficient of the field's liquid wealth (0 = equal, 1 = one
+        holder has it all). Scale-invariant — the vice pass gates on THIS rather
+        than an absolute median floor, so a drained-but-unequal field still reads
+        "concentrated" and keeps recycling chips to the bank pool (no death
+        spiral). 0.0 for an empty/degenerate field (no top to drain)."""
+        return gini(self._sorted)
 
     def concentration(self, pid: str) -> float:
         """An AI's liquid wealth as a multiple of the field median.

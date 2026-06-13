@@ -38,6 +38,7 @@ from .strategy.exploitation import (
     classify_opponent_archetype,
     compute_exploitation_offsets_with_traces,
     compute_multiway_cbet_intensity,
+    compute_overbluff_intensity,
     compute_value_vs_station_intensity,
     is_value_vs_station_enabled,
     reshove_fold_equity_ok,
@@ -212,6 +213,12 @@ _ALLIN_VETO_EQUITY_ITERS = 600
 # compute_value_vs_station_intensity returns ~1.0 for a clear station; 0.5
 # keeps the override off marginal/ambiguous reads while firing on real ones.
 STOP_BLUFF_MIN_INTENSITY = 0.5
+
+# Bluff-catch-vs-over-bluffer hard override (see _maybe_bluff_catch_override).
+# Min over-bluffer-read intensity (compute_overbluff_intensity on the primary
+# aggressor) before the override hard-sets the call. Same 0.5 floor as
+# stop-bluff: fire on a confident maniac read, stay off marginal ones.
+BLUFF_CATCH_MIN_INTENSITY = 0.5
 
 
 def _preflop_allin_equity(hole_cards: List[str], num_opponents: int) -> Optional[float]:
@@ -424,6 +431,69 @@ def _limp_exploit_enabled() -> bool:
         return is_enabled('LIMP_EXPLOIT_ENABLED')
     except Exception:
         return False
+
+
+# Blind squeeze-defense (VS_SQUEEZE_DEFENSE_HANDOFF): the blinds have no vs_squeeze
+# chart node, so a sharp hero folds its whole range — incl. AA — to an open+3-bet.
+# vs_squeeze_ev_probe measured the over-fold: ~0 leak vs a tight squeeze (folding is
+# correct OOP), 3.8–5.3 bb/100 vs a wide/maniac squeeze. The fix is a value-continue
+# FLOOR that WIDENS into a tiered defend range as the squeezer reads wider.
+#
+# SQUEEZE_DEFENSE_TIERS: ordered strongest-first; each tuple is the INCREMENT added
+# as the read widens. Tier 0 (the floor) continues vs ANY squeeze; deeper tiers
+# unlock with the squeezer's VPIP. Cumulative widths ≈ 2.6% / 4.7% / 7.8% / 10.9% —
+# tracking the probe's measured +EV-defend depth (≈1/3/9/12% at the r=0.7 OOP
+# haircut). Flat-call continues (OOP realization is poor; the probe priced CALL, not
+# a 4-bet — 4-betting the top is a future enhancement). Value & high-card-blocker
+# hands that flop top pair / dominate a wide squeeze; no wide speculative suited.
+SQUEEZE_DEFENSE_TIERS = (
+    ('AA', 'KK', 'QQ', 'AKs', 'AKo'),  # tier 0: value floor
+    ('JJ', 'TT', 'AQs', 'AQo'),  # tier 1: vs a normal squeezer
+    ('99', 'AJs', 'KQs', 'ATs', 'AJo', 'KQo'),  # tier 2: vs a wide squeezer
+    ('88', '77', 'KJs', 'QJs', 'JTs', 'ATo', 'A5s'),  # tier 3: vs a maniac
+)
+# Squeezer VPIP read → base tier depth (how wide its range is). Tighter squeeze →
+# floor only; a wide/loose squeezer → deeper widen. Knob scales this depth down for
+# weaker tiers, but the floor (tier 0) always applies when knob>0.
+# Cutoffs sit on observed VPIP-per-voluntary (vs_squeeze_defense_validate): the
+# field's loosest squeezers read ~0.40, tight rocks ~0.15. Deliberately stays
+# CONSERVATIVE — flat-calling OOP realizes equity poorly, so over-widening vs a
+# not-actually-wide squeezer is −EV; deep widening (tier 3) is reserved for the
+# genuinely wide villains (read ≥ 0.50) more common in live play than in this field.
+_SQUEEZE_WIDTH_BANDS = ((0.50, 3), (0.38, 2), (0.28, 1))  # (vpip_cutoff, base_tier)
+VS_SQUEEZE_DEFENSE_DEFAULT = 0.5  # field default for an un-tiered persona
+
+
+def _resolve_vs_squeeze_defense(pcfg, skill) -> float:
+    """Resolve a persona's vs_squeeze_defense knob. Precedence: explicit
+    ``vs_squeeze_defense`` in config wins; else the skill tier grades it (shark
+    0.85 … rec 0.0); else VS_SQUEEZE_DEFENSE_DEFAULT for an un-tiered persona.
+    No feature flag — gated only by knob>0, like vs3bet_exploit (a graded read,
+    not a dormant boolean): sharps defend, recs don't, sims/tests no-op at knob 0."""
+    if isinstance(pcfg, dict) and 'vs_squeeze_defense' in pcfg:
+        return float(pcfg['vs_squeeze_defense'])
+    if skill:
+        from poker.strategy.skill_tiers import SKILL_TIERS
+
+        if skill in SKILL_TIERS:
+            return SKILL_TIERS[skill].vs_squeeze_defense
+    return VS_SQUEEZE_DEFENSE_DEFAULT
+
+
+def _resolve_steal_turn_target(pcfg, skill) -> float:
+    """Resolve a persona's turn float-and-steal target (the bet frequency the H3
+    steal pumps air to on the give-up line). Precedence: explicit
+    ``steal_turn_target`` in config wins; else the skill tier grades it (shark
+    0.55 … rec 0.0 = off); else 0.0 (un-tiered persona = off). No feature flag —
+    gated only by target>0 + a foldable-villain read, like vs3bet_exploit."""
+    if isinstance(pcfg, dict) and 'steal_turn_target' in pcfg:
+        return float(pcfg['steal_turn_target'])
+    if skill:
+        from poker.strategy.skill_tiers import SKILL_TIERS
+
+        if skill in SKILL_TIERS:
+            return SKILL_TIERS[skill].steal_turn_target
+    return 0.0
 
 
 def _compute_vs3bet_bluff_fraction(preflop_table, hero: str, villain: str):
@@ -775,6 +845,24 @@ class TieredBotController(AIPlayerController):
         # rec 0.0), like vs3bet_exploit. Gated behind LIMP_EXPLOIT_ENABLED. Live path
         # only (sims/tests bypass __init__ → getattr default 0.0 → no-op unless set).
         self.limp_exploit: float = _resolve_limp_exploit(_pcfg, _skill)
+
+        # Per-player blind squeeze-defense knob (0=fold everything … 1.0=read the
+        # squeezer's width and defend graded): continue a value-floor (AA/KK/QQ/AK)
+        # that widens into a tiered defend range vs a read-wide squeezer instead of
+        # folding the whole blind range to an open+3-bet (_apply_vs_squeeze_defense,
+        # VS_SQUEEZE_DEFENSE_HANDOFF). EXPLOITATION behaviour → grades with skill
+        # (shark 0.85 … rec 0.0), like vs3bet_exploit. NO feature flag — gated only by
+        # knob>0, so it's live for the tiered field (a graded read, not a dormant
+        # boolean). Live path only (sims/tests bypass __init__ → default 0.0 → no-op).
+        self.vs_squeeze_defense: float = _resolve_vs_squeeze_defense(_pcfg, _skill)
+
+        # Per-player turn float-and-steal target (the H3 bet frequency for air on
+        # the give-up line: opp c-bets flop, hero floats, opp checks the turn).
+        # EXPLOITATION behaviour → grades with skill (shark 0.55 … rec 0.0), like
+        # vs_squeeze_defense. NO feature flag — gated by target>0 + a foldable
+        # villain read (rides on enable_multistreet_context, on by default). Live
+        # path only (sims/tests bypass __init__ → default 0.0 → no-op).
+        self.steal_turn_target: float = _resolve_steal_turn_target(_pcfg, _skill)
 
         # Sim-mode performance flag. When True, decision_analyzer
         # skips Monte Carlo equity computation (~200-500ms per
@@ -1235,6 +1323,9 @@ class TieredBotController(AIPlayerController):
             )
             base_strategy = self._apply_vs3bet_bluff_exploit(base_strategy, node, preflop_table)
             base_strategy = self._apply_limp_exploit(base_strategy, node, game_state, player_idx)
+            base_strategy = self._apply_vs_squeeze_defense(
+                base_strategy, node, game_state, player_idx, chart_lookup_source
+            )
 
         if self.debug_logging:
             logger.info(
@@ -2164,6 +2255,17 @@ class TieredBotController(AIPlayerController):
             ms_prior_fired = (
                 induce_override_trace.fired or value_override_trace.fired or bluff_catch_trace.fired
             )
+            # Foldable-villain read (the active opp's fold_to_big_bet), shared by
+            # the air-barrel (H1, hero aggressor) and steal (H3, hero floated)
+            # branches — both bluff and so both need fold equity. Computed once,
+            # only when at least one branch is live.
+            _air_barrel_target = getattr(self, 'air_barrel_target', 0.0)
+            _steal_target = getattr(self, 'steal_turn_target', 0.0)
+            _ftbb = (
+                self._resolve_river_bluff_ftbb(game_state)
+                if (_air_barrel_target > 0.0 or _steal_target > 0.0)
+                else None
+            )
             modified_strategy, multistreet_trace = apply_multistreet_context(
                 modified_strategy,
                 signals=signals,
@@ -2175,13 +2277,12 @@ class TieredBotController(AIPlayerController):
                 h1_classes=getattr(self, 'multistreet_h1_classes', None),
                 h1_streets=getattr(self, 'multistreet_h1_streets', None),
                 street=node.street,
-                air_barrel_target=getattr(self, 'air_barrel_target', 0.0),
-                air_barrel_fold_to_big_bet=(
-                    self._resolve_river_bluff_ftbb(game_state)
-                    if getattr(self, 'air_barrel_target', 0.0) > 0.0
-                    else None
-                ),
+                air_barrel_target=_air_barrel_target,
+                air_barrel_fold_to_big_bet=(_ftbb if _air_barrel_target > 0.0 else None),
                 air_barrel_min_ftbb=getattr(self, 'river_bluff_min_ftbb', 0.6),
+                steal_target=_steal_target,
+                steal_fold_to_big_bet=(_ftbb if _steal_target > 0.0 else None),
+                steal_min_ftbb=getattr(self, 'steal_turn_min_ftbb', 0.45),
                 prior_layer_fired=ms_prior_fired,
                 disable_rules=getattr(self, "disable_rules", frozenset()),
             )
@@ -2440,6 +2541,23 @@ class TieredBotController(AIPlayerController):
             bluff_reduction_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
         )
 
+        # Catalog C1/C5: bluff-catch vs an over-bluffer (maniac). The inverse
+        # leak of value_vs_station — a player betting/barreling far wider than
+        # their value justifies has an air-heavy range, so hero's bluff-catchers
+        # (medium/weak made) should call them down rather than fold. Keyed on
+        # the PRIMARY AGGRESSOR's postflop over-aggression (not the field), and
+        # gated to a bluff-catcher hand class while facing a bet. Feeds the
+        # _maybe_bluff_catch_override hard override below — the behavioral half,
+        # mirroring stop_bluff for stations.
+        bluff_catch_intensity_raw = 0.0
+        if hand_strength in BLUFF_CATCH_TRIGGER_CLASSES and call_amount > 0:
+            bluff_catch_intensity_raw = compute_overbluff_intensity(primary_spot)
+        # Same playstyle gate as the station exploits — the skilled postflop
+        # archetypes that out-level stations are the same ones that catch maniacs.
+        bluff_catch_intensity_used = (
+            bluff_catch_intensity_raw if is_value_vs_station_enabled(archetype) else 0.0
+        )
+
         exploitation_strength = getattr(self, 'exploitation_strength', 1.0)
         # Phase 8.1c: pass through whether at least one continuing
         # non-all-in opponent is station-like. Gates the base
@@ -2506,49 +2624,61 @@ class TieredBotController(AIPlayerController):
                 primary_spot=primary_spot,
             )
 
-        if not offsets:
-            return strategy, exploitation_traces
+        # NOTE: do NOT early-return when `offsets` is empty. The additive
+        # offsets and the HARD OVERRIDES below are independent channels — an
+        # over-bluffer triggers the bluff_catch override (and a station the
+        # stop_bluff override) via their own intensity signals even when no
+        # additive station/aggression offset populated. The old
+        # `if not offsets: return` silently skipped BOTH overrides whenever the
+        # offsets dict was empty (~95% of decisions vs a maniac; ~24% even vs a
+        # station), so the behavioral half never ran in exactly the aggressive
+        # spots bluff_catch targets. Apply offsets only when present; always
+        # fall through to the overrides.
+        if offsets:
+            if self.debug_logging:
+                logger.info(f"[TIERED_BOT] {self.player_name}: " f"exploitation offsets={offsets}")
 
-        if self.debug_logging:
-            logger.info(f"[TIERED_BOT] {self.player_name}: " f"exploitation offsets={offsets}")
+            # Phase 7.5 Item 2c: route the L1 clamp through _determine_clamp,
+            # replacing the legacy two-tier _pick_max_total_shift. Tier is
+            # determined by opponent's postflop signal axes (AF_postflop OR
+            # all_in_per_facing_bet OR postflop_jam_open_rate) with the
+            # sliding-window ratchet-down applied when recent stats diverge.
+            clamp_value, clamp_tier, winning_axis = self._compute_clamp(
+                stats,
+                manager,
+                primary_spot,
+            )
 
-        # Phase 7.5 Item 2c: route the L1 clamp through _determine_clamp,
-        # replacing the legacy two-tier _pick_max_total_shift. Tier is
-        # determined by opponent's postflop signal axes (AF_postflop OR
-        # all_in_per_facing_bet OR postflop_jam_open_rate) with the
-        # sliding-window ratchet-down applied when recent stats diverge.
-        clamp_value, clamp_tier, winning_axis = self._compute_clamp(
-            stats,
-            manager,
-            primary_spot,
-        )
+            # Stash tier diagnostic for downstream callers / capture.
+            self._last_clamp_tier = clamp_tier
+            self._last_clamp_axis = winning_axis
 
-        # Stash tier diagnostic for downstream callers / capture.
-        self._last_clamp_tier = clamp_tier
-        self._last_clamp_axis = winning_axis
+            # Phase 7.6 Step 6: snapshot exploitation inputs for replay.
+            clamp_tier_label = (
+                clamp_tier.value.lower()
+                if hasattr(clamp_tier, 'value')
+                else str(clamp_tier).lower()
+            )
+            self._snapshot_exploitation_inputs(
+                stats=stats,
+                decision_context=decision_context,
+                adaptation_bias=anchors.adaptation_bias,
+                tilt_factor=tilt_factor,
+                exploitation_strength=exploitation_strength,
+                multiway_cbet_intensity=multiway_cbet_intensity,
+                vvs_intensity_used=vvs_intensity_used,
+                clamp_value=clamp_value,
+                clamp_tier_label=clamp_tier_label,
+            )
 
-        # Phase 7.6 Step 6: snapshot exploitation inputs for replay.
-        clamp_tier_label = (
-            clamp_tier.value.lower() if hasattr(clamp_tier, 'value') else str(clamp_tier).lower()
-        )
-        self._snapshot_exploitation_inputs(
-            stats=stats,
-            decision_context=decision_context,
-            adaptation_bias=anchors.adaptation_bias,
-            tilt_factor=tilt_factor,
-            exploitation_strength=exploitation_strength,
-            multiway_cbet_intensity=multiway_cbet_intensity,
-            vvs_intensity_used=vvs_intensity_used,
-            clamp_value=clamp_value,
-            clamp_tier_label=clamp_tier_label,
-        )
-
-        updated_strategy = apply_exploitation_offsets(
-            strategy=strategy,
-            offsets=offsets,
-            legal_actions=valid_actions,
-            max_total_shift=clamp_value,
-        )
+            updated_strategy = apply_exploitation_offsets(
+                strategy=strategy,
+                offsets=offsets,
+                legal_actions=valid_actions,
+                max_total_shift=clamp_value,
+            )
+        else:
+            updated_strategy = strategy
 
         # Stop-bluffing-vs-station HARD OVERRIDE (the behavioral half).
         # The bluff_reduction OFFSET above is a soft logit nudge; measured
@@ -2563,6 +2693,23 @@ class TieredBotController(AIPlayerController):
             valid_actions=valid_actions,
             hand_strength=hand_strength,
             bluff_reduction_intensity=bluff_reduction_intensity_used,
+            tilt_factor=tilt_factor,
+            adaptation_bias=anchors.adaptation_bias,
+            exploitation_strength=exploitation_strength,
+        )
+
+        # Bluff-catch-vs-over-bluffer HARD OVERRIDE (the behavioral half — the
+        # mirror of stop_bluff for the inverse leak). The soft clamped
+        # bluff_catch shift can't reliably flip a fold facing a maniac; this
+        # hard-sets the call when hero holds a bluff-catcher vs a confidently
+        # read over-bluffer. Disjoint hand classes from stop_bluff (air vs
+        # made), so the two overrides never both fire.
+        updated_strategy = self._maybe_bluff_catch_override(
+            updated_strategy,
+            valid_actions=valid_actions,
+            hand_strength=hand_strength,
+            bluff_catch_intensity=bluff_catch_intensity_used,
+            call_amount=call_amount,
             tilt_factor=tilt_factor,
             adaptation_bias=anchors.adaptation_bias,
             exploitation_strength=exploitation_strength,
@@ -2619,6 +2766,64 @@ class TieredBotController(AIPlayerController):
         if snap is not None:
             snap['stop_bluff_override'] = give_up
         return StrategyProfile(action_probabilities={give_up: 1.0})
+
+    def _maybe_bluff_catch_override(
+        self,
+        strategy: 'StrategyProfile',
+        *,
+        valid_actions: List[str],
+        hand_strength,
+        bluff_catch_intensity: float,
+        call_amount: int,
+        tilt_factor: float,
+        adaptation_bias: float,
+        exploitation_strength: float,
+    ) -> 'StrategyProfile':
+        """Hard 'call down an over-bluffer' override — the behavioral half of
+        the bluff_catch shift, mirroring _maybe_stop_bluff_override for the
+        inverse leak (a maniac who bets/barrels too wide; catalog C1/C5).
+
+        Replaces the strategy with a pure call when hero holds a bluff-catcher
+        (medium/weak made) facing a bet from a confidently-read over-bluffer
+        while composed. A bluff-catcher's job vs an over-bluffer is to CALL —
+        not raise (that folds out the very bluffs it beats), not fold (the bet
+        is air-heavy). The soft clamped bluff_catch shift can't reliably flip
+        the fold; removing the fold/raise mass outright is the only thing that
+        moves the sampled action (the same lesson stop_bluff proved for
+        stations).
+
+        Gates (all required):
+          - hand_strength in BLUFF_CATCH_TRIGGER_CLASSES (medium/weak made).
+            Disjoint from stop_bluff's air gate — the two never both fire.
+          - facing a bet: call_amount > 0 AND 'call' legal (there is a fold to
+            remove). A check-decision has no bluff to catch.
+          - bluff_catch_intensity >= BLUFF_CATCH_MIN_INTENSITY — a confident
+            over-bluffer read on the primary aggressor.
+          - exploitation enabled: exploitation_strength > 0 AND
+            adaptation_bias > GATING_FLOOR.
+          - COMPOSED: tilt_factor >= 1.0. You can't be on tilt and hero-calling
+            a maniac on a read — a tilted bot reverts to its base line.
+        """
+        # Ablation seam (default on): lets the eval harness isolate this
+        # override's bb/100 contribution (exploit_bb100 --change bluff_catch)
+        # without disturbing the rest of the exploitation layer. Prod leaves it
+        # True, so no behavior change.
+        if not getattr(self, 'bluff_catch_override_enabled', True):
+            return strategy
+        if hand_strength not in BLUFF_CATCH_TRIGGER_CLASSES:
+            return strategy
+        if call_amount <= 0 or 'call' not in valid_actions:
+            return strategy
+        if bluff_catch_intensity < BLUFF_CATCH_MIN_INTENSITY:
+            return strategy
+        if exploitation_strength <= 0.0 or adaptation_bias <= GATING_FLOOR:
+            return strategy
+        if tilt_factor < 1.0:  # not composed → stop adapting, keep base line
+            return strategy
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if snap is not None:
+            snap['bluff_catch_override'] = 'call'
+        return StrategyProfile(action_probabilities={'call': 1.0})
 
     def _apply_relationship_modifier_to_offsets(
         self,
@@ -4615,6 +4820,92 @@ class TieredBotController(AIPlayerController):
                 'raise_action': raise_key,
             }
         return StrategyProfile(action_probabilities=probs)
+
+    def _squeezer_width_read(self, game_state, player_idx) -> "Optional[float]":
+        """The squeezer's range-width signal ∈ [0,1] (its VPIP), or None if there's
+        no confident read. The squeezer is the last raiser — the non-folded opponent
+        with the largest current bet (the 3-bettor). VPIP is the best live proxy for
+        squeeze width: there is no squeeze-frequency stat, and a wide-VPIP villain
+        squeezes wide (the maniac). Insufficient hands → None (defend the FLOOR only,
+        which is unconditionally correct)."""
+        manager = getattr(self, 'opponent_model_manager', None)
+        if manager is None:
+            return None
+        opponents = [
+            (i, p)
+            for i, p in enumerate(game_state.players)
+            if i != player_idx and not getattr(p, 'is_folded', False)
+        ]
+        if not opponents:
+            return None
+        # Last raiser = the largest live bet (the squeeze put in the most chips).
+        squeezer_idx, squeezer = max(opponents, key=lambda ip: getattr(ip[1], 'bet', 0))
+        if getattr(squeezer, 'bet', 0) <= 0:
+            return None
+        try:
+            model = manager.get_model(self.player_name, squeezer.name)
+        except (AttributeError, TypeError):
+            return None
+        t = getattr(model, 'tendencies', None)
+        if t is None or getattr(t, 'hands_observed', 0) < MIN_HANDS_DEFAULT:
+            return None
+        vpip = getattr(t, 'vpip_per_voluntary_opportunity', None)
+        if vpip is None:
+            return None
+        return max(0.0, min(1.0, float(vpip)))
+
+    def _apply_vs_squeeze_defense(
+        self, strategy, node, game_state, player_idx, chart_lookup_source
+    ):
+        """Blind squeeze-defense: continue a value-floor that widens vs a read-wide
+        squeezer instead of folding the whole blind range to an open+3-bet.
+
+        No-op unless: knob>0 (the only gate — skill-graded, no feature flag, like
+        vs3bet_exploit; sims/tests bypass __init__ → knob 0 → no-op), scenario
+        vs_squeeze, hero in the blinds (BB/SB), and the chart MISSED (conservative-fold
+        — `chart_lookup_source` in miss/masked_out; never overrides a real squeeze
+        node). Continue depth = a value FLOOR (tier 0: AA/KK/QQ/AK) that widens through
+        SQUEEZE_DEFENSE_TIERS as the squeezer's VPIP reads wider, scaled by the knob. A
+        qualifying hand flat-calls; everything else keeps folding. knob 0 / no-read =>
+        the conservative-fold is byte-identical. See VS_SQUEEZE_DEFENSE_HANDOFF."""
+        knob = getattr(self, 'vs_squeeze_defense', 0.0)
+        if knob <= 0 or getattr(node, 'scenario', '') != 'vs_squeeze':
+            return strategy
+        if getattr(node, 'position', '') not in ('BB', 'SB'):
+            return strategy
+        if chart_lookup_source not in ('miss', 'masked_out'):
+            return strategy  # a real squeeze node exists — don't stomp the solver
+        # Only convert a conservative-FOLD (the over-fold we're fixing). If the base
+        # somehow isn't a pure fold, leave it (defensive — gate already implies fold).
+        probs = dict(strategy.action_probabilities)
+        if probs.get('fold', 0.0) < 1.0:
+            return strategy
+        # Read the squeezer's width → base tier depth; scale by knob. No read → floor.
+        vpip = self._squeezer_width_read(game_state, player_idx)
+        base_tier = 0
+        if vpip is not None:
+            base_tier = next((d for cut, d in _SQUEEZE_WIDTH_BANDS if vpip >= cut), 0)
+        max_tier = int(round(base_tier * knob))  # knob shrinks the widen, not the floor
+        continue_hands = {h for tier in SQUEEZE_DEFENSE_TIERS[: max_tier + 1] for h in tier}
+        hand = getattr(node, 'hand', '')
+        snap = getattr(self, '_last_pipeline_snapshot', None)
+        if hand not in continue_hands:
+            if isinstance(snap, dict):
+                snap['vs_squeeze_defense'] = {
+                    'knob': knob,
+                    'squeezer_vpip': round(vpip, 3) if vpip is not None else None,
+                    'max_tier': max_tier,
+                    'continued': False,
+                }
+            return strategy
+        if isinstance(snap, dict):
+            snap['vs_squeeze_defense'] = {
+                'knob': knob,
+                'squeezer_vpip': round(vpip, 3) if vpip is not None else None,
+                'max_tier': max_tier,
+                'continued': True,
+            }
+        return StrategyProfile(action_probabilities={'call': 1.0})
 
     def _try_push_fold_lookup(
         self,

@@ -218,6 +218,7 @@ def _commit_vice(vice_repo, bankroll):
         ends_at=NOW + timedelta(hours=1),
         excess_ratio=2.0,
         pressure=0.5,
+        field_median=10_000,
     )
 
 
