@@ -164,7 +164,7 @@ export function ChairmanPanel({ chairman }: { chairman: ChairmanResponse | null 
   const remaining = useCountdown(chairman?.policy_lock.seconds_remaining ?? null);
 
   if (!chairman) return null;
-  const { signal, current_band, bands, policy_lock } = chairman;
+  const { signal, current_band, bands, whale, policy_lock } = chairman;
   const cold = current_band === null;
 
   return (
@@ -231,6 +231,45 @@ export function ChairmanPanel({ chairman }: { chairman: ChairmanResponse | null 
             </div>
           );
         })}
+      </div>
+
+      <h4 className="chairman-ladder__title">Whale</h4>
+      <div className="chairman-whale">
+        <div className="chairman-whale__head">
+          <span className="chairman-whale__lead">
+            One pool-funded "rich fish" at a time — a reserves → field distribution.
+          </span>
+          <span
+            className={'chairman-whale__gate' + (whale.gated ? ' is-on' : '')}
+            title={
+              whale.gated
+                ? 'Whale spawn/recall is wired to the chairman (WHALE_RESERVE_GATED on).'
+                : 'Advisory: the live system still uses the legacy absolute pool watermarks. This shows what the chairman would decide if WHALE_RESERVE_GATED were on.'
+            }
+          >
+            {whale.gated ? 'chairman-gated' : 'advisory (legacy watermarks live)'}
+          </span>
+        </div>
+        <ul className="chairman-whale__stakes">
+          {whale.stakes.map((s) => (
+            <li key={s.stake} className={s.can_fund ? 'can-fund' : 'cant-fund'}>
+              <span className="chairman-whale__stake">{s.stake} whale</span>
+              <span className="chairman-whale__verdict">
+                {cold
+                  ? '—'
+                  : s.can_fund
+                    ? `fundable (${fmt(s.prefund_cost)} draw)`
+                    : `can't fund (needs ${fmt(s.prefund_cost)} + healthy floor)`}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {whale.recall_now && !cold && (
+          <p className="chairman-whale__recall">
+            ⚠ Reserves in the critical band — a live whale would be recalled (residual returned to
+            the pool).
+          </p>
+        )}
       </div>
 
       <div className="chairman-lock">

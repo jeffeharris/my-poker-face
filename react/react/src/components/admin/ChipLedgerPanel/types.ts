@@ -156,6 +156,14 @@ export interface ChairmanResponse {
   current_band: ChairmanBand['key'] | null;
   bands: ChairmanBand[];
   levers: ChairmanLevers | null;
+  whale: {
+    // Whether whale spawn/recall is actually wired to the chairman
+    // (WHALE_RESERVE_GATED). When false, the live system still uses the legacy
+    // absolute watermarks and this block is advisory (what the chairman WOULD do).
+    gated: boolean;
+    recall_now: boolean;
+    stakes: { stake: string; prefund_cost: number; can_fund: boolean }[];
+  };
   policy_lock: {
     hold_enabled: boolean;
     window_seconds: number;

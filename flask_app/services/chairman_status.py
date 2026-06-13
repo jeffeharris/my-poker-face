@@ -102,6 +102,39 @@ def _levers_at(ratio: float) -> dict:
     }
 
 
+def _whale_status(state) -> dict:
+    """The 5th lever: would the chairman fund a whale at the current reserves?
+
+    Reports, per whale-eligible stake, the worst-case prefund cost and whether
+    `can_fund_whale` clears it now — plus whether a live whale would be recalled
+    (`should_recall_whale`) and whether the gate is actually wired
+    (`WHALE_RESERVE_GATED`; when off, the live system still uses the legacy absolute
+    watermarks and this block is advisory — what the chairman WOULD decide).
+    """
+    from cash_mode import economy_flags as eflags
+    from cash_mode.casino_provisioning import WHALE_POOL_THRESHOLDS, WHALE_PREFUND_MAX_MULT
+    from cash_mode.stakes_ladder import STAKES_ORDER, table_buy_in_window
+
+    cold = state.holdings <= 0
+    stakes = []
+    # Biggest eligible stake first — the order the resolver prefers.
+    for label in [s for s in reversed(STAKES_ORDER) if s in WHALE_POOL_THRESHOLDS]:
+        max_buy_in = table_buy_in_window(label)[2]
+        cost = int(max_buy_in * WHALE_PREFUND_MAX_MULT)
+        stakes.append(
+            {
+                'stake': label,
+                'prefund_cost': cost,
+                'can_fund': (not cold) and sig.can_fund_whale(state, prefund_cost=cost),
+            }
+        )
+    return {
+        'gated': bool(eflags.WHALE_RESERVE_GATED),
+        'recall_now': (not cold) and sig.should_recall_whale(state),
+        'stakes': stakes,
+    }
+
+
 def _policy_lock(sandbox_id: Optional[str], now: datetime) -> dict:
     """The control-law lock windows, plus this sandbox's live held-schedule clock.
 
@@ -177,6 +210,7 @@ def compute_chairman_status(
         # None when the universe is cold (no chips yet) — the bands carry no signal.
         'current_band': current_band,
         'bands': bands,
+        'whale': _whale_status(state),
         # Live levers at the current ratio (same functions as the per-band probes).
         'levers': _levers_at(state.ratio) if current_band else None,
         'policy_lock': _policy_lock(sandbox_id, now),

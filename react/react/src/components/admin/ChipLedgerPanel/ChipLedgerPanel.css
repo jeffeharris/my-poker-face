@@ -790,6 +790,88 @@
   margin: 0.35rem 0;
 }
 
+/* Whale — the 5th lever (one pool-funded rich fish at a time) */
+.chairman-whale {
+  border: 1px solid var(--border, #333);
+  border-radius: 5px;
+  padding: 0.6rem 0.7rem;
+  background: var(--surface-3, #242424);
+}
+
+.chairman-whale__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.chairman-whale__lead {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #999);
+}
+
+.chairman-whale__gate {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, #555);
+  color: var(--text-secondary, #999);
+  cursor: help;
+  white-space: nowrap;
+}
+
+.chairman-whale__gate.is-on {
+  color: #56d364;
+  background: rgba(86, 211, 100, 0.12);
+  border-color: rgba(86, 211, 100, 0.4);
+}
+
+.chairman-whale__stakes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chairman-whale__stakes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chairman-whale__stakes li.can-fund .chairman-whale__verdict {
+  color: #56d364;
+}
+
+.chairman-whale__stakes li.cant-fund .chairman-whale__verdict {
+  color: var(--text-secondary, #888);
+}
+
+.chairman-whale__stake {
+  font-weight: 600;
+}
+
+.chairman-whale__verdict {
+  font-variant-numeric: tabular-nums;
+}
+
+.chairman-whale__recall {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: #f5a623;
+}
+
 /* Policy lock — each value stacked directly under its own label so they read
    as a unit (a column-aligned dl left short labels stranded from their value). */
 .chairman-lock__grid {

@@ -379,3 +379,48 @@ def cash_rake_schedule(state: EconomyState) -> RakeSchedule:
         rate=_RAKE_RATE_BASE,
         regime=state.regime,
     )
+
+
+# --- Lever 5: the cardroom whale (one pool-funded "rich fish" at a time) ----
+#
+# A whale is a one-at-a-time, pool-funded distribution: the bank seeds a deep
+# stack that then bleeds to the field (a rich fish the grinders farm). So
+# "deploy a whale" is the SAME question every other distribution lever asks —
+# does the bank have the money? — and it belongs on the chairman, off the one
+# shared snapshot, instead of the old per-stake absolute high/low watermarks
+# (`casino_provisioning.WHALE_POOL_THRESHOLDS` / `WHALE_POOL_FLOORS`), which were
+# tuned once at launch holdings and don't rescale (the same frozen-absolute bug
+# the vice floor had). Two pure decisions; the caller supplies the stake-derived
+# prefund cost and seats the chosen whale.
+
+
+def can_fund_whale(state: EconomyState, *, prefund_cost: int) -> bool:
+    """Can reserves seat a whale costing `prefund_cost` and stay healthy?
+
+    Deploy only when drawing the (worst-case) prefund leaves reserves at/above the
+    healthy floor (`RESERVE_HEALTHY × holdings`) — scale-invariant, so a small
+    economy naturally affords only the smaller whale and a large one the bigger.
+    A cold universe (no holdings) or a non-positive cost can't fund anything.
+
+    This is the spawn side of the relief-valve hysteresis: the spawn floor is
+    HEALTHY while `should_recall_whale` recalls at CRITICAL, so a fresh spawn's
+    own prefund draw can't immediately trip its recall.
+    """
+    if state.holdings <= 0 or prefund_cost <= 0:
+        return False
+    healthy_floor = RESERVE_HEALTHY * state.holdings
+    return (state.reserves - prefund_cost) >= healthy_floor
+
+
+def should_recall_whale(state: EconomyState) -> bool:
+    """Recall the live whale (return its residual stake to the pool) when reserves
+    fall into the CRITICAL band — the dam relief valve, so a one-time deep draw
+    isn't stranded at an un-farmed table while the bank needs the chips elsewhere.
+
+    Recall keys off CRITICAL (not HEALTHY) so it only fires when the broader
+    economy is genuinely starved, well below the HEALTHY spawn floor — the gap is
+    the hysteresis. A cold universe never forces a recall.
+    """
+    if state.holdings <= 0:
+        return False
+    return state.ratio < RESERVE_CRITICAL

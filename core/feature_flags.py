@@ -399,6 +399,21 @@ register(
         prod=True,
     )
 )
+register(
+    FeatureFlag(
+        "WHALE_RESERVE_GATED",
+        # EXPERIMENTAL (2026-06-13): opt-in, off everywhere. The whale becomes a 5th
+        # chairman lever (spawn/recall off the reserve ratio) instead of frozen
+        # absolute pool watermarks. Cadence sim validated (whale_gate_sim.py: cadence
+        # held, tighter reserve floor, scale bug fixed); promote to BETA (dev=True)
+        # to evaluate in dev, then STABLE for prod.
+        Stage.EXPERIMENTAL,
+        "Whale spawn/recall at the chairman's discretion (reserve ratio, not absolute watermarks).",
+        owner=_ECON,
+        dev=False,
+        prod=False,
+    )
+)
 
 # --- Player-prestige hooks ---
 register(

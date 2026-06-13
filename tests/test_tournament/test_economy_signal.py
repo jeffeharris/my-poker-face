@@ -193,3 +193,55 @@ def signal_like(*, ratio: float) -> EconomyState:
         ratio=ratio,
         regime=chair._classify(ratio),
     )
+
+
+def _state(reserves: int, holdings: int) -> EconomyState:
+    return EconomyState(
+        reserves=reserves,
+        holdings=holdings,
+        ratio=reserves / max(1, holdings),
+        regime=chair._classify(reserves / max(1, holdings)),
+    )
+
+
+class TestWhaleFunding:
+    """The chairman's 5th lever: fund/recall the pool-funded cardroom whale off
+    the reserve ratio (`can_fund_whale` / `should_recall_whale`)."""
+
+    def test_funds_only_when_draw_leaves_healthy_floor(self):
+        # holdings 2.64M → healthy floor = 0.06 × 2.64M = 158_400. A 360k whale
+        # needs reserves ≥ 360k + 158.4k = 518_400.
+        h = 2_640_000
+        assert chair.can_fund_whale(_state(520_000, h), prefund_cost=360_000) is True
+        assert chair.can_fund_whale(_state(518_400, h), prefund_cost=360_000) is True
+        assert chair.can_fund_whale(_state(500_000, h), prefund_cost=360_000) is False
+
+    def test_scale_invariant_smaller_economy_affords_only_smaller_whale(self):
+        # Same flush-ish ratio (~0.24), two economy sizes: a small bank can seat the
+        # $50 whale (90k draw) but not the $200 whale (360k draw).
+        small = _state(120_000, 500_000)
+        assert chair.can_fund_whale(small, prefund_cost=90_000) is True
+        assert chair.can_fund_whale(small, prefund_cost=360_000) is False
+
+    def test_cold_or_nonpositive_cost_never_funds(self):
+        assert chair.can_fund_whale(_state(0, 0), prefund_cost=90_000) is False
+        assert chair.can_fund_whale(_state(500_000, 2_640_000), prefund_cost=0) is False
+
+    def test_recall_only_in_critical_band(self):
+        h = 1_000_000
+        # critical edge is RESERVE_CRITICAL (0.03); recall is strict-less-than.
+        assert chair.should_recall_whale(_state(29_999, h)) is True  # ratio < 0.03
+        assert chair.should_recall_whale(_state(30_000, h)) is False  # ratio == 0.03
+        assert chair.should_recall_whale(_state(80_000, h)) is False  # healthy-ish
+        assert chair.should_recall_whale(_state(0, 0)) is False  # cold
+
+    def test_spawn_floor_above_recall_band_gives_hysteresis(self):
+        # A just-affordable spawn leaves reserves at the healthy floor (0.06), which
+        # is comfortably above the critical recall edge (0.03) — so a fresh whale's
+        # own prefund draw can't immediately trip its recall.
+        h = 2_640_000
+        cost = 360_000
+        reserves = int(chair.RESERVE_HEALTHY * h) + cost  # minimal funding reserves
+        assert chair.can_fund_whale(_state(reserves, h), prefund_cost=cost) is True
+        post_draw = _state(reserves - cost, h)  # reserves after the whale is seated
+        assert chair.should_recall_whale(post_draw) is False
