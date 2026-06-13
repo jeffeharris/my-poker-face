@@ -184,6 +184,46 @@ class TestDeclineExpire:
         assert spawned == []
         assert inv.active_invite(kit['invite_repo'], OWNER) is not None  # still open
 
+    def test_aware_expires_at_orders_correctly_vs_naive_now(self, kit):
+        """Production stamps `expires_at` UTC-aware (`+00:00`) to fix the browser
+        countdown, but the sweep's `now_iso` is naive utcnow and the expiry query
+        is a lexicographic SQL string compare. Prove the mixed formats still order
+        chronologically across the second AND sub-second boundary — a regression
+        here would skip due invites or expire future ones early."""
+        from datetime import datetime, timedelta, timezone
+
+        def stamp(dt):  # exactly how maybe_offer_main_event builds expires_at
+            return dt.replace(tzinfo=timezone.utc).isoformat()
+
+        repo = kit['invite_repo']
+        base = datetime(2026, 6, 1, 12, 0, 0, 500000)  # naive utcnow stand-in
+        now_iso = base.isoformat()
+        # One open invite per owner (partial unique index), each a different owner.
+        common = dict(sandbox_id=SB, buy_in=0, field_size=6, table_size=3, starting_stack=10_000)
+        repo.create(
+            invite_id='past',
+            owner_id='o-past',
+            expires_at=stamp(base - timedelta(seconds=1)),
+            **common,
+        )
+        repo.create(
+            invite_id='sub-second-future',
+            owner_id='o-sub',
+            expires_at=stamp(base + timedelta(milliseconds=1)),
+            **common,
+        )
+        repo.create(
+            invite_id='future',
+            owner_id='o-future',
+            expires_at=stamp(base + timedelta(seconds=1)),
+            **common,
+        )
+
+        due = {row['invite_id'] for row in repo.list_open_due(now_iso=now_iso)}
+        assert 'past' in due  # aware, just past → swept
+        assert 'future' not in due  # aware, just future → not swept
+        assert 'sub-second-future' not in due  # aware, sub-second future → not swept
+
 
 def result_invite_id(kit):
     """The single invite row's id (these tests create exactly one)."""

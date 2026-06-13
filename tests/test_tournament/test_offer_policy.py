@@ -173,8 +173,13 @@ class TestMaybeOfferMainEvent:
         )
         assert invite['expires_at'] is not None
         expires = datetime.fromisoformat(invite['expires_at'])
+        # `expires_at` MUST be UTC-aware: a naive ISO string is parsed as *local
+        # time* by the browser's `new Date(...)`, inflating the client countdown
+        # by the viewer's UTC offset (the "starts in 250 min" bug). Guard it here.
+        assert expires.tzinfo is not None and expires.utcoffset() == timedelta(0)
+        # `now` is naive utcnow for the same instant, so drop the tz to diff.
         # ~MAIN_EVENT_REGISTRATION_WINDOW_SECONDS in the future.
-        delta = (expires - now).total_seconds()
+        delta = (expires.replace(tzinfo=None) - now).total_seconds()
         assert abs(delta - chair.MAIN_EVENT_REGISTRATION_WINDOW_SECONDS) < 2
 
     def test_can_keep_offer_open_with_explicit_none(self, kit):
