@@ -180,12 +180,21 @@ class AuthManager:
     def _guest_minting_request(self) -> bool:
         """True when this request would mint a brand-new guest (PRH-26).
 
-        A guest login carrying a valid signed `guest_id` cookie is a returning
-        guest, not a mint; a non-guest (password) login isn't a mint either.
-        Used as the rate-limit's exempt condition so the cap bites only scripted
-        minting, never legit users (incl. many distinct users behind one
-        shared/CGNAT IP, who each carry their own cookie).
+        A web guest login carrying a valid signed `guest_id` cookie is a returning
+        guest, not a mint; a non-guest (password) login isn't a mint either. Used as
+        the rate-limit's exempt condition so the cap bites only scripted minting,
+        never legit users (incl. many distinct web users behind one shared/CGNAT IP,
+        who each carry their own cookie).
+
+        The native guest endpoint (`/api/auth/guest/native`) ALWAYS counts as a mint:
+        it carries no signed cookie, and its body `guest_id` is only format-checked
+        (not HMAC-signed like the cookie), so treating it as a "returning" signal
+        would let an attacker forge one and bypass the cap. Native returning-logins
+        are rare anyway — a returning guest holds a 30d JWT and never hits this
+        endpoint until it expires — so always-limiting per IP is safe and unobtrusive.
         """
+        if request.path.endswith('/auth/guest/native'):
+            return True
         data = request.get_json(silent=True) or {}
         if not data.get('guest'):
             return False
@@ -532,6 +541,7 @@ class AuthManager:
             )
 
         @self.app.route('/api/auth/guest/native', methods=['POST'])
+        @self._guest_login_limit()
         def guest_native_login():
             """Native (mobile) guest sign-in.
 
